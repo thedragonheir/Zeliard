@@ -1,0 +1,42 @@
+# Build output
+/out/
+/build/
+/bin/
+/dist/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Visual Studio / IDE files
+.vs/
+*.VC.db
+*.VC.opendb
+*.user
+*.userosscache
+*.suo
+*.sln.docstates
+
+# Local Codex / agent state
+.agents/
+.codex/
+.qwen/
+
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Misc local files
+*.log
+*.tmp
+*.bak
+Thumbs.db
+Desktop.ini

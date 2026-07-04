@@ -1,0 +1,24 @@
+* text=auto
+
+*.cpp text eol=lf
+*.h text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+CMakePresets.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.asm text eol=lf
+*.inc text eol=lf
+*.sh text eol=lf
+
+*.png binary
+*.ogg binary
+*.wav binary
+*.grp binary
+*.bin binary
+*.exe binary
+*.com binary
+*.drv binary
+*.mdt binary
+*.msd binary
+*.usr binary
