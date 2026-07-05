@@ -12,8 +12,7 @@ constexpr std::size_t TownMapTileSize = 8;
 constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
 constexpr std::size_t TownMapViewportWidth = 320;
 constexpr std::size_t TownEntityGroundRow = 7;
-constexpr std::size_t SpriteFrameCount = 40;
-constexpr std::size_t SpriteFrameMaximumIndex = SpriteFrameCount - 1;
+constexpr std::size_t TownEntityProximityRadiusPixels = 20;
 constexpr std::size_t TownMapActorAnimationFrameDelay = 8;
 constexpr std::size_t TownMapActorAnimationPhaseCount = 4;
 constexpr std::size_t TownMapActorFramesPerBlock = 8;
@@ -203,6 +202,61 @@ std::size_t CountTownEntityMarkers(const Mdt::TownMapInfo& TownMap, Mdt::TownEnt
         {
             return EntityMarker.Kind == EntityKind;
         }));
+}
+
+struct ProvisionalTownEntityProximityResult
+{
+    const Mdt::TownEntityMarker* Marker = nullptr;
+    std::size_t DistanceSquared = 0;
+};
+
+ProvisionalTownEntityProximityResult FindProvisionalNearestTownEntityMarker(const Mdt::TownMapInfo& TownMap,
+    std::size_t ActorMapPixelX, std::size_t ActorMapPixelY)
+{
+    // Town markers only expose X and the raw table bytes right now, so this
+    // provisional check treats them as sitting on the shared ground row.
+    const std::size_t ActorCenterPixelX = ActorMapPixelX + (Grp::NpcSpriteFrame::FrameWidth / 2);
+    const std::size_t ActorCenterPixelY = ActorMapPixelY + (Grp::NpcSpriteFrame::FrameHeight / 2);
+    const std::size_t EntityCenterPixelY = (TownEntityGroundRow * TownMapTileSize) + (TownMapTileSize / 2);
+    const std::size_t ProximityRadiusSquared = TownEntityProximityRadiusPixels * TownEntityProximityRadiusPixels;
+
+    ProvisionalTownEntityProximityResult Result{};
+    for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
+    {
+        const std::size_t EntityCenterPixelX = (static_cast<std::size_t>(EntityMarker.X) * TownMapTileSize) + (TownMapTileSize / 2);
+        const std::size_t DeltaPixelX = ActorCenterPixelX > EntityCenterPixelX ? ActorCenterPixelX - EntityCenterPixelX : EntityCenterPixelX - ActorCenterPixelX;
+        const std::size_t DeltaPixelY = ActorCenterPixelY > EntityCenterPixelY ? ActorCenterPixelY - EntityCenterPixelY : EntityCenterPixelY - ActorCenterPixelY;
+        const std::size_t DistanceSquared = (DeltaPixelX * DeltaPixelX) + (DeltaPixelY * DeltaPixelY);
+
+        if (DistanceSquared > ProximityRadiusSquared)
+        {
+            continue;
+        }
+
+        if (Result.Marker == nullptr || DistanceSquared < Result.DistanceSquared)
+        {
+            Result.Marker = &EntityMarker;
+            Result.DistanceSquared = DistanceSquared;
+        }
+    }
+
+    return Result;
+}
+
+std::string GetTownEntityProximityStatus(const Mdt::TownMapInfo& TownMap, std::size_t ActorMapPixelX, std::size_t ActorMapPixelY)
+{
+    const ProvisionalTownEntityProximityResult ProximityResult = FindProvisionalNearestTownEntityMarker(TownMap, ActorMapPixelX, ActorMapPixelY);
+    if (ProximityResult.Marker == nullptr)
+    {
+        return "NEAR NONE";
+    }
+
+    if (ProximityResult.Marker->Kind == Mdt::TownEntityKind::Npc)
+    {
+        return "NEAR NPC " + std::to_string(static_cast<unsigned int>(ProximityResult.Marker->NpcId));
+    }
+
+    return "NEAR DOOR " + std::to_string(static_cast<unsigned int>(ProximityResult.Marker->DoorType));
 }
 
 void DrawTownEntityMarker(SDL_Renderer* Renderer, const Mdt::TownEntityMarker& EntityMarker, std::size_t ScrollOffsetPixels)
@@ -646,33 +700,28 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
 
     if (DebugOverlayEnabled && DebugFontGroup != nullptr)
     {
-        constexpr float TextScale = 2.0f;
+        constexpr float TextScale = 1.0f;
         constexpr float StartX = 8.0f;
-        constexpr float StartY = 72.0f;
-        constexpr float LineSpacing = 16.0f;
+        constexpr float StartY = 8.0f;
+        constexpr float LineSpacing = 10.0f;
         const std::size_t NpcMarkerCount = CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Npc);
         const std::size_t DoorMarkerCount = CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Door);
 
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY, TextScale, "ACTOR MMAN");
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY, TextScale,
+            "ACT F" + std::to_string(ActorFrameIndex) + " " + GetTownMapActorFacingDirectionName(ActorFacingDirection));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing, TextScale,
-            "FRAME " + std::to_string(ActorFrameIndex) + " / " + std::to_string(SpriteFrameMaximumIndex));
+            "CAM " + std::string(GetTownMapCameraFollowModeName(CameraFollowEnabled)) + " X "
+            + std::to_string(ClampedScrollOffset) + "/" + std::to_string(MaximumScrollOffset));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 2.0f, TextScale,
-            "DIR " + std::string(GetTownMapActorFacingDirectionName(ActorFacingDirection)));
+            "POS " + std::to_string(ActorMapPixelX) + "," + std::to_string(ActorMapPixelY) + " "
+            + GetTownMapCollisionStatusName(ActorCollisionBlocked));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 3.0f, TextScale,
-            "CAM " + std::string(GetTownMapCameraFollowModeName(CameraFollowEnabled)));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
-            "X " + std::to_string(ClampedScrollOffset) + " / " + std::to_string(MaximumScrollOffset));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale,
-            "AX " + std::to_string(ActorMapPixelX) + " AY " + std::to_string(ActorMapPixelY));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 6.0f, TextScale,
-            GetTownMapCollisionStatusName(ActorCollisionBlocked));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 7.0f, TextScale,
-            std::string("TILES ") + (BlockedTileOverlayEnabled ? "ON" : "OFF") + " OBJ "
+            std::string("TILE ") + (BlockedTileOverlayEnabled ? "ON" : "OFF") + " OBJ "
             + (TownEntityMarkersEnabled ? "ON" : "OFF"));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 8.0f, TextScale,
-            "NPC " + std::to_string(NpcMarkerCount));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 9.0f, TextScale,
-            "DOOR " + std::to_string(DoorMarkerCount));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
+            "NPC " + std::to_string(NpcMarkerCount) + " DOOR " + std::to_string(DoorMarkerCount));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale,
+            GetTownEntityProximityStatus(TownMap, ActorMapPixelX, ActorMapPixelY));
     }
 }
 
