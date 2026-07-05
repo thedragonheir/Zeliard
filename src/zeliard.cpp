@@ -20,6 +20,8 @@
 namespace
 {
 const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
+constexpr std::size_t TownMapTileSize = 8;
+constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
 
 enum class ViewMode
 {
@@ -481,20 +483,28 @@ void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const
     }
 }
 
-void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted)
+std::size_t GetTownMapMaximumScrollColumn(const Mdt::TownMapInfo& TownMap)
 {
-    constexpr std::size_t TileSize = 8;
-    constexpr std::size_t VisibleColumns = 320 / TileSize;
-    const std::size_t ColumnsToRender = std::min<std::size_t>(TownMap.Width, VisibleColumns);
+    return TownMap.Width > TownMapVisibleColumns ? TownMap.Width - TownMapVisibleColumns : 0;
+}
+
+void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollColumn)
+{
+    constexpr std::size_t TileSize = TownMapTileSize;
+    constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
+    const std::size_t MaximumScrollColumn = GetTownMapMaximumScrollColumn(TownMap);
+    const std::size_t FirstColumn = std::min<std::size_t>(ScrollColumn, MaximumScrollColumn);
+    const std::size_t ColumnsToRender = std::min<std::size_t>(TownMap.Width - FirstColumn, VisibleColumns);
     const std::size_t RowsToRender = TownMap.Height;
     const Grp::PatternTile& FallbackTile = GetFallbackPatternTile();
 
     for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
     {
+        const std::size_t MapColumn = FirstColumn + Column;
         const float TileX = static_cast<float>(Column * TileSize);
         for (std::size_t Row = 0; Row < RowsToRender; ++Row)
         {
-            const std::size_t CellIndex = Column * TownMap.Height + Row;
+            const std::size_t CellIndex = MapColumn * TownMap.Height + Row;
             if (CellIndex >= TownMap.Cells.size())
             {
                 continue;
@@ -510,7 +520,7 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
             {
                 if (!FallbackWarningPrinted)
                 {
-                    std::cerr << "cmap.mdt tile at column " << Column << ", row " << Row
+                    std::cerr << "cmap.mdt tile at column " << MapColumn << ", row " << Row
                               << " uses tile index " << static_cast<int>(TileIndex)
                               << " outside the cpat.grp pattern bank; drawing fallback tiles." << '\n';
                     FallbackWarningPrinted = true;
@@ -586,6 +596,7 @@ int main()
     const bool FontLoaded = LoadFontGroups(FontGroups, FontGroupAvailable);
     std::size_t ActiveFontGroupIndex = 0;
     ViewMode ActiveViewMode = ViewMode::Font;
+    std::size_t TownMapScrollColumn = 0;
     bool TownMapFallbackWarningPrinted = false;
 
     if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
@@ -690,6 +701,25 @@ int main()
                         std::cerr << "cmap.mdt town map unavailable: " << TownMapViewUnavailableMessage << '\n';
                     }
                 }
+                else if (ActiveViewMode == ViewMode::TownMap && (Event.key.key == SDLK_LEFT || Event.key.key == SDLK_RIGHT))
+                {
+                    const std::size_t MaximumScrollColumn = GetTownMapMaximumScrollColumn(TownMap);
+                    std::size_t RequestedScrollColumn = TownMapScrollColumn;
+                    if (Event.key.key == SDLK_LEFT)
+                    {
+                        RequestedScrollColumn = TownMapScrollColumn > 0 ? TownMapScrollColumn - 1 : 0;
+                    }
+                    else if (TownMapScrollColumn < MaximumScrollColumn)
+                    {
+                        RequestedScrollColumn = TownMapScrollColumn + 1;
+                    }
+
+                    if (RequestedScrollColumn != TownMapScrollColumn)
+                    {
+                        TownMapScrollColumn = RequestedScrollColumn;
+                        std::cout << "cmap.mdt scroll column: " << TownMapScrollColumn << '\n';
+                    }
+                }
                 else if (ActiveViewMode == ViewMode::Font)
                 {
                     std::size_t RequestedGroupIndex = 0;
@@ -753,7 +783,7 @@ int main()
         {
             if (TownMapViewAvailable)
             {
-                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted);
+                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollColumn);
             }
         }
         else if (CpatViewAvailable)
