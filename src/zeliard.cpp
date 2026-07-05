@@ -24,6 +24,8 @@ const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
 constexpr std::size_t TownMapTileSize = 8;
 constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
 constexpr std::size_t TownMapViewportWidth = 320;
+constexpr std::size_t SpriteFrameCount = 40;
+constexpr std::size_t SpriteFrameMaximumIndex = SpriteFrameCount - 1;
 
 enum class ViewMode
 {
@@ -364,21 +366,9 @@ bool LoadNpcSpriteSheetSummary(Grp::SpriteSheetSummary& SpriteSheet)
     return true;
 }
 
-bool LoadNpcSpriteFrameTest(Grp::NpcSpriteFrame& SpriteFrame)
+bool LoadNpcSpriteFrameForView(const std::filesystem::path& GrpPath, std::size_t FrameIndex, Grp::NpcSpriteFrame& SpriteFrame, std::string& ErrorMessage)
 {
-    std::string ErrorMessage;
-    const std::filesystem::path GrpPath = ProjectRoot / "tools" / "grpviewer" / "mman.grp";
-
-    if (!Grp::LoadNpcSpriteFrame(GrpPath, 0, SpriteFrame, ErrorMessage))
-    {
-        std::cerr << "mman.grp sprite frame 0 load failed: " << ErrorMessage << '\n';
-        return false;
-    }
-
-    std::cout << "mman.grp sprite frame 0 loaded: source " << GrpPath.string()
-              << ", frame " << Grp::NpcSpriteFrame::FrameWidth << "x"
-              << Grp::NpcSpriteFrame::FrameHeight << "." << '\n';
-    return true;
+    return Grp::LoadNpcSpriteFrame(GrpPath, FrameIndex, SpriteFrame, ErrorMessage);
 }
 
 bool LoadTownMap(Mdt::TownMapInfo& TownMap)
@@ -588,7 +578,7 @@ void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const
     }
 }
 
-void DrawNpcSpriteFrameView(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& SpriteFrame, const Main64Palette& Palette, const Grp::FontGroup* DebugFontGroup)
+void DrawNpcSpriteFrameView(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& SpriteFrame, std::size_t SpriteFrameIndex, const Main64Palette& Palette, const Grp::FontGroup* DebugFontGroup)
 {
     constexpr float SpritePixelSize = 5.0f;
     const float SpriteWidthPixels = static_cast<float>(Grp::NpcSpriteFrame::FrameWidth) * SpritePixelSize;
@@ -627,7 +617,8 @@ void DrawNpcSpriteFrameView(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& S
         constexpr float LineSpacing = 10.0f;
 
         DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY, TextScale, "SPR MMAN");
-        DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY + LineSpacing, TextScale, "FRAME 0");
+        DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY + LineSpacing, TextScale,
+            "FRAME " + std::to_string(SpriteFrameIndex) + " / " + std::to_string(SpriteFrameMaximumIndex));
         DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY + LineSpacing * 2.0f, TextScale, "W 16 H 24");
     }
 }
@@ -727,11 +718,20 @@ int main()
         std::cerr << "mman.grp sprite validation failed; continuing anyway." << '\n';
     }
 
-    Grp::NpcSpriteFrame SpriteFrame;
-    const bool SpriteFrameLoaded = LoadNpcSpriteFrameTest(SpriteFrame);
+    const std::filesystem::path SpriteGrpPath = ProjectRoot / "tools" / "grpviewer" / "mman.grp";
+    Grp::NpcSpriteFrame CurrentSpriteFrame;
+    std::size_t CurrentSpriteFrameIndex = 0;
+    std::string SpriteFrameLoadErrorMessage;
+    const bool SpriteFrameLoaded = LoadNpcSpriteFrameForView(SpriteGrpPath, CurrentSpriteFrameIndex, CurrentSpriteFrame, SpriteFrameLoadErrorMessage);
     if (!SpriteFrameLoaded)
     {
-        std::cerr << "mman.grp sprite frame 0 load failed; continuing anyway." << '\n';
+        std::cerr << "mman.grp sprite frame 0 load failed: " << SpriteFrameLoadErrorMessage << '\n';
+    }
+    else
+    {
+        std::cout << "mman.grp sprite frame 0 loaded: source " << SpriteGrpPath.string()
+                  << ", frame " << Grp::NpcSpriteFrame::FrameWidth << "x"
+                  << Grp::NpcSpriteFrame::FrameHeight << "." << '\n';
     }
 
     Main64Palette Palette{};
@@ -776,7 +776,7 @@ int main()
     std::string SpriteViewUnavailableMessage;
     if (!SpriteFrameLoaded)
     {
-        SpriteViewUnavailableMessage = "sprite frame 0 load failed";
+        SpriteViewUnavailableMessage = SpriteFrameLoadErrorMessage.empty() ? "sprite frame load failed" : SpriteFrameLoadErrorMessage;
     }
     else if (!PaletteLoaded)
     {
@@ -908,6 +908,29 @@ int main()
                         std::cerr << "mman.grp sprite test unavailable: " << SpriteViewUnavailableMessage << '\n';
                     }
                 }
+                else if (ActiveViewMode == ViewMode::Sprite)
+                {
+                    if (Event.key.key == SDLK_LEFT || Event.key.key == SDLK_RIGHT)
+                    {
+                        std::size_t RequestedSpriteFrameIndex = CurrentSpriteFrameIndex;
+                        if (Event.key.key == SDLK_LEFT)
+                        {
+                            RequestedSpriteFrameIndex = RequestedSpriteFrameIndex == 0 ? SpriteFrameMaximumIndex : RequestedSpriteFrameIndex - 1;
+                        }
+                        else
+                        {
+                            RequestedSpriteFrameIndex = RequestedSpriteFrameIndex == SpriteFrameMaximumIndex ? 0 : RequestedSpriteFrameIndex + 1;
+                        }
+
+                        Grp::NpcSpriteFrame RequestedSpriteFrame;
+                        std::string RequestedSpriteFrameErrorMessage;
+                        if (LoadNpcSpriteFrameForView(SpriteGrpPath, RequestedSpriteFrameIndex, RequestedSpriteFrame, RequestedSpriteFrameErrorMessage))
+                        {
+                            CurrentSpriteFrameIndex = RequestedSpriteFrameIndex;
+                            CurrentSpriteFrame = std::move(RequestedSpriteFrame);
+                        }
+                    }
+                }
                 else if (ActiveViewMode == ViewMode::Font)
                 {
                     std::size_t RequestedGroupIndex = 0;
@@ -1013,7 +1036,7 @@ int main()
                     DebugFontGroup = &FontGroups[ActiveFontGroupIndex];
                 }
 
-                DrawNpcSpriteFrameView(Renderer, SpriteFrame, Palette, DebugFontGroup);
+                DrawNpcSpriteFrameView(Renderer, CurrentSpriteFrame, CurrentSpriteFrameIndex, Palette, DebugFontGroup);
             }
         }
         else if (CpatViewAvailable)
