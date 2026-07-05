@@ -407,6 +407,66 @@ void DrawFontGlyphGrid(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup)
     }
 }
 
+void DrawFontText(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup, float StartX, float StartY, float Scale, const std::string& Text)
+{
+    constexpr std::size_t GlyphWidth = 8;
+    constexpr std::size_t GlyphHeight = 8;
+
+    SDL_SetRenderDrawColor(Renderer, 255, 255, 255, 255);
+
+    float CursorX = StartX;
+    float CursorY = StartY;
+    const float GlyphAdvance = static_cast<float>(GlyphWidth) * Scale;
+    const float LineAdvance = static_cast<float>(GlyphHeight) * Scale;
+
+    for (char Ch : Text)
+    {
+        if (Ch == '\n')
+        {
+            CursorX = StartX;
+            CursorY += LineAdvance;
+            continue;
+        }
+
+        const unsigned char Character = static_cast<unsigned char>(Ch);
+        if (Character < 32)
+        {
+            CursorX += GlyphAdvance;
+            continue;
+        }
+
+        const std::size_t GlyphIndex = static_cast<std::size_t>(Character - 32);
+        if (GlyphIndex >= FontGroup.Glyphs.size())
+        {
+            CursorX += GlyphAdvance;
+            continue;
+        }
+
+        const Grp::FontGlyph& Glyph = FontGroup.Glyphs[GlyphIndex];
+        for (std::size_t Row = 0; Row < GlyphHeight; ++Row)
+        {
+            const std::uint8_t Bits = Glyph.Rows[Row];
+            for (std::size_t Column = 0; Column < GlyphWidth; ++Column)
+            {
+                if (((Bits >> (7 - Column)) & 1) == 0)
+                {
+                    continue;
+                }
+
+                const SDL_FRect PixelRect{
+                    CursorX + static_cast<float>(Column) * Scale,
+                    CursorY + static_cast<float>(Row) * Scale,
+                    Scale,
+                    Scale
+                };
+                SDL_RenderFillRect(Renderer, &PixelRect);
+            }
+        }
+
+        CursorX += GlyphAdvance;
+    }
+}
+
 void DrawPatternBankGrid(SDL_Renderer* Renderer, const Grp::PatternBank& PatternBank, const Main64Palette& Palette)
 {
     constexpr int Columns = 16;
@@ -488,7 +548,7 @@ std::size_t GetTownMapMaximumScrollColumn(const Mdt::TownMapInfo& TownMap)
     return TownMap.Width > TownMapVisibleColumns ? TownMap.Width - TownMapVisibleColumns : 0;
 }
 
-void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollColumn)
+void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollColumn, const Grp::FontGroup* DebugFontGroup)
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
@@ -531,6 +591,20 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
 
             DrawPatternTile(Renderer, *Tile, Palette, TileX, static_cast<float>(Row * TileSize), 1.0f);
         }
+    }
+
+    if (DebugFontGroup != nullptr)
+    {
+        constexpr float TextScale = 2.0f;
+        constexpr float StartX = 8.0f;
+        constexpr float StartY = 72.0f;
+        constexpr float LineSpacing = 16.0f;
+
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY, TextScale, "MAP CMAP");
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing, TextScale,
+            "X " + std::to_string(ScrollColumn) + " / " + std::to_string(MaximumScrollColumn));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 2.0f, TextScale,
+            "W " + std::to_string(TownMap.Width) + " H " + std::to_string(TownMap.Height));
     }
 }
 }
@@ -783,7 +857,13 @@ int main()
         {
             if (TownMapViewAvailable)
             {
-                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollColumn);
+                const Grp::FontGroup* DebugFontGroup = nullptr;
+                if (FontLoaded && ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
+                {
+                    DebugFontGroup = &FontGroups[ActiveFontGroupIndex];
+                }
+
+                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollColumn, DebugFontGroup);
             }
         }
         else if (CpatViewAvailable)
