@@ -685,6 +685,39 @@ void ClampTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Act
     ActorMapPixelY = std::clamp(ActorMapPixelY, std::size_t{0}, GetTownMapMaximumActorMapPixelY(TownMap));
 }
 
+void MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& ActorMapPixelX, std::size_t& ActorMapPixelY,
+    const bool* KeyboardState)
+{
+    if (KeyboardState == nullptr)
+    {
+        return;
+    }
+
+    constexpr std::size_t ActorMoveSpeedPixels = 2;
+    const std::size_t MaximumActorMapPixelX = GetTownMapMaximumActorMapPixelX(TownMap);
+    const std::size_t MaximumActorMapPixelY = GetTownMapMaximumActorMapPixelY(TownMap);
+
+    if (KeyboardState[SDL_SCANCODE_J] && !KeyboardState[SDL_SCANCODE_L])
+    {
+        ActorMapPixelX = ActorMapPixelX > ActorMoveSpeedPixels ? ActorMapPixelX - ActorMoveSpeedPixels : 0;
+    }
+    else if (KeyboardState[SDL_SCANCODE_L] && !KeyboardState[SDL_SCANCODE_J])
+    {
+        ActorMapPixelX = std::min<std::size_t>(ActorMapPixelX + ActorMoveSpeedPixels, MaximumActorMapPixelX);
+    }
+
+    if (KeyboardState[SDL_SCANCODE_I] && !KeyboardState[SDL_SCANCODE_K])
+    {
+        ActorMapPixelY = ActorMapPixelY > ActorMoveSpeedPixels ? ActorMapPixelY - ActorMoveSpeedPixels : 0;
+    }
+    else if (KeyboardState[SDL_SCANCODE_K] && !KeyboardState[SDL_SCANCODE_I])
+    {
+        ActorMapPixelY = std::min<std::size_t>(ActorMapPixelY + ActorMoveSpeedPixels, MaximumActorMapPixelY);
+    }
+
+    ClampTownMapActorPosition(TownMap, ActorMapPixelX, ActorMapPixelY);
+}
+
 void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank,
     const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels,
     const Grp::NpcSpriteFrame* ActorFrame, std::size_t ActorFrameIndex, std::size_t ActorMapPixelX,
@@ -1010,33 +1043,6 @@ int main()
                         }
                     }
                 }
-                else if (ActiveViewMode == ViewMode::TownMap)
-                {
-                    if (Event.key.key == SDLK_J)
-                    {
-                        if (TownMapActorMapPixelX > 0)
-                        {
-                            --TownMapActorMapPixelX;
-                        }
-                    }
-                    else if (Event.key.key == SDLK_L)
-                    {
-                        TownMapActorMapPixelX = std::min<std::size_t>(TownMapActorMapPixelX + 1,
-                            GetTownMapMaximumActorMapPixelX(TownMap));
-                    }
-                    else if (Event.key.key == SDLK_I)
-                    {
-                        if (TownMapActorMapPixelY > 0)
-                        {
-                            --TownMapActorMapPixelY;
-                        }
-                    }
-                    else if (Event.key.key == SDLK_K)
-                    {
-                        TownMapActorMapPixelY = std::min<std::size_t>(TownMapActorMapPixelY + 1,
-                            GetTownMapMaximumActorMapPixelY(TownMap));
-                    }
-                }
                 else if (ActiveViewMode == ViewMode::Font)
                 {
                     std::size_t RequestedGroupIndex = 0;
@@ -1084,6 +1090,8 @@ int main()
                 {
                     TownMapScrollOffsetPixels = std::min<std::size_t>(TownMapScrollOffsetPixels + ScrollSpeedPixels, MaximumScrollOffset);
                 }
+
+                MoveTownMapActorPosition(TownMap, TownMapActorMapPixelX, TownMapActorMapPixelY, KeyboardState);
             }
         }
 
