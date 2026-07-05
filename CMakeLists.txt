@@ -34,6 +34,7 @@ FetchContent_MakeAvailable(SDL3)
 
 add_executable(Zeliard
   src/zeliard.cpp
+  src/mdt/mdt_map.cpp
   src/grp/grp_font.cpp
   src/grp/grp_pattern_bank.cpp
   src/grp/grp_unpacker.cpp

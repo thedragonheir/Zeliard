@@ -3,6 +3,7 @@
 #include "grp/grp_font.h"
 #include "grp/grp_pattern_bank.h"
 #include "grp/grp_unpacker.h"
+#include "mdt/mdt_map.h"
 
 #include <array>
 #include <cctype>
@@ -326,6 +327,31 @@ bool LoadPatternBank(Grp::PatternBank& PatternBank)
     return true;
 }
 
+bool ValidateCmapMdt()
+{
+    const std::filesystem::path MdtPath = ProjectRoot / "tools" / "cmap.mdt";
+    std::vector<std::uint8_t> FileBytes;
+    std::string ErrorMessage;
+    if (!ReadWholeFile(MdtPath, FileBytes))
+    {
+        std::cerr << "cmap.mdt load failed: failed to open " << MdtPath.string() << std::endl;
+        return false;
+    }
+
+    Mdt::TownMapInfo MapInfo;
+    if (!Mdt::ParseTownMap(FileBytes, MapInfo, ErrorMessage))
+    {
+        std::cerr << "cmap.mdt parse failed: " << ErrorMessage << std::endl;
+        return false;
+    }
+
+    std::cout << "cmap.mdt parsed: " << MdtPath.string() << ", width " << MapInfo.Width
+              << ", height " << MapInfo.Height << ", cells " << MapInfo.CellCount
+              << ", tile indices " << static_cast<int>(MapInfo.MinimumTileIndex) << ".."
+              << static_cast<int>(MapInfo.MaximumTileIndex) << "." << std::endl;
+    return true;
+}
+
 void PrintActiveFontGroup(std::size_t GroupIndex, const Grp::FontGroup& FontGroup)
 {
     std::cout << "font.grp active group " << GroupIndex << " has " << FontGroup.Glyphs.size()
@@ -414,6 +440,11 @@ int main()
     if (!ValidationMatch)
     {
         std::cerr << "cpat.grp unpack validation failed; continuing anyway." << '\n';
+    }
+
+    if (!ValidateCmapMdt())
+    {
+        std::cerr << "cmap.mdt parse validation failed; continuing anyway." << '\n';
     }
 
     Grp::PatternBank PatternBank;
