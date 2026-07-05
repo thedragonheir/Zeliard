@@ -26,13 +26,26 @@ constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
 constexpr std::size_t TownMapViewportWidth = 320;
 constexpr std::size_t SpriteFrameCount = 40;
 constexpr std::size_t SpriteFrameMaximumIndex = SpriteFrameCount - 1;
-// Provisional walk slice for the town-map debug actor. We only know the file is
-// a valid 40-frame bank, so keep the loop narrow until the true pose grouping is confirmed.
 constexpr std::size_t TownMapActorAnimationFrameDelay = 8;
-constexpr std::size_t TownMapActorAnimationStartIndex = 0;
-constexpr std::size_t TownMapActorAnimationEndIndex = 3;
+constexpr std::size_t TownMapActorAnimationPhaseCount = 4;
+constexpr std::size_t TownMapActorFramesPerBlock = 8;
+constexpr std::size_t TownMapActorIdleBlockIndex = 1;
+// The repo notes confirm the five 8-frame families, but not the exact
+// direction order. Keep the block mapping isolated here until that is firmed up.
+constexpr std::size_t TownMapActorRightBlockIndex = 0;
+constexpr std::size_t TownMapActorLeftBlockIndex = 2;
+constexpr std::size_t TownMapActorUpBlockIndex = 3;
+constexpr std::size_t TownMapActorDownBlockIndex = 4;
 constexpr std::size_t TownMapActorInitialMapPixelX = 160;
 constexpr std::size_t TownMapActorInitialMapPixelY = 40;
+
+enum class TownMapActorFacingDirection
+{
+    Right,
+    Left,
+    Up,
+    Down
+};
 
 enum class ViewMode
 {
@@ -242,6 +255,53 @@ void PrintActiveViewMode(ViewMode ActiveViewMode)
     }
 }
 
+const char* GetTownMapActorFacingDirectionName(TownMapActorFacingDirection FacingDirection)
+{
+    switch (FacingDirection)
+    {
+    case TownMapActorFacingDirection::Right:
+        return "RIGHT";
+
+    case TownMapActorFacingDirection::Left:
+        return "LEFT";
+
+    case TownMapActorFacingDirection::Up:
+        return "UP";
+
+    case TownMapActorFacingDirection::Down:
+        return "DOWN";
+    }
+
+    return "UNKNOWN";
+}
+
+std::size_t GetTownMapActorAnimationBlockIndex(TownMapActorFacingDirection FacingDirection)
+{
+    switch (FacingDirection)
+    {
+    case TownMapActorFacingDirection::Right:
+        return TownMapActorRightBlockIndex;
+
+    case TownMapActorFacingDirection::Left:
+        return TownMapActorLeftBlockIndex;
+
+    case TownMapActorFacingDirection::Up:
+        return TownMapActorUpBlockIndex;
+
+    case TownMapActorFacingDirection::Down:
+        return TownMapActorDownBlockIndex;
+    }
+
+    return TownMapActorIdleBlockIndex;
+}
+
+std::size_t GetTownMapActorFrameIndex(TownMapActorFacingDirection FacingDirection, bool ActorIsMoving, std::size_t AnimationPhase)
+{
+    const std::size_t BlockIndex = GetTownMapActorAnimationBlockIndex(FacingDirection);
+    const std::size_t FramePhase = ActorIsMoving ? (AnimationPhase % TownMapActorAnimationPhaseCount) : 0;
+    return BlockIndex * TownMapActorFramesPerBlock + FramePhase;
+}
+
 bool ValidateGrpUnpack()
 {
     std::vector<std::uint8_t> Unpacked;
@@ -408,6 +468,16 @@ void PrintActiveFontGroup(std::size_t GroupIndex, const Grp::FontGroup& FontGrou
 {
     std::cout << "font.grp active group " << GroupIndex << " has " << FontGroup.Glyphs.size()
               << " 8x8 glyphs." << '\n';
+}
+
+const Grp::FontGroup* GetDebugFontGroup(const std::array<Grp::FontGroup, 3>& FontGroups, const std::array<bool, 3>& FontGroupAvailable)
+{
+    if (!FontGroupAvailable[0])
+    {
+        return nullptr;
+    }
+
+    return &FontGroups[0];
 }
 
 void PrintDebugOverlayState(bool DebugOverlayEnabled)
@@ -690,79 +760,90 @@ void ClampTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Act
     ActorMapPixelY = std::clamp(ActorMapPixelY, std::size_t{0}, GetTownMapMaximumActorMapPixelY(TownMap));
 }
 
-void MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& ActorMapPixelX, std::size_t& ActorMapPixelY,
-    const bool* KeyboardState)
+bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& ActorMapPixelX, std::size_t& ActorMapPixelY,
+    const bool* KeyboardState, TownMapActorFacingDirection& ActorFacingDirection)
 {
     if (KeyboardState == nullptr)
     {
-        return;
+        return false;
     }
 
     constexpr std::size_t ActorMoveSpeedPixels = 2;
     const std::size_t MaximumActorMapPixelX = GetTownMapMaximumActorMapPixelX(TownMap);
     const std::size_t MaximumActorMapPixelY = GetTownMapMaximumActorMapPixelY(TownMap);
+    bool ActorMoved = false;
 
     if (KeyboardState[SDL_SCANCODE_J] && !KeyboardState[SDL_SCANCODE_L])
     {
+        const std::size_t PreviousActorMapPixelX = ActorMapPixelX;
         ActorMapPixelX = ActorMapPixelX > ActorMoveSpeedPixels ? ActorMapPixelX - ActorMoveSpeedPixels : 0;
+        if (ActorMapPixelX != PreviousActorMapPixelX)
+        {
+            ActorFacingDirection = TownMapActorFacingDirection::Left;
+            ActorMoved = true;
+        }
     }
     else if (KeyboardState[SDL_SCANCODE_L] && !KeyboardState[SDL_SCANCODE_J])
     {
+        const std::size_t PreviousActorMapPixelX = ActorMapPixelX;
         ActorMapPixelX = std::min<std::size_t>(ActorMapPixelX + ActorMoveSpeedPixels, MaximumActorMapPixelX);
+        if (ActorMapPixelX != PreviousActorMapPixelX)
+        {
+            ActorFacingDirection = TownMapActorFacingDirection::Right;
+            ActorMoved = true;
+        }
     }
 
     if (KeyboardState[SDL_SCANCODE_I] && !KeyboardState[SDL_SCANCODE_K])
     {
+        const std::size_t PreviousActorMapPixelY = ActorMapPixelY;
         ActorMapPixelY = ActorMapPixelY > ActorMoveSpeedPixels ? ActorMapPixelY - ActorMoveSpeedPixels : 0;
+        if (ActorMapPixelY != PreviousActorMapPixelY)
+        {
+            ActorFacingDirection = TownMapActorFacingDirection::Up;
+            ActorMoved = true;
+        }
     }
     else if (KeyboardState[SDL_SCANCODE_K] && !KeyboardState[SDL_SCANCODE_I])
     {
+        const std::size_t PreviousActorMapPixelY = ActorMapPixelY;
         ActorMapPixelY = std::min<std::size_t>(ActorMapPixelY + ActorMoveSpeedPixels, MaximumActorMapPixelY);
+        if (ActorMapPixelY != PreviousActorMapPixelY)
+        {
+            ActorFacingDirection = TownMapActorFacingDirection::Down;
+            ActorMoved = true;
+        }
     }
 
     ClampTownMapActorPosition(TownMap, ActorMapPixelX, ActorMapPixelY);
+    return ActorMoved;
 }
 
-bool AdvanceTownMapActorAnimation(const std::filesystem::path& SpriteGrpPath, std::size_t& ActorFrameIndex,
-    std::size_t& ActorAnimationTickCount, Grp::NpcSpriteFrame& ActorFrame)
+bool UpdateTownMapActorFrame(const std::filesystem::path& SpriteGrpPath, std::size_t DesiredActorFrameIndex,
+    std::size_t& ActorFrameIndex, std::size_t& ActorAnimationTickCount, Grp::NpcSpriteFrame& ActorFrame)
 {
-    ++ActorAnimationTickCount;
-    if (ActorAnimationTickCount < TownMapActorAnimationFrameDelay)
+    if (DesiredActorFrameIndex == ActorFrameIndex)
     {
         return true;
     }
 
-    ActorAnimationTickCount = 0;
-    std::size_t RequestedFrameIndex = ActorFrameIndex;
-    if (RequestedFrameIndex < TownMapActorAnimationStartIndex || RequestedFrameIndex > TownMapActorAnimationEndIndex)
-    {
-        RequestedFrameIndex = TownMapActorAnimationStartIndex;
-    }
-    else if (RequestedFrameIndex >= TownMapActorAnimationEndIndex)
-    {
-        RequestedFrameIndex = TownMapActorAnimationStartIndex;
-    }
-    else
-    {
-        ++RequestedFrameIndex;
-    }
-
     Grp::NpcSpriteFrame RequestedActorFrame;
     std::string RequestedActorFrameErrorMessage;
-    if (!LoadNpcSpriteFrameForView(SpriteGrpPath, RequestedFrameIndex, RequestedActorFrame, RequestedActorFrameErrorMessage))
+    if (!LoadNpcSpriteFrameForView(SpriteGrpPath, DesiredActorFrameIndex, RequestedActorFrame, RequestedActorFrameErrorMessage))
     {
         return false;
     }
 
-    ActorFrameIndex = RequestedFrameIndex;
+    ActorFrameIndex = DesiredActorFrameIndex;
     ActorFrame = std::move(RequestedActorFrame);
+    ActorAnimationTickCount = 0;
     return true;
 }
 
 void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank,
     const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels,
-    const Grp::NpcSpriteFrame* ActorFrame, std::size_t ActorFrameIndex, std::size_t ActorMapPixelX,
-    std::size_t ActorMapPixelY, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
+    const Grp::NpcSpriteFrame* ActorFrame, std::size_t ActorFrameIndex, TownMapActorFacingDirection ActorFacingDirection,
+    std::size_t ActorMapPixelX, std::size_t ActorMapPixelY, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
@@ -823,15 +904,12 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
         constexpr float StartY = 72.0f;
         constexpr float LineSpacing = 16.0f;
 
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY, TextScale, "MAP CMAP");
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY, TextScale, "ACTOR MMAN");
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing, TextScale,
-            "X " + std::to_string(ClampedScrollOffset) + " / " + std::to_string(MaximumScrollOffset));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 2.0f, TextScale,
-            "W " + std::to_string(TownMap.Width) + " H " + std::to_string(TownMap.Height));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 3.0f, TextScale, "ACTOR MMAN");
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
             "FRAME " + std::to_string(ActorFrameIndex) + " / " + std::to_string(SpriteFrameMaximumIndex));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale,
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 2.0f, TextScale,
+            "DIR " + std::string(GetTownMapActorFacingDirectionName(ActorFacingDirection)));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 3.0f, TextScale,
             "AX " + std::to_string(ActorMapPixelX) + " AY " + std::to_string(ActorMapPixelY));
     }
 }
@@ -877,13 +955,16 @@ int main()
                   << ", frame " << Grp::NpcSpriteFrame::FrameWidth << "x"
                   << Grp::NpcSpriteFrame::FrameHeight << "." << '\n';
     }
+    TownMapActorFacingDirection TownMapActorFacingDirectionState = TownMapActorFacingDirection::Right;
+    std::size_t TownMapActorAnimationPhase = 0;
     Grp::NpcSpriteFrame TownMapActorFrame;
-    std::size_t TownMapActorFrameIndex = TownMapActorAnimationStartIndex;
+    std::size_t TownMapActorFrameIndex = GetTownMapActorFrameIndex(TownMapActorFacingDirectionState, false, TownMapActorAnimationPhase);
     std::string TownMapActorFrameLoadErrorMessage;
     const bool TownMapActorFrameLoaded = LoadNpcSpriteFrameForView(SpriteGrpPath, TownMapActorFrameIndex, TownMapActorFrame, TownMapActorFrameLoadErrorMessage);
     if (!TownMapActorFrameLoaded)
     {
-        std::cerr << "mman.grp town-map actor frame 0 load failed: " << TownMapActorFrameLoadErrorMessage << '\n';
+        std::cerr << "mman.grp town-map actor frame " << TownMapActorFrameIndex
+                  << " load failed: " << TownMapActorFrameLoadErrorMessage << '\n';
     }
     Main64Palette Palette{};
     std::string PaletteErrorMessage;
@@ -1141,12 +1222,40 @@ int main()
                     TownMapScrollOffsetPixels = std::min<std::size_t>(TownMapScrollOffsetPixels + ScrollSpeedPixels, MaximumScrollOffset);
                 }
 
-                MoveTownMapActorPosition(TownMap, TownMapActorMapPixelX, TownMapActorMapPixelY, KeyboardState);
-            }
+                const TownMapActorFacingDirection PreviousTownMapActorFacingDirection = TownMapActorFacingDirectionState;
+                const bool TownMapActorMoved = MoveTownMapActorPosition(TownMap, TownMapActorMapPixelX, TownMapActorMapPixelY,
+                    KeyboardState, TownMapActorFacingDirectionState);
 
-            if (TownMapActorFrameLoaded)
-            {
-                (void)AdvanceTownMapActorAnimation(SpriteGrpPath, TownMapActorFrameIndex, TownMapActorAnimationTickCount, TownMapActorFrame);
+                if (TownMapActorMoved)
+                {
+                    if (TownMapActorFacingDirectionState != PreviousTownMapActorFacingDirection)
+                    {
+                        TownMapActorAnimationPhase = 0;
+                        TownMapActorAnimationTickCount = 0;
+                    }
+                    else
+                    {
+                        ++TownMapActorAnimationTickCount;
+                        if (TownMapActorAnimationTickCount >= TownMapActorAnimationFrameDelay)
+                        {
+                            TownMapActorAnimationTickCount = 0;
+                            TownMapActorAnimationPhase = (TownMapActorAnimationPhase + 1) % TownMapActorAnimationPhaseCount;
+                        }
+                    }
+                }
+                else
+                {
+                    TownMapActorAnimationTickCount = 0;
+                    TownMapActorAnimationPhase = 0;
+                }
+
+                const std::size_t DesiredTownMapActorFrameIndex = GetTownMapActorFrameIndex(TownMapActorFacingDirectionState,
+                    TownMapActorMoved, TownMapActorAnimationPhase);
+                if (TownMapActorFrameLoaded)
+                {
+                    (void)UpdateTownMapActorFrame(SpriteGrpPath, DesiredTownMapActorFrameIndex, TownMapActorFrameIndex,
+                        TownMapActorAnimationTickCount, TownMapActorFrame);
+                }
             }
         }
 
@@ -1186,26 +1295,19 @@ int main()
         {
             if (TownMapViewAvailable)
             {
-                const Grp::FontGroup* DebugFontGroup = nullptr;
-                if (FontLoaded && ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
-                {
-                    DebugFontGroup = &FontGroups[ActiveFontGroupIndex];
-                }
+                const Grp::FontGroup* DebugFontGroup = FontLoaded ? GetDebugFontGroup(FontGroups, FontGroupAvailable) : nullptr;
 
                 DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted,
                     TownMapScrollOffsetPixels, TownMapActorFrameLoaded ? &TownMapActorFrame : nullptr, TownMapActorFrameIndex,
-                    TownMapActorMapPixelX, TownMapActorMapPixelY, DebugFontGroup, DebugOverlayEnabled);
+                    TownMapActorFacingDirectionState, TownMapActorMapPixelX, TownMapActorMapPixelY, DebugFontGroup,
+                    DebugOverlayEnabled);
             }
         }
         else if (ActiveViewMode == ViewMode::Sprite)
         {
             if (SpriteViewAvailable)
             {
-                const Grp::FontGroup* DebugFontGroup = nullptr;
-                if (FontLoaded && ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
-                {
-                    DebugFontGroup = &FontGroups[ActiveFontGroupIndex];
-                }
+                const Grp::FontGroup* DebugFontGroup = FontLoaded ? GetDebugFontGroup(FontGroups, FontGroupAvailable) : nullptr;
 
                 DrawNpcSpriteFrameView(Renderer, CurrentSpriteFrame, CurrentSpriteFrameIndex, Palette, DebugFontGroup, DebugOverlayEnabled);
             }
