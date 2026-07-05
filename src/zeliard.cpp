@@ -38,6 +38,8 @@ constexpr std::size_t TownMapActorUpBlockIndex = 3;
 constexpr std::size_t TownMapActorDownBlockIndex = 4;
 constexpr std::size_t TownMapActorInitialMapPixelX = 160;
 constexpr std::size_t TownMapActorInitialMapPixelY = 40;
+constexpr std::uint8_t TownMapBlockedTileIndexA = 0x3C;
+constexpr std::uint8_t TownMapBlockedTileIndexB = 0x3D;
 
 enum class TownMapActorFacingDirection
 {
@@ -774,9 +776,76 @@ void ClampTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Act
     ActorMapPixelY = std::clamp(ActorMapPixelY, std::size_t{0}, GetTownMapMaximumActorMapPixelY(TownMap));
 }
 
-bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& ActorMapPixelX, std::size_t& ActorMapPixelY,
-    const bool* KeyboardState, TownMapActorFacingDirection& ActorFacingDirection)
+bool IsTownMapBlockedTileIndex(std::uint8_t TileIndex)
 {
+    return TileIndex == TownMapBlockedTileIndexA || TileIndex == TownMapBlockedTileIndexB;
+}
+
+bool TryGetTownMapTileIndexAtPixel(const Mdt::TownMapInfo& TownMap, std::size_t PixelX, std::size_t PixelY,
+    std::uint8_t& TileIndex)
+{
+    const std::size_t MapWidthPixels = static_cast<std::size_t>(TownMap.Width) * TownMapTileSize;
+    const std::size_t MapHeightPixels = static_cast<std::size_t>(TownMap.Height) * TownMapTileSize;
+    if (PixelX >= MapWidthPixels || PixelY >= MapHeightPixels)
+    {
+        return false;
+    }
+
+    const std::size_t Column = PixelX / TownMapTileSize;
+    const std::size_t Row = PixelY / TownMapTileSize;
+    const std::size_t CellIndex = Column * TownMap.Height + Row;
+    if (CellIndex >= TownMap.Cells.size())
+    {
+        return false;
+    }
+
+    TileIndex = TownMap.Cells[CellIndex];
+    return true;
+}
+
+bool IsTownMapActorProbeBlocked(const Mdt::TownMapInfo& TownMap, std::size_t ActorMapPixelX, std::size_t ActorMapPixelY,
+    TownMapActorFacingDirection ActorFacingDirection)
+{
+    // This is provisional and checks one leading-edge point instead of a full
+    // footprint, which matches the current town collision evidence without
+    // growing the debug path into a larger gameplay layer.
+    std::size_t ProbePixelX = ActorMapPixelX + (Grp::NpcSpriteFrame::FrameWidth / 2);
+    std::size_t ProbePixelY = ActorMapPixelY + (Grp::NpcSpriteFrame::FrameHeight / 2);
+
+    switch (ActorFacingDirection)
+    {
+    case TownMapActorFacingDirection::Left:
+        ProbePixelX = ActorMapPixelX;
+        break;
+    case TownMapActorFacingDirection::Right:
+        ProbePixelX = ActorMapPixelX + Grp::NpcSpriteFrame::FrameWidth - 1;
+        break;
+    case TownMapActorFacingDirection::Up:
+        ProbePixelY = ActorMapPixelY;
+        break;
+    case TownMapActorFacingDirection::Down:
+        ProbePixelY = ActorMapPixelY + Grp::NpcSpriteFrame::FrameHeight - 1;
+        break;
+    }
+
+    std::uint8_t TileIndex = 0;
+    if (!TryGetTownMapTileIndexAtPixel(TownMap, ProbePixelX, ProbePixelY, TileIndex))
+    {
+        return false;
+    }
+
+    return IsTownMapBlockedTileIndex(TileIndex);
+}
+
+const char* GetTownMapCollisionStatusName(bool ActorCollisionBlocked)
+{
+    return ActorCollisionBlocked ? "COL BLOCK" : "COL OK";
+}
+
+bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& ActorMapPixelX, std::size_t& ActorMapPixelY,
+    const bool* KeyboardState, TownMapActorFacingDirection& ActorFacingDirection, bool& ActorCollisionBlocked)
+{
+    ActorCollisionBlocked = false;
     if (KeyboardState == nullptr)
     {
         return false;
@@ -790,42 +859,74 @@ bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Acto
     if (KeyboardState[SDL_SCANCODE_J] && !KeyboardState[SDL_SCANCODE_L])
     {
         const std::size_t PreviousActorMapPixelX = ActorMapPixelX;
-        ActorMapPixelX = ActorMapPixelX > ActorMoveSpeedPixels ? ActorMapPixelX - ActorMoveSpeedPixels : 0;
-        if (ActorMapPixelX != PreviousActorMapPixelX)
+        const std::size_t ProposedActorMapPixelX = ActorMapPixelX > ActorMoveSpeedPixels ? ActorMapPixelX - ActorMoveSpeedPixels : 0;
+        if (!IsTownMapActorProbeBlocked(TownMap, ProposedActorMapPixelX, ActorMapPixelY, TownMapActorFacingDirection::Left))
         {
-            ActorFacingDirection = TownMapActorFacingDirection::Left;
-            ActorMoved = true;
+            ActorMapPixelX = ProposedActorMapPixelX;
+            if (ActorMapPixelX != PreviousActorMapPixelX)
+            {
+                ActorFacingDirection = TownMapActorFacingDirection::Left;
+                ActorMoved = true;
+            }
+        }
+        else
+        {
+            ActorCollisionBlocked = true;
         }
     }
     else if (KeyboardState[SDL_SCANCODE_L] && !KeyboardState[SDL_SCANCODE_J])
     {
         const std::size_t PreviousActorMapPixelX = ActorMapPixelX;
-        ActorMapPixelX = std::min<std::size_t>(ActorMapPixelX + ActorMoveSpeedPixels, MaximumActorMapPixelX);
-        if (ActorMapPixelX != PreviousActorMapPixelX)
+        const std::size_t ProposedActorMapPixelX = std::min<std::size_t>(ActorMapPixelX + ActorMoveSpeedPixels, MaximumActorMapPixelX);
+        if (!IsTownMapActorProbeBlocked(TownMap, ProposedActorMapPixelX, ActorMapPixelY, TownMapActorFacingDirection::Right))
         {
-            ActorFacingDirection = TownMapActorFacingDirection::Right;
-            ActorMoved = true;
+            ActorMapPixelX = ProposedActorMapPixelX;
+            if (ActorMapPixelX != PreviousActorMapPixelX)
+            {
+                ActorFacingDirection = TownMapActorFacingDirection::Right;
+                ActorMoved = true;
+            }
+        }
+        else
+        {
+            ActorCollisionBlocked = true;
         }
     }
 
     if (KeyboardState[SDL_SCANCODE_I] && !KeyboardState[SDL_SCANCODE_K])
     {
         const std::size_t PreviousActorMapPixelY = ActorMapPixelY;
-        ActorMapPixelY = ActorMapPixelY > ActorMoveSpeedPixels ? ActorMapPixelY - ActorMoveSpeedPixels : 0;
-        if (ActorMapPixelY != PreviousActorMapPixelY)
+        const std::size_t ProposedActorMapPixelY = ActorMapPixelY > ActorMoveSpeedPixels ? ActorMapPixelY - ActorMoveSpeedPixels : 0;
+        if (!IsTownMapActorProbeBlocked(TownMap, ActorMapPixelX, ProposedActorMapPixelY, TownMapActorFacingDirection::Up))
         {
-            ActorFacingDirection = TownMapActorFacingDirection::Up;
-            ActorMoved = true;
+            ActorMapPixelY = ProposedActorMapPixelY;
+            if (ActorMapPixelY != PreviousActorMapPixelY)
+            {
+                ActorFacingDirection = TownMapActorFacingDirection::Up;
+                ActorMoved = true;
+            }
+        }
+        else
+        {
+            ActorCollisionBlocked = true;
         }
     }
     else if (KeyboardState[SDL_SCANCODE_K] && !KeyboardState[SDL_SCANCODE_I])
     {
         const std::size_t PreviousActorMapPixelY = ActorMapPixelY;
-        ActorMapPixelY = std::min<std::size_t>(ActorMapPixelY + ActorMoveSpeedPixels, MaximumActorMapPixelY);
-        if (ActorMapPixelY != PreviousActorMapPixelY)
+        const std::size_t ProposedActorMapPixelY = std::min<std::size_t>(ActorMapPixelY + ActorMoveSpeedPixels, MaximumActorMapPixelY);
+        if (!IsTownMapActorProbeBlocked(TownMap, ActorMapPixelX, ProposedActorMapPixelY, TownMapActorFacingDirection::Down))
         {
-            ActorFacingDirection = TownMapActorFacingDirection::Down;
-            ActorMoved = true;
+            ActorMapPixelY = ProposedActorMapPixelY;
+            if (ActorMapPixelY != PreviousActorMapPixelY)
+            {
+                ActorFacingDirection = TownMapActorFacingDirection::Down;
+                ActorMoved = true;
+            }
+        }
+        else
+        {
+            ActorCollisionBlocked = true;
         }
     }
 
@@ -858,7 +959,7 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
     const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels,
     const Grp::NpcSpriteFrame* ActorFrame, std::size_t ActorFrameIndex, TownMapActorFacingDirection ActorFacingDirection,
     std::size_t ActorMapPixelX, std::size_t ActorMapPixelY, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled,
-    bool CameraFollowEnabled)
+    bool CameraFollowEnabled, bool ActorCollisionBlocked)
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
@@ -930,6 +1031,8 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
             "X " + std::to_string(ClampedScrollOffset) + " / " + std::to_string(MaximumScrollOffset));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale,
             "AX " + std::to_string(ActorMapPixelX) + " AY " + std::to_string(ActorMapPixelY));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 6.0f, TextScale,
+            GetTownMapCollisionStatusName(ActorCollisionBlocked));
     }
 }
 }
@@ -1044,6 +1147,7 @@ int main()
     bool DebugOverlayEnabled = true;
     bool TownMapCameraFollowEnabled = true;
     std::size_t TownMapActorAnimationTickCount = 0;
+    bool TownMapActorCollisionBlocked = false;
 
     if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
     {
@@ -1253,7 +1357,7 @@ int main()
 
                 const TownMapActorFacingDirection PreviousTownMapActorFacingDirection = TownMapActorFacingDirectionState;
                 const bool TownMapActorMoved = MoveTownMapActorPosition(TownMap, TownMapActorMapPixelX, TownMapActorMapPixelY,
-                    KeyboardState, TownMapActorFacingDirectionState);
+                    KeyboardState, TownMapActorFacingDirectionState, TownMapActorCollisionBlocked);
 
                 if (TownMapActorMoved)
                 {
@@ -1329,7 +1433,7 @@ int main()
                 DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted,
                     TownMapScrollOffsetPixels, TownMapActorFrameLoaded ? &TownMapActorFrame : nullptr, TownMapActorFrameIndex,
                     TownMapActorFacingDirectionState, TownMapActorMapPixelX, TownMapActorMapPixelY, DebugFontGroup,
-                    DebugOverlayEnabled, TownMapCameraFollowEnabled);
+                    DebugOverlayEnabled, TownMapCameraFollowEnabled, TownMapActorCollisionBlocked);
             }
         }
         else if (ActiveViewMode == ViewMode::Sprite)
