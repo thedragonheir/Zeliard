@@ -10,6 +10,7 @@ constexpr std::size_t TownHeaderSize = 0x17;
 constexpr std::uint16_t TownHeight = 8;
 constexpr std::size_t TownDoorEntrySize = 3;
 constexpr std::size_t TownNpcEntrySize = 8;
+constexpr std::uint16_t TownEntityHeadLevelRow = 5;
 
 std::size_t GetTownPointerOffset(std::uint16_t Pointer, std::size_t DataSize)
 {
@@ -25,6 +26,22 @@ std::size_t GetTownPointerOffset(std::uint16_t Pointer, std::size_t DataSize)
     }
 
     return Pointer < DataSize ? Pointer : DataSize;
+}
+
+std::uint16_t GetTownEntityHeadLevelRow(TownEntityKind EntityKind)
+{
+    // The town entity tables only store columns. The original game anchors both
+    // town doors and NPCs to the head-level row at town_tiles + 5.
+    switch (EntityKind)
+    {
+    case TownEntityKind::Door:
+        return TownEntityHeadLevelRow;
+
+    case TownEntityKind::Npc:
+        return TownEntityHeadLevelRow;
+    }
+
+    return TownEntityHeadLevelRow;
 }
 
 void ParseTownEntityMarkers(const std::vector<std::uint8_t>& Data, std::uint16_t DoorsPointer,
@@ -43,6 +60,7 @@ void ParseTownEntityMarkers(const std::vector<std::uint8_t>& Data, std::uint16_t
         TownEntityMarker Marker{};
         Marker.Kind = TownEntityKind::Door;
         Marker.X = static_cast<std::uint16_t>(Data[Offset] | (static_cast<std::uint16_t>(Data[Offset + 1]) << 8));
+        Marker.Y = GetTownEntityHeadLevelRow(Marker.Kind);
         Marker.DoorType = Data[Offset + 2];
         Output.EntityMarkers.push_back(Marker);
     }
@@ -58,6 +76,7 @@ void ParseTownEntityMarkers(const std::vector<std::uint8_t>& Data, std::uint16_t
         TownEntityMarker Marker{};
         Marker.Kind = TownEntityKind::Npc;
         Marker.X = static_cast<std::uint16_t>(Data[Offset] | (static_cast<std::uint16_t>(Data[Offset + 1]) << 8));
+        Marker.Y = GetTownEntityHeadLevelRow(Marker.Kind);
         Marker.NpcId = Data[Offset + 7];
         Output.EntityMarkers.push_back(Marker);
     }

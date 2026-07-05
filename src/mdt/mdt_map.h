@@ -17,6 +17,8 @@ struct TownEntityMarker
 {
     TownEntityKind Kind = TownEntityKind::Door;
     std::uint16_t X = 0;
+    // Derived from the town head-level row; the MDT tables only store X.
+    std::uint16_t Y = 0;
     // Keep the raw table bytes around so debug overlays can show what was parsed.
     std::uint8_t DoorType = 0;
     std::uint8_t NpcId = 0;

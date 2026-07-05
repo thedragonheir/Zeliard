@@ -11,7 +11,6 @@ namespace
 constexpr std::size_t TownMapTileSize = 8;
 constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
 constexpr std::size_t TownMapViewportWidth = 320;
-constexpr std::size_t TownEntityGroundRow = 7;
 constexpr std::size_t TownEntityProximityRadiusPixels = 20;
 constexpr std::size_t TownMapActorAnimationFrameDelay = 8;
 constexpr std::size_t TownMapActorAnimationPhaseCount = 4;
@@ -204,26 +203,24 @@ std::size_t CountTownEntityMarkers(const Mdt::TownMapInfo& TownMap, Mdt::TownEnt
         }));
 }
 
-struct ProvisionalTownEntityProximityResult
+struct TownEntityProximityResult
 {
     const Mdt::TownEntityMarker* Marker = nullptr;
     std::size_t DistanceSquared = 0;
 };
 
-ProvisionalTownEntityProximityResult FindProvisionalNearestTownEntityMarker(const Mdt::TownMapInfo& TownMap,
+TownEntityProximityResult FindNearestTownEntityMarker(const Mdt::TownMapInfo& TownMap,
     std::size_t ActorMapPixelX, std::size_t ActorMapPixelY)
 {
-    // Town markers only expose X and the raw table bytes right now, so this
-    // provisional check treats them as sitting on the shared ground row.
     const std::size_t ActorCenterPixelX = ActorMapPixelX + (Grp::NpcSpriteFrame::FrameWidth / 2);
     const std::size_t ActorCenterPixelY = ActorMapPixelY + (Grp::NpcSpriteFrame::FrameHeight / 2);
-    const std::size_t EntityCenterPixelY = (TownEntityGroundRow * TownMapTileSize) + (TownMapTileSize / 2);
     const std::size_t ProximityRadiusSquared = TownEntityProximityRadiusPixels * TownEntityProximityRadiusPixels;
 
-    ProvisionalTownEntityProximityResult Result{};
+    TownEntityProximityResult Result{};
     for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
     {
         const std::size_t EntityCenterPixelX = (static_cast<std::size_t>(EntityMarker.X) * TownMapTileSize) + (TownMapTileSize / 2);
+        const std::size_t EntityCenterPixelY = (static_cast<std::size_t>(EntityMarker.Y) * TownMapTileSize) + (TownMapTileSize / 2);
         const std::size_t DeltaPixelX = ActorCenterPixelX > EntityCenterPixelX ? ActorCenterPixelX - EntityCenterPixelX : EntityCenterPixelX - ActorCenterPixelX;
         const std::size_t DeltaPixelY = ActorCenterPixelY > EntityCenterPixelY ? ActorCenterPixelY - EntityCenterPixelY : EntityCenterPixelY - ActorCenterPixelY;
         const std::size_t DistanceSquared = (DeltaPixelX * DeltaPixelX) + (DeltaPixelY * DeltaPixelY);
@@ -245,7 +242,7 @@ ProvisionalTownEntityProximityResult FindProvisionalNearestTownEntityMarker(cons
 
 std::string GetTownEntityProximityStatus(const Mdt::TownMapInfo& TownMap, std::size_t ActorMapPixelX, std::size_t ActorMapPixelY)
 {
-    const ProvisionalTownEntityProximityResult ProximityResult = FindProvisionalNearestTownEntityMarker(TownMap, ActorMapPixelX, ActorMapPixelY);
+    const TownEntityProximityResult ProximityResult = FindNearestTownEntityMarker(TownMap, ActorMapPixelX, ActorMapPixelY);
     if (ProximityResult.Marker == nullptr)
     {
         return "NEAR NONE";
@@ -265,7 +262,7 @@ void DrawTownEntityMarker(SDL_Renderer* Renderer, const Mdt::TownEntityMarker& E
     constexpr float MarkerInset = 1.0f;
 
     const float ScreenX = static_cast<float>(EntityMarker.X * TownMapTileSize) - static_cast<float>(ScrollOffsetPixels) + MarkerInset;
-    const float ScreenY = static_cast<float>(TownEntityGroundRow * TownMapTileSize) + MarkerInset;
+    const float ScreenY = static_cast<float>(EntityMarker.Y * TownMapTileSize) + MarkerInset;
     const SDL_Color& Color = GetTownEntityMarkerColor(EntityMarker.Kind);
 
     SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);

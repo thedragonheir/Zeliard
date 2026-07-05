@@ -44,7 +44,7 @@ This note collects the repository-local evidence for town NPCs, doors, shops, an
   - town doors are `3` bytes each
   - town NPCs are `8` bytes each
   - NPC text pointers are a separate pointer array
-- `tools/mdtviewer/viewer.py` confirms the same model by rendering town doors and NPCs at the town ground row and by exposing the per-NPC dialogue strings.
+- `tools/mdtviewer/viewer.py` confirms the same model by exposing the town doors, NPCs, and per-NPC dialogue strings; the confirmed placement row still comes from the assembly evidence below.
 
 ## Where NPC And Door Positions Come From
 
@@ -54,11 +54,13 @@ This note collects the repository-local evidence for town NPCs, doors, shops, an
 - The NPC array lives at `+0x0F`.
 - The town descriptor lives at `+0x00`.
 - The code treats NPC and door placement as absolute town columns, not as tile graphics hidden inside the map.
+- The confirmed town Y anchor is the head-level row at `town_tiles + 5` (`row 5` in the 8-row town grid).
+- Both the NPC and door tables are X-only; their markers should be drawn on that shared head-level row rather than on the provisional bottom row.
 - `save_head_level_tiles_in_npcs` and `restore_head_level_tiles_from_npcs` show the runtime placement model clearly:
   - the visible map row under an NPC is replaced with `0xFD`
   - the original tile is stored in the NPC record
   - the tile is restored later when the NPC moves or the scene changes
-- `town.inc` says `town_head_level_tiles` is `town_tiles + 5`, which matches the row that holds the NPC markers.
+- `town.inc` says `town_head_level_tiles` is `town_tiles + 5`, which matches the row that holds the NPC markers and the shared debug placement row.
 
 ## Which GRP Files Are Likely Used For Town Characters
 
@@ -121,6 +123,7 @@ This note collects the repository-local evidence for town NPCs, doors, shops, an
 - Town NPCs and town doors come from explicit MDT pointer tables.
 - Town NPCs are not embedded as map graphics.
 - NPC and door X positions are stored as town columns.
+- Their Y placement is derived from the town head-level row, not from a stored per-entity Y field.
 - NPC text is separate from NPC placement.
 - NPC collision uses the non-passable NPC flag.
 - Town NPC sprites are `mman.grp` and `cman.grp`.
