@@ -405,6 +405,11 @@ void PrintActiveFontGroup(std::size_t GroupIndex, const Grp::FontGroup& FontGrou
               << " 8x8 glyphs." << '\n';
 }
 
+void PrintDebugOverlayState(bool DebugOverlayEnabled)
+{
+    std::cout << "debug overlay " << (DebugOverlayEnabled ? "on" : "off") << '\n';
+}
+
 void DrawFontGlyphGrid(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup)
 {
     constexpr int Columns = 16;
@@ -609,7 +614,7 @@ void DrawNpcSpriteFrameOnTownMap(SDL_Renderer* Renderer, const Grp::NpcSpriteFra
     }
 }
 
-void DrawNpcSpriteFrameView(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& SpriteFrame, std::size_t SpriteFrameIndex, const Main64Palette& Palette, const Grp::FontGroup* DebugFontGroup)
+void DrawNpcSpriteFrameView(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& SpriteFrame, std::size_t SpriteFrameIndex, const Main64Palette& Palette, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
 {
     constexpr float SpritePixelSize = 5.0f;
     const float SpriteWidthPixels = static_cast<float>(Grp::NpcSpriteFrame::FrameWidth) * SpritePixelSize;
@@ -640,7 +645,7 @@ void DrawNpcSpriteFrameView(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& S
         }
     }
 
-    if (DebugFontGroup != nullptr)
+    if (DebugOverlayEnabled && DebugFontGroup != nullptr)
     {
         constexpr float TextScale = 1.0f;
         constexpr float TextStartX = 8.0f;
@@ -660,7 +665,7 @@ std::size_t GetTownMapMaximumScrollOffset(const Mdt::TownMapInfo& TownMap)
     return MapWidthPixels > TownMapViewportWidth ? MapWidthPixels - TownMapViewportWidth : 0;
 }
 
-void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels, const Grp::NpcSpriteFrame* ActorFrame, const Grp::FontGroup* DebugFontGroup)
+void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels, const Grp::NpcSpriteFrame* ActorFrame, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
@@ -713,7 +718,7 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
         DrawNpcSpriteFrameOnTownMap(Renderer, *ActorFrame, Palette, TownMapActorMapPixelX, TownMapActorMapPixelY, ClampedScrollOffset);
     }
 
-    if (DebugFontGroup != nullptr)
+    if (DebugOverlayEnabled && DebugFontGroup != nullptr)
     {
         constexpr float TextScale = 2.0f;
         constexpr float StartX = 8.0f;
@@ -829,6 +834,7 @@ int main()
     ViewMode ActiveViewMode = ViewMode::Font;
     std::size_t TownMapScrollOffsetPixels = 0;
     bool TownMapFallbackWarningPrinted = false;
+    bool DebugOverlayEnabled = true;
 
     if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
     {
@@ -901,6 +907,11 @@ int main()
                             PrintActiveFontGroup(ActiveFontGroupIndex, FontGroups[ActiveFontGroupIndex]);
                         }
                     }
+                }
+                else if (Event.key.key == SDLK_D)
+                {
+                    DebugOverlayEnabled = !DebugOverlayEnabled;
+                    PrintDebugOverlayState(DebugOverlayEnabled);
                 }
                 else if (Event.key.key == SDLK_C)
                 {
@@ -1062,7 +1073,7 @@ int main()
                     DebugFontGroup = &FontGroups[ActiveFontGroupIndex];
                 }
 
-                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollOffsetPixels, &TownMapActorFrame, DebugFontGroup);
+                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollOffsetPixels, &TownMapActorFrame, DebugFontGroup, DebugOverlayEnabled);
             }
         }
         else if (ActiveViewMode == ViewMode::Sprite)
@@ -1075,7 +1086,7 @@ int main()
                     DebugFontGroup = &FontGroups[ActiveFontGroupIndex];
                 }
 
-                DrawNpcSpriteFrameView(Renderer, CurrentSpriteFrame, CurrentSpriteFrameIndex, Palette, DebugFontGroup);
+                DrawNpcSpriteFrameView(Renderer, CurrentSpriteFrame, CurrentSpriteFrameIndex, Palette, DebugFontGroup, DebugOverlayEnabled);
             }
         }
         else if (CpatViewAvailable)
