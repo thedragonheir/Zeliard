@@ -77,6 +77,8 @@ void ParseTownEntityMarkers(const std::vector<std::uint8_t>& Data, std::uint16_t
         Marker.Kind = TownEntityKind::Npc;
         Marker.X = static_cast<std::uint16_t>(Data[Offset] | (static_cast<std::uint16_t>(Data[Offset + 1]) << 8));
         Marker.Y = GetTownEntityHeadLevelRow(Marker.Kind);
+        Marker.NpcSpriteSelector = Data[Offset + 2];
+        Marker.NpcAnimationPhase = Data[Offset + 4];
         Marker.NpcId = Data[Offset + 7];
         Output.EntityMarkers.push_back(Marker);
     }

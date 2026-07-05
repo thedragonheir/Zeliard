@@ -21,6 +21,11 @@ struct TownEntityMarker
     std::uint16_t Y = 0;
     // Keep the raw table bytes around so debug overlays can show what was parsed.
     std::uint8_t DoorType = 0;
+    // Byte 2 in the raw NPC record: the sprite selector used by town rendering.
+    std::uint8_t NpcSpriteSelector = 0;
+    // Byte 4 in the raw NPC record: the animation phase used by town rendering.
+    std::uint8_t NpcAnimationPhase = 0;
+    // Byte 7 in the raw NPC record: the dialogue lookup key.
     std::uint8_t NpcId = 0;
 };
 

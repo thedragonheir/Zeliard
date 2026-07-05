@@ -16,6 +16,7 @@ constexpr std::size_t TownMapActorAnimationFrameDelay = 8;
 constexpr std::size_t TownMapActorAnimationPhaseCount = 4;
 constexpr std::size_t TownMapActorFramesPerBlock = 8;
 constexpr std::size_t TownMapActorIdleBlockIndex = 1;
+constexpr std::size_t TownNpcSpriteFramesPerBlock = 8;
 // The repo notes confirm the five 8-frame families, but not the exact
 // direction order. Keep the block mapping isolated here until that is firmed up.
 constexpr std::size_t TownMapActorRightBlockIndex = 0;
@@ -75,6 +76,15 @@ std::size_t GetTownMapActorFrameIndex(TownMapActorFacingDirection FacingDirectio
     const std::size_t BlockIndex = GetTownMapActorAnimationBlockIndex(FacingDirection);
     const std::size_t FramePhase = ActorIsMoving ? (AnimationPhase % TownMapActorAnimationPhaseCount) : 0;
     return BlockIndex * TownMapActorFramesPerBlock + FramePhase;
+}
+
+std::size_t GetTownNpcSpriteFrameIndex(const Mdt::TownEntityMarker& EntityMarker)
+{
+    const std::size_t SpriteFamily = static_cast<std::size_t>(EntityMarker.NpcSpriteSelector & 0x0F);
+    const std::size_t FacingOffset = (EntityMarker.NpcSpriteSelector & 0x80) == 0 ? 4 : 0;
+    const std::size_t AnimationPhase = static_cast<std::size_t>(EntityMarker.NpcAnimationPhase & 3);
+
+    return (SpriteFamily * TownNpcSpriteFramesPerBlock) + FacingOffset + AnimationPhase;
 }
 
 const Grp::PatternTile& GetFallbackPatternTile()
@@ -529,6 +539,66 @@ bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Acto
 }
 }
 
+bool TownScene::TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const
+{
+    if (FrameIndex >= TownNpcSpriteFrameCount)
+    {
+        return false;
+    }
+
+    if (!TownNpcSpriteFrameLoaded[FrameIndex])
+    {
+        Grp::NpcSpriteFrame LoadedFrame;
+        std::string LoadErrorMessage;
+        if (!Grp::LoadNpcSpriteFrame(SpriteGrpPath, FrameIndex, LoadedFrame, LoadErrorMessage))
+        {
+            if (!TownNpcSpriteFrameWarningPrinted)
+            {
+                std::cerr << "mman.grp town NPC frame " << FrameIndex
+                    << " load failed: " << LoadErrorMessage << '\n';
+                TownNpcSpriteFrameWarningPrinted = true;
+            }
+
+            return false;
+        }
+
+        TownNpcSpriteFrames[FrameIndex] = std::move(LoadedFrame);
+        TownNpcSpriteFrameLoaded[FrameIndex] = true;
+    }
+
+    SpriteFrame = &TownNpcSpriteFrames[FrameIndex];
+    return true;
+}
+
+std::size_t TownScene::DrawTownNpcSprites(SDL_Renderer* Renderer, std::size_t ScrollOffsetPixels) const
+{
+    std::size_t RenderedNpcSpriteCount = 0;
+
+    for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
+    {
+        if (EntityMarker.Kind != Mdt::TownEntityKind::Npc)
+        {
+            continue;
+        }
+
+        const std::size_t FrameIndex = GetTownNpcSpriteFrameIndex(EntityMarker);
+        const Grp::NpcSpriteFrame* SpriteFrame = nullptr;
+        if (!TryGetTownNpcSpriteFrame(FrameIndex, SpriteFrame))
+        {
+            continue;
+        }
+
+        // Keep the first pass anchored to the confirmed town entity row.
+        DrawNpcSpriteFrameOnTownMap(Renderer, *SpriteFrame, Palette,
+            static_cast<float>(EntityMarker.X * TownMapTileSize),
+            static_cast<float>(EntityMarker.Y * TownMapTileSize),
+            ScrollOffsetPixels);
+        ++RenderedNpcSpriteCount;
+    }
+
+    return RenderedNpcSpriteCount;
+}
+
 TownScene::TownScene(const std::filesystem::path& SpriteGrpPath, const Mdt::TownMapInfo& TownMap,
     const Grp::PatternBank& PatternBank, const Main64Palette& Palette)
     : SpriteGrpPath(SpriteGrpPath), TownMap(TownMap), PatternBank(PatternBank), Palette(Palette)
@@ -689,6 +759,8 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
         DrawTownEntityMarkers(Renderer, TownMap, ClampedScrollOffset);
     }
 
+    const std::size_t RenderedNpcSpriteCount = TownEntityMarkersEnabled ? DrawTownNpcSprites(Renderer, ClampedScrollOffset) : 0;
+
     if (ActorFrameLoaded)
     {
         DrawNpcSpriteFrameOnTownMap(Renderer, ActorFrame, Palette, static_cast<float>(ActorMapPixelX),
@@ -716,7 +788,8 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
             std::string("TILE ") + (BlockedTileOverlayEnabled ? "ON" : "OFF") + " OBJ "
             + (TownEntityMarkersEnabled ? "ON" : "OFF"));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
-            "NPC " + std::to_string(NpcMarkerCount) + " DOOR " + std::to_string(DoorMarkerCount));
+            "NPCSPR " + std::to_string(RenderedNpcSpriteCount) + "/" + std::to_string(NpcMarkerCount)
+            + " DOOR " + std::to_string(DoorMarkerCount));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale,
             GetTownEntityProximityStatus(TownMap, ActorMapPixelX, ActorMapPixelY));
     }
