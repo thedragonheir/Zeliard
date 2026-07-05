@@ -22,6 +22,7 @@ namespace
 const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
 constexpr std::size_t TownMapTileSize = 8;
 constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
+constexpr std::size_t TownMapViewportWidth = 320;
 
 enum class ViewMode
 {
@@ -543,25 +544,29 @@ void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const
     }
 }
 
-std::size_t GetTownMapMaximumScrollColumn(const Mdt::TownMapInfo& TownMap)
+std::size_t GetTownMapMaximumScrollOffset(const Mdt::TownMapInfo& TownMap)
 {
-    return TownMap.Width > TownMapVisibleColumns ? TownMap.Width - TownMapVisibleColumns : 0;
+    const std::size_t MapWidthPixels = static_cast<std::size_t>(TownMap.Width) * TownMapTileSize;
+    return MapWidthPixels > TownMapViewportWidth ? MapWidthPixels - TownMapViewportWidth : 0;
 }
 
-void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollColumn, const Grp::FontGroup* DebugFontGroup)
+void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels, const Grp::FontGroup* DebugFontGroup)
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
-    const std::size_t MaximumScrollColumn = GetTownMapMaximumScrollColumn(TownMap);
-    const std::size_t FirstColumn = std::min<std::size_t>(ScrollColumn, MaximumScrollColumn);
-    const std::size_t ColumnsToRender = std::min<std::size_t>(TownMap.Width - FirstColumn, VisibleColumns);
+    const std::size_t MaximumScrollOffset = GetTownMapMaximumScrollOffset(TownMap);
+    const std::size_t ClampedScrollOffset = std::min<std::size_t>(ScrollOffsetPixels, MaximumScrollOffset);
+    const std::size_t FirstColumn = ClampedScrollOffset / TileSize;
+    const std::size_t ColumnPixelOffset = ClampedScrollOffset % TileSize;
+    const std::size_t ColumnsAvailable = TownMap.Width > FirstColumn ? TownMap.Width - FirstColumn : 0;
+    const std::size_t ColumnsToRender = std::min<std::size_t>(ColumnsAvailable, VisibleColumns + (ColumnPixelOffset != 0 ? 1 : 0));
     const std::size_t RowsToRender = TownMap.Height;
     const Grp::PatternTile& FallbackTile = GetFallbackPatternTile();
 
     for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
     {
         const std::size_t MapColumn = FirstColumn + Column;
-        const float TileX = static_cast<float>(Column * TileSize);
+        const float TileX = static_cast<float>(Column * TileSize) - static_cast<float>(ColumnPixelOffset);
         for (std::size_t Row = 0; Row < RowsToRender; ++Row)
         {
             const std::size_t CellIndex = MapColumn * TownMap.Height + Row;
@@ -602,7 +607,7 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
 
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY, TextScale, "MAP CMAP");
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing, TextScale,
-            "X " + std::to_string(ScrollColumn) + " / " + std::to_string(MaximumScrollColumn));
+            "X " + std::to_string(ClampedScrollOffset) + " / " + std::to_string(MaximumScrollOffset));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 2.0f, TextScale,
             "W " + std::to_string(TownMap.Width) + " H " + std::to_string(TownMap.Height));
     }
@@ -670,7 +675,7 @@ int main()
     const bool FontLoaded = LoadFontGroups(FontGroups, FontGroupAvailable);
     std::size_t ActiveFontGroupIndex = 0;
     ViewMode ActiveViewMode = ViewMode::Font;
-    std::size_t TownMapScrollColumn = 0;
+    std::size_t TownMapScrollOffsetPixels = 0;
     bool TownMapFallbackWarningPrinted = false;
 
     if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
@@ -777,21 +782,20 @@ int main()
                 }
                 else if (ActiveViewMode == ViewMode::TownMap && (Event.key.key == SDLK_LEFT || Event.key.key == SDLK_RIGHT))
                 {
-                    const std::size_t MaximumScrollColumn = GetTownMapMaximumScrollColumn(TownMap);
-                    std::size_t RequestedScrollColumn = TownMapScrollColumn;
+                    const std::size_t MaximumScrollOffset = GetTownMapMaximumScrollOffset(TownMap);
+                    std::size_t RequestedScrollOffset = TownMapScrollOffsetPixels;
                     if (Event.key.key == SDLK_LEFT)
                     {
-                        RequestedScrollColumn = TownMapScrollColumn > 0 ? TownMapScrollColumn - 1 : 0;
+                        RequestedScrollOffset = TownMapScrollOffsetPixels > 0 ? TownMapScrollOffsetPixels - 1 : 0;
                     }
-                    else if (TownMapScrollColumn < MaximumScrollColumn)
+                    else if (TownMapScrollOffsetPixels < MaximumScrollOffset)
                     {
-                        RequestedScrollColumn = TownMapScrollColumn + 1;
+                        RequestedScrollOffset = TownMapScrollOffsetPixels + 1;
                     }
 
-                    if (RequestedScrollColumn != TownMapScrollColumn)
+                    if (RequestedScrollOffset != TownMapScrollOffsetPixels)
                     {
-                        TownMapScrollColumn = RequestedScrollColumn;
-                        std::cout << "cmap.mdt scroll column: " << TownMapScrollColumn << '\n';
+                        TownMapScrollOffsetPixels = RequestedScrollOffset;
                     }
                 }
                 else if (ActiveViewMode == ViewMode::Font)
@@ -863,7 +867,7 @@ int main()
                     DebugFontGroup = &FontGroups[ActiveFontGroupIndex];
                 }
 
-                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollColumn, DebugFontGroup);
+                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollOffsetPixels, DebugFontGroup);
             }
         }
         else if (CpatViewAvailable)
