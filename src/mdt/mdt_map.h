@@ -17,6 +17,9 @@ struct TownEntityMarker
 {
     TownEntityKind Kind = TownEntityKind::Door;
     std::uint16_t X = 0;
+    // Keep the raw table bytes around so debug overlays can show what was parsed.
+    std::uint8_t DoorType = 0;
+    std::uint8_t NpcId = 0;
 };
 
 struct TownMapInfo

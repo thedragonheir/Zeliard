@@ -196,10 +196,19 @@ const SDL_Color& GetTownEntityMarkerColor(Mdt::TownEntityKind EntityKind)
     return EntityKind == Mdt::TownEntityKind::Door ? DoorColor : NpcColor;
 }
 
+std::size_t CountTownEntityMarkers(const Mdt::TownMapInfo& TownMap, Mdt::TownEntityKind EntityKind)
+{
+    return static_cast<std::size_t>(std::count_if(TownMap.EntityMarkers.begin(), TownMap.EntityMarkers.end(),
+        [EntityKind](const Mdt::TownEntityMarker& EntityMarker)
+        {
+            return EntityMarker.Kind == EntityKind;
+        }));
+}
+
 void DrawTownEntityMarker(SDL_Renderer* Renderer, const Mdt::TownEntityMarker& EntityMarker, std::size_t ScrollOffsetPixels)
 {
-    constexpr float MarkerSize = 4.0f;
-    constexpr float MarkerInset = 2.0f;
+    constexpr float MarkerSize = 6.0f;
+    constexpr float MarkerInset = 1.0f;
 
     const float ScreenX = static_cast<float>(EntityMarker.X * TownMapTileSize) - static_cast<float>(ScrollOffsetPixels) + MarkerInset;
     const float ScreenY = static_cast<float>(TownEntityGroundRow * TownMapTileSize) + MarkerInset;
@@ -207,7 +216,6 @@ void DrawTownEntityMarker(SDL_Renderer* Renderer, const Mdt::TownEntityMarker& E
 
     SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
-
     const SDL_FRect MarkerRect{
         ScreenX,
         ScreenY,
@@ -215,6 +223,37 @@ void DrawTownEntityMarker(SDL_Renderer* Renderer, const Mdt::TownEntityMarker& E
         MarkerSize
     };
     SDL_RenderFillRect(Renderer, &MarkerRect);
+
+    if (EntityMarker.Kind == Mdt::TownEntityKind::Door)
+    {
+        SDL_SetRenderDrawColor(Renderer, 32, 16, 0, 240);
+
+        const SDL_FRect DoorStripe{
+            ScreenX + 1.0f,
+            ScreenY + 2.0f,
+            MarkerSize - 2.0f,
+            2.0f
+        };
+        SDL_RenderFillRect(Renderer, &DoorStripe);
+
+        SDL_SetRenderDrawColor(Renderer, 255, 208, 112, 240);
+        SDL_RenderRect(Renderer, &MarkerRect);
+    }
+    else
+    {
+        SDL_SetRenderDrawColor(Renderer, 32, 96, 112, 240);
+
+        const SDL_FRect NpcCore{
+            ScreenX + 2.0f,
+            ScreenY + 2.0f,
+            2.0f,
+            2.0f
+        };
+        SDL_RenderFillRect(Renderer, &NpcCore);
+
+        SDL_SetRenderDrawColor(Renderer, 192, 255, 255, 240);
+        SDL_RenderRect(Renderer, &MarkerRect);
+    }
 }
 
 void DrawTownEntityMarkers(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, std::size_t ScrollOffsetPixels)
@@ -611,6 +650,8 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
         constexpr float StartX = 8.0f;
         constexpr float StartY = 72.0f;
         constexpr float LineSpacing = 16.0f;
+        const std::size_t NpcMarkerCount = CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Npc);
+        const std::size_t DoorMarkerCount = CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Door);
 
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY, TextScale, "ACTOR MMAN");
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing, TextScale,
@@ -628,6 +669,10 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 7.0f, TextScale,
             std::string("TILES ") + (BlockedTileOverlayEnabled ? "ON" : "OFF") + " OBJ "
             + (TownEntityMarkersEnabled ? "ON" : "OFF"));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 8.0f, TextScale,
+            "NPC " + std::to_string(NpcMarkerCount));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 9.0f, TextScale,
+            "DOOR " + std::to_string(DoorMarkerCount));
     }
 }
 
