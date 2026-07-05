@@ -137,6 +137,20 @@ The viewer maps files to these modes:
 | 12 | boss sprites, for example `crab.grp` |
 | 13 | `dman.grp`, rokademo sprites |
 
+## `cpat.grp` technical note
+
+`cpat.grp` appears to be a town pattern/background tileset, not a sprite sheet. The viewer maps it to mode 7 alongside `mpat.grp` and `dpat.grp`, and `asm/town.asm` loads it through the same pattern-group path as the other town static tile sets.
+
+The unpacked sample in `tools/grpviewer/cpat.grp.unp` is `7792` bytes. That matches a `256`-byte control header plus `157` tiles at `48` bytes each. In the viewer, the first 6 bytes are treated as metadata/pointers, bytes `6-255` are per-tile function selectors, and byte `256` onward is the tile bank.
+
+Each tile is `8x8` pixels. Every row consumes `6` bytes, which the Python renderer reads as three big-endian 16-bit words. `decode_8()` combines those words into eight direct `0..63` palette indices per row, matching the `6 bits per pixel` packed-tile path in `asm/gfmcga.asm`. Some tile variants also use a 2-bit transparency mask; when present, the mask decides whether a pixel is hidden.
+
+The palette data needed here is the normal 64-color MCGA fragment (`tools/grpviewer/v15/PALETTE.json` `main_64`, or `build_palette()` in the viewer). `pal_decode_tbl` is for the monster/entity sprite path, not for `cpat.grp`.
+
+Strongest evidence: `tools/grpviewer/grp_viewer_13_1.py`'s `render_pat_group()` is the clearest high-level reference, with `asm/gtmcga.asm` and `asm/town.asm` confirming the load/decompress flow.
+
+Next minimal C++ step: add a tiny pattern-bank decoder that validates the 256-byte header, unpacks the 48-byte tile bank, and exposes 8x8 rows of 6-bit palette indices without trying to render or animate them yet.
+
 ## Palette information
 
 Palette data is currently hardcoded in the Python viewer:
