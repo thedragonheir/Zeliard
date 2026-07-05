@@ -275,6 +275,11 @@ const char* GetTownMapActorFacingDirectionName(TownMapActorFacingDirection Facin
     return "UNKNOWN";
 }
 
+const char* GetTownMapCameraFollowModeName(bool CameraFollowEnabled)
+{
+    return CameraFollowEnabled ? "AUTO" : "MANUAL";
+}
+
 std::size_t GetTownMapActorAnimationBlockIndex(TownMapActorFacingDirection FacingDirection)
 {
     switch (FacingDirection)
@@ -740,6 +745,15 @@ std::size_t GetTownMapMaximumScrollOffset(const Mdt::TownMapInfo& TownMap)
     return MapWidthPixels > TownMapViewportWidth ? MapWidthPixels - TownMapViewportWidth : 0;
 }
 
+std::size_t GetTownMapCameraFollowScrollOffset(const Mdt::TownMapInfo& TownMap, std::size_t ActorMapPixelX)
+{
+    const std::size_t MaximumScrollOffset = GetTownMapMaximumScrollOffset(TownMap);
+    const std::size_t ActorCenterPixelX = ActorMapPixelX + (Grp::NpcSpriteFrame::FrameWidth / 2);
+    const std::size_t ViewportCenterPixelX = TownMapViewportWidth / 2;
+    const std::size_t DesiredScrollOffset = ActorCenterPixelX > ViewportCenterPixelX ? ActorCenterPixelX - ViewportCenterPixelX : 0;
+    return std::min<std::size_t>(DesiredScrollOffset, MaximumScrollOffset);
+}
+
 std::size_t GetTownMapMaximumActorMapPixelX(const Mdt::TownMapInfo& TownMap)
 {
     const std::size_t MapWidthPixels = static_cast<std::size_t>(TownMap.Width) * TownMapTileSize;
@@ -843,7 +857,8 @@ bool UpdateTownMapActorFrame(const std::filesystem::path& SpriteGrpPath, std::si
 void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank,
     const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels,
     const Grp::NpcSpriteFrame* ActorFrame, std::size_t ActorFrameIndex, TownMapActorFacingDirection ActorFacingDirection,
-    std::size_t ActorMapPixelX, std::size_t ActorMapPixelY, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
+    std::size_t ActorMapPixelX, std::size_t ActorMapPixelY, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled,
+    bool CameraFollowEnabled)
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
@@ -910,6 +925,10 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 2.0f, TextScale,
             "DIR " + std::string(GetTownMapActorFacingDirectionName(ActorFacingDirection)));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 3.0f, TextScale,
+            "CAM " + std::string(GetTownMapCameraFollowModeName(CameraFollowEnabled)));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
+            "X " + std::to_string(ClampedScrollOffset) + " / " + std::to_string(MaximumScrollOffset));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale,
             "AX " + std::to_string(ActorMapPixelX) + " AY " + std::to_string(ActorMapPixelY));
     }
 }
@@ -1023,6 +1042,7 @@ int main()
     std::size_t TownMapScrollOffsetPixels = 0;
     bool TownMapFallbackWarningPrinted = false;
     bool DebugOverlayEnabled = true;
+    bool TownMapCameraFollowEnabled = true;
     std::size_t TownMapActorAnimationTickCount = 0;
 
     if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
@@ -1136,6 +1156,11 @@ int main()
                         std::cerr << "cmap.mdt town map unavailable: " << TownMapViewUnavailableMessage << '\n';
                     }
                 }
+                else if (Event.key.key == SDLK_A && ActiveViewMode == ViewMode::TownMap)
+                {
+                    TownMapCameraFollowEnabled = !TownMapCameraFollowEnabled;
+                    std::cout << "town map camera follow " << (TownMapCameraFollowEnabled ? "on" : "off") << '\n';
+                }
                 else if (Event.key.key == SDLK_S)
                 {
                     if (SpriteViewAvailable)
@@ -1213,7 +1238,11 @@ int main()
                 constexpr std::size_t ScrollSpeedPixels = 2;
                 const std::size_t MaximumScrollOffset = GetTownMapMaximumScrollOffset(TownMap);
 
-                if (KeyboardState[SDL_SCANCODE_LEFT] && !KeyboardState[SDL_SCANCODE_RIGHT])
+                if (TownMapCameraFollowEnabled)
+                {
+                    TownMapScrollOffsetPixels = GetTownMapCameraFollowScrollOffset(TownMap, TownMapActorMapPixelX);
+                }
+                else if (KeyboardState[SDL_SCANCODE_LEFT] && !KeyboardState[SDL_SCANCODE_RIGHT])
                 {
                     TownMapScrollOffsetPixels = TownMapScrollOffsetPixels > ScrollSpeedPixels ? TownMapScrollOffsetPixels - ScrollSpeedPixels : 0;
                 }
@@ -1300,7 +1329,7 @@ int main()
                 DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted,
                     TownMapScrollOffsetPixels, TownMapActorFrameLoaded ? &TownMapActorFrame : nullptr, TownMapActorFrameIndex,
                     TownMapActorFacingDirectionState, TownMapActorMapPixelX, TownMapActorMapPixelY, DebugFontGroup,
-                    DebugOverlayEnabled);
+                    DebugOverlayEnabled, TownMapCameraFollowEnabled);
             }
         }
         else if (ActiveViewMode == ViewMode::Sprite)
