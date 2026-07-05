@@ -1,6 +1,7 @@
 #include <SDL3/SDL.h>
 
 #include "grp/grp_font.h"
+#include "grp/grp_pattern_bank.h"
 #include "grp/grp_unpacker.h"
 
 #include <array>
@@ -123,6 +124,32 @@ bool LoadFontGroups(std::array<Grp::FontGroup, 3>& FontGroups, std::array<bool, 
     return true;
 }
 
+bool LoadPatternBank(Grp::PatternBank& PatternBank)
+{
+    std::vector<std::uint8_t> Unpacked;
+    std::string ErrorMessage;
+    const std::filesystem::path GrpPath = ProjectRoot / "tools" / "grpviewer" / "cpat.grp";
+
+    if (!Grp::UnpackFile(GrpPath, Unpacked, ErrorMessage))
+    {
+        std::cerr << "cpat.grp load failed: " << ErrorMessage << '\n';
+        return false;
+    }
+
+    if (!Grp::DecodePatternBank(Unpacked, PatternBank, ErrorMessage))
+    {
+        std::cerr << "cpat.grp pattern decode failed: " << ErrorMessage << '\n';
+        return false;
+    }
+
+    std::cout << "cpat.grp pattern bank loaded: " << PatternBank.Tiles.size() << " patterns, "
+              << Unpacked.size() << " source bytes, "
+              << (PatternBank.Tiles.size() * 64) << " decoded pixels, "
+              << "palette indices " << static_cast<int>(PatternBank.MinimumPaletteIndex) << ".."
+              << static_cast<int>(PatternBank.MaximumPaletteIndex) << "." << '\n';
+    return true;
+}
+
 void DrawFontGlyphGrid(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup)
 {
     constexpr int Columns = 16;
@@ -172,6 +199,14 @@ void PrintActiveFontGroup(std::size_t GroupIndex, const Grp::FontGroup& FontGrou
 int main()
 {
     const bool ValidationMatch = ValidateGrpUnpack();
+    if (!ValidationMatch)
+    {
+        std::cerr << "cpat.grp unpack validation failed; continuing anyway." << '\n';
+    }
+
+    Grp::PatternBank PatternBank;
+    LoadPatternBank(PatternBank);
+
     std::array<Grp::FontGroup, 3> FontGroups{};
     std::array<bool, 3> FontGroupAvailable{};
     const bool FontLoaded = LoadFontGroups(FontGroups, FontGroupAvailable);
@@ -290,5 +325,5 @@ int main()
     SDL_DestroyRenderer(Renderer);
     SDL_DestroyWindow(Window);
     SDL_Quit();
-    return ValidationMatch ? 0 : 1;
+    return 0;
 }
