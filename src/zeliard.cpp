@@ -26,6 +26,11 @@ constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
 constexpr std::size_t TownMapViewportWidth = 320;
 constexpr std::size_t SpriteFrameCount = 40;
 constexpr std::size_t SpriteFrameMaximumIndex = SpriteFrameCount - 1;
+// Provisional walk slice for the town-map debug actor. We only know the file is
+// a valid 40-frame bank, so keep the loop narrow until the true pose grouping is confirmed.
+constexpr std::size_t TownMapActorAnimationFrameDelay = 8;
+constexpr std::size_t TownMapActorAnimationStartIndex = 0;
+constexpr std::size_t TownMapActorAnimationEndIndex = 3;
 constexpr std::size_t TownMapActorInitialMapPixelX = 160;
 constexpr std::size_t TownMapActorInitialMapPixelY = 40;
 
@@ -718,6 +723,42 @@ void MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Acto
     ClampTownMapActorPosition(TownMap, ActorMapPixelX, ActorMapPixelY);
 }
 
+bool AdvanceTownMapActorAnimation(const std::filesystem::path& SpriteGrpPath, std::size_t& ActorFrameIndex,
+    std::size_t& ActorAnimationTickCount, Grp::NpcSpriteFrame& ActorFrame)
+{
+    ++ActorAnimationTickCount;
+    if (ActorAnimationTickCount < TownMapActorAnimationFrameDelay)
+    {
+        return true;
+    }
+
+    ActorAnimationTickCount = 0;
+    std::size_t RequestedFrameIndex = ActorFrameIndex;
+    if (RequestedFrameIndex < TownMapActorAnimationStartIndex || RequestedFrameIndex > TownMapActorAnimationEndIndex)
+    {
+        RequestedFrameIndex = TownMapActorAnimationStartIndex;
+    }
+    else if (RequestedFrameIndex >= TownMapActorAnimationEndIndex)
+    {
+        RequestedFrameIndex = TownMapActorAnimationStartIndex;
+    }
+    else
+    {
+        ++RequestedFrameIndex;
+    }
+
+    Grp::NpcSpriteFrame RequestedActorFrame;
+    std::string RequestedActorFrameErrorMessage;
+    if (!LoadNpcSpriteFrameForView(SpriteGrpPath, RequestedFrameIndex, RequestedActorFrame, RequestedActorFrameErrorMessage))
+    {
+        return false;
+    }
+
+    ActorFrameIndex = RequestedFrameIndex;
+    ActorFrame = std::move(RequestedActorFrame);
+    return true;
+}
+
 void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank,
     const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels,
     const Grp::NpcSpriteFrame* ActorFrame, std::size_t ActorFrameIndex, std::size_t ActorMapPixelX,
@@ -836,6 +877,14 @@ int main()
                   << ", frame " << Grp::NpcSpriteFrame::FrameWidth << "x"
                   << Grp::NpcSpriteFrame::FrameHeight << "." << '\n';
     }
+    Grp::NpcSpriteFrame TownMapActorFrame;
+    std::size_t TownMapActorFrameIndex = TownMapActorAnimationStartIndex;
+    std::string TownMapActorFrameLoadErrorMessage;
+    const bool TownMapActorFrameLoaded = LoadNpcSpriteFrameForView(SpriteGrpPath, TownMapActorFrameIndex, TownMapActorFrame, TownMapActorFrameLoadErrorMessage);
+    if (!TownMapActorFrameLoaded)
+    {
+        std::cerr << "mman.grp town-map actor frame 0 load failed: " << TownMapActorFrameLoadErrorMessage << '\n';
+    }
     Main64Palette Palette{};
     std::string PaletteErrorMessage;
     const bool PaletteLoaded = LoadMain64Palette(Palette, PaletteErrorMessage);
@@ -893,6 +942,7 @@ int main()
     std::size_t TownMapScrollOffsetPixels = 0;
     bool TownMapFallbackWarningPrinted = false;
     bool DebugOverlayEnabled = true;
+    std::size_t TownMapActorAnimationTickCount = 0;
 
     if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
     {
@@ -1093,6 +1143,11 @@ int main()
 
                 MoveTownMapActorPosition(TownMap, TownMapActorMapPixelX, TownMapActorMapPixelY, KeyboardState);
             }
+
+            if (TownMapActorFrameLoaded)
+            {
+                (void)AdvanceTownMapActorAnimation(SpriteGrpPath, TownMapActorFrameIndex, TownMapActorAnimationTickCount, TownMapActorFrame);
+            }
         }
 
         if (ActiveViewMode == ViewMode::Font)
@@ -1138,7 +1193,7 @@ int main()
                 }
 
                 DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted,
-                    TownMapScrollOffsetPixels, &CurrentSpriteFrame, CurrentSpriteFrameIndex,
+                    TownMapScrollOffsetPixels, TownMapActorFrameLoaded ? &TownMapActorFrame : nullptr, TownMapActorFrameIndex,
                     TownMapActorMapPixelX, TownMapActorMapPixelY, DebugFontGroup, DebugOverlayEnabled);
             }
         }
