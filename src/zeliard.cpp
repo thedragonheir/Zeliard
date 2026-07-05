@@ -419,6 +419,11 @@ void PrintTownMapBlockedTileOverlayState(bool BlockedTileOverlayEnabled)
     std::cout << "town map collision overlay " << (BlockedTileOverlayEnabled ? "on" : "off") << '\n';
 }
 
+void PrintTownMapEntityMarkerState(bool EntityMarkersEnabled)
+{
+    std::cout << "town map object markers " << (EntityMarkersEnabled ? "on" : "off") << '\n';
+}
+
 void DrawFontGlyphGrid(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup)
 {
     constexpr int Columns = 16;
@@ -780,6 +785,11 @@ int main()
                 {
                     TownMapScene.ToggleBlockedTileOverlay();
                     PrintTownMapBlockedTileOverlayState(TownMapScene.IsBlockedTileOverlayEnabled());
+                }
+                else if (Event.key.key == SDLK_O && ActiveViewMode == ViewMode::TownMap)
+                {
+                    TownMapScene.ToggleTownEntityMarkers();
+                    PrintTownMapEntityMarkerState(TownMapScene.IsTownEntityMarkersEnabled());
                 }
                 else if (Event.key.key == SDLK_C)
                 {

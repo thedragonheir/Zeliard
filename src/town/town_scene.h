@@ -32,9 +32,11 @@ public:
 
     void ToggleCameraFollow() noexcept;
     void ToggleBlockedTileOverlay() noexcept;
+    void ToggleTownEntityMarkers() noexcept;
 
     bool IsCameraFollowEnabled() const noexcept;
     bool IsBlockedTileOverlayEnabled() const noexcept;
+    bool IsTownEntityMarkersEnabled() const noexcept;
 
 private:
     bool UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex);
@@ -59,6 +61,7 @@ private:
     bool ActorCollisionBlocked = false;
     bool CameraFollowEnabled = true;
     bool BlockedTileOverlayEnabled = false;
+    bool TownEntityMarkersEnabled = false;
     mutable bool FallbackWarningPrinted = false;
     Grp::NpcSpriteFrame ActorFrame;
 };

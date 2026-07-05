@@ -11,6 +11,7 @@ namespace
 constexpr std::size_t TownMapTileSize = 8;
 constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
 constexpr std::size_t TownMapViewportWidth = 320;
+constexpr std::size_t TownEntityGroundRow = 7;
 constexpr std::size_t SpriteFrameCount = 40;
 constexpr std::size_t SpriteFrameMaximumIndex = SpriteFrameCount - 1;
 constexpr std::size_t TownMapActorAnimationFrameDelay = 8;
@@ -185,6 +186,43 @@ void ClampTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Act
 bool IsTownMapBlockedTileIndex(std::uint8_t TileIndex)
 {
     return TileIndex == TownMapBlockedTileIndexA || TileIndex == TownMapBlockedTileIndexB;
+}
+
+const SDL_Color& GetTownEntityMarkerColor(Mdt::TownEntityKind EntityKind)
+{
+    static const SDL_Color DoorColor{255, 176, 64, 216};
+    static const SDL_Color NpcColor{96, 224, 255, 216};
+
+    return EntityKind == Mdt::TownEntityKind::Door ? DoorColor : NpcColor;
+}
+
+void DrawTownEntityMarker(SDL_Renderer* Renderer, const Mdt::TownEntityMarker& EntityMarker, std::size_t ScrollOffsetPixels)
+{
+    constexpr float MarkerSize = 4.0f;
+    constexpr float MarkerInset = 2.0f;
+
+    const float ScreenX = static_cast<float>(EntityMarker.X * TownMapTileSize) - static_cast<float>(ScrollOffsetPixels) + MarkerInset;
+    const float ScreenY = static_cast<float>(TownEntityGroundRow * TownMapTileSize) + MarkerInset;
+    const SDL_Color& Color = GetTownEntityMarkerColor(EntityMarker.Kind);
+
+    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+
+    const SDL_FRect MarkerRect{
+        ScreenX,
+        ScreenY,
+        MarkerSize,
+        MarkerSize
+    };
+    SDL_RenderFillRect(Renderer, &MarkerRect);
+}
+
+void DrawTownEntityMarkers(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, std::size_t ScrollOffsetPixels)
+{
+    for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
+    {
+        DrawTownEntityMarker(Renderer, EntityMarker, ScrollOffsetPixels);
+    }
 }
 
 bool TryGetTownMapTileIndexAtPixel(const Mdt::TownMapInfo& TownMap, std::size_t PixelX, std::size_t PixelY,
@@ -556,6 +594,11 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
         }
     }
 
+    if (TownEntityMarkersEnabled)
+    {
+        DrawTownEntityMarkers(Renderer, TownMap, ClampedScrollOffset);
+    }
+
     if (ActorFrameLoaded)
     {
         DrawNpcSpriteFrameOnTownMap(Renderer, ActorFrame, Palette, static_cast<float>(ActorMapPixelX),
@@ -583,7 +626,8 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 6.0f, TextScale,
             GetTownMapCollisionStatusName(ActorCollisionBlocked));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 7.0f, TextScale,
-            std::string("TILES ") + (BlockedTileOverlayEnabled ? "ON" : "OFF"));
+            std::string("TILES ") + (BlockedTileOverlayEnabled ? "ON" : "OFF") + " OBJ "
+            + (TownEntityMarkersEnabled ? "ON" : "OFF"));
     }
 }
 
@@ -597,6 +641,11 @@ void TownScene::ToggleBlockedTileOverlay() noexcept
     BlockedTileOverlayEnabled = !BlockedTileOverlayEnabled;
 }
 
+void TownScene::ToggleTownEntityMarkers() noexcept
+{
+    TownEntityMarkersEnabled = !TownEntityMarkersEnabled;
+}
+
 bool TownScene::IsCameraFollowEnabled() const noexcept
 {
     return CameraFollowEnabled;
@@ -605,6 +654,11 @@ bool TownScene::IsCameraFollowEnabled() const noexcept
 bool TownScene::IsBlockedTileOverlayEnabled() const noexcept
 {
     return BlockedTileOverlayEnabled;
+}
+
+bool TownScene::IsTownEntityMarkersEnabled() const noexcept
+{
+    return TownEntityMarkersEnabled;
 }
 
 bool TownScene::UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex)
