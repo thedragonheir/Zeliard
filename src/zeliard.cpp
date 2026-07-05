@@ -2,6 +2,7 @@
 
 #include "grp/grp_font.h"
 #include "grp/grp_pattern_bank.h"
+#include "grp/grp_sprite_sheet.h"
 #include "grp/grp_unpacker.h"
 #include "mdt/mdt_map.h"
 
@@ -337,6 +338,27 @@ bool LoadPatternBank(Grp::PatternBank& PatternBank)
     return true;
 }
 
+bool LoadNpcSpriteSheetSummary(Grp::SpriteSheetSummary& SpriteSheet)
+{
+    std::string ErrorMessage;
+    const std::filesystem::path GrpPath = ProjectRoot / "tools" / "grpviewer" / "mman.grp";
+
+    if (!Grp::LoadNpcSpriteSheet(GrpPath, SpriteSheet, ErrorMessage))
+    {
+        std::cerr << "mman.grp sprite validation failed: " << ErrorMessage << '\n';
+        return false;
+    }
+
+    std::cout << "mman.grp sprite validation: source " << GrpPath.string()
+              << ", unpacked " << SpriteSheet.UnpackedByteCount << " bytes, "
+              << SpriteSheet.FrameCount << " frames, frame "
+              << SpriteSheet.FrameWidth << "x" << SpriteSheet.FrameHeight
+              << ", decoded " << SpriteSheet.DecodedPixelCount << " pixels, palette indices "
+              << static_cast<int>(SpriteSheet.MinimumPaletteIndex) << ".."
+              << static_cast<int>(SpriteSheet.MaximumPaletteIndex) << "." << '\n';
+    return true;
+}
+
 bool LoadTownMap(Mdt::TownMapInfo& TownMap)
 {
     const std::filesystem::path MdtPath = ProjectRoot / "tools" / "cmap.mdt";
@@ -631,6 +653,13 @@ int main()
 
     Grp::PatternBank PatternBank;
     const bool PatternBankLoaded = LoadPatternBank(PatternBank);
+
+    Grp::SpriteSheetSummary SpriteSheet;
+    const bool SpriteSheetLoaded = LoadNpcSpriteSheetSummary(SpriteSheet);
+    if (!SpriteSheetLoaded)
+    {
+        std::cerr << "mman.grp sprite validation failed; continuing anyway." << '\n';
+    }
 
     Main64Palette Palette{};
     std::string PaletteErrorMessage;
