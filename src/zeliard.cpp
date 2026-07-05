@@ -5,16 +5,26 @@
 #include "grp/grp_unpacker.h"
 
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
 namespace
 {
 const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
+
+enum class ViewMode
+{
+    Font,
+    Cpat
+};
+
+using Main64Palette = std::array<SDL_Color, 64>;
 
 bool ReadWholeFile(const std::filesystem::path& Path, std::vector<std::uint8_t>& Output)
 {
@@ -38,6 +48,172 @@ bool ReadWholeFile(const std::filesystem::path& Path, std::vector<std::uint8_t>&
     }
 
     return true;
+}
+
+bool ParseHexByte(const std::string& Text, std::size_t Offset, std::uint8_t& Value)
+{
+    auto HexDigit = [](char Ch) -> int
+    {
+        if (Ch >= '0' && Ch <= '9')
+        {
+            return Ch - '0';
+        }
+
+        if (Ch >= 'a' && Ch <= 'f')
+        {
+            return 10 + (Ch - 'a');
+        }
+
+        if (Ch >= 'A' && Ch <= 'F')
+        {
+            return 10 + (Ch - 'A');
+        }
+
+        return -1;
+    };
+
+    const int High = HexDigit(Text[Offset]);
+    const int Low = HexDigit(Text[Offset + 1]);
+    if (High < 0 || Low < 0)
+    {
+        return false;
+    }
+
+    Value = static_cast<std::uint8_t>((High << 4) | Low);
+    return true;
+}
+
+std::string StripJsonLineComments(const std::string& Text)
+{
+    std::istringstream Input(Text);
+    std::string Line;
+    std::string Output;
+    Output.reserve(Text.size());
+
+    while (std::getline(Input, Line))
+    {
+        const std::size_t CommentPos = Line.find("//");
+        if (CommentPos != std::string::npos)
+        {
+            Line.erase(CommentPos);
+        }
+
+        Output += Line;
+        Output.push_back('\n');
+    }
+
+    return Output;
+}
+
+bool LoadMain64Palette(Main64Palette& Palette, std::string& ErrorMessage)
+{
+    const std::filesystem::path PalettePath = ProjectRoot / "tools" / "grpviewer" / "v15" / "PALETTE.json";
+    std::vector<std::uint8_t> FileBytes;
+    if (!ReadWholeFile(PalettePath, FileBytes))
+    {
+        ErrorMessage = "failed to open " + PalettePath.string();
+        return false;
+    }
+
+    const std::string CleanText = StripJsonLineComments(std::string(FileBytes.begin(), FileBytes.end()));
+    const std::string PaletteKey = "\"main_64\"";
+    const std::size_t PaletteKeyPos = CleanText.find(PaletteKey);
+    if (PaletteKeyPos == std::string::npos)
+    {
+        ErrorMessage = "main_64 palette section was not found in " + PalettePath.string();
+        return false;
+    }
+
+    const std::size_t ArrayStart = CleanText.find('[', PaletteKeyPos + PaletteKey.size());
+    if (ArrayStart == std::string::npos)
+    {
+        ErrorMessage = "main_64 palette array is missing an opening bracket";
+        return false;
+    }
+
+    const std::size_t ArrayEnd = CleanText.find(']', ArrayStart);
+    if (ArrayEnd == std::string::npos)
+    {
+        ErrorMessage = "main_64 palette array is missing a closing bracket";
+        return false;
+    }
+
+    std::size_t Cursor = ArrayStart + 1;
+    std::size_t PaletteIndex = 0;
+    while (Cursor < ArrayEnd)
+    {
+        while (Cursor < ArrayEnd && (CleanText[Cursor] == ',' || std::isspace(static_cast<unsigned char>(CleanText[Cursor]))))
+        {
+            ++Cursor;
+        }
+
+        if (Cursor >= ArrayEnd)
+        {
+            break;
+        }
+
+        if (CleanText[Cursor] != '"')
+        {
+            ErrorMessage = "main_64 palette contains unexpected text before color " + std::to_string(PaletteIndex);
+            return false;
+        }
+
+        const std::size_t ColorStart = Cursor + 1;
+        const std::size_t ColorEnd = CleanText.find('"', ColorStart);
+        if (ColorEnd == std::string::npos || ColorEnd > ArrayEnd)
+        {
+            ErrorMessage = "main_64 palette contains an unterminated color string";
+            return false;
+        }
+
+        const std::string ColorText = CleanText.substr(ColorStart, ColorEnd - ColorStart);
+        if (ColorText.size() != 7 || ColorText[0] != '#')
+        {
+            ErrorMessage = "main_64 palette color " + std::to_string(PaletteIndex) + " is not a #RRGGBB value";
+            return false;
+        }
+
+        SDL_Color Color{};
+        if (!ParseHexByte(ColorText, 1, Color.r) || !ParseHexByte(ColorText, 3, Color.g) || !ParseHexByte(ColorText, 5, Color.b))
+        {
+            ErrorMessage = "main_64 palette color " + std::to_string(PaletteIndex) + " contains invalid hex digits";
+            return false;
+        }
+
+        Color.a = 255;
+        if (PaletteIndex >= Palette.size())
+        {
+            ErrorMessage = "main_64 palette contains more than 64 colors";
+            return false;
+        }
+
+        Palette[PaletteIndex] = Color;
+        ++PaletteIndex;
+        Cursor = ColorEnd + 1;
+    }
+
+    if (PaletteIndex != Palette.size())
+    {
+        ErrorMessage = "main_64 palette contains " + std::to_string(PaletteIndex) + " colors instead of 64";
+        return false;
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+
+void PrintActiveViewMode(ViewMode ActiveViewMode)
+{
+    switch (ActiveViewMode)
+    {
+    case ViewMode::Font:
+        std::cout << "active view mode: font.grp" << '\n';
+        break;
+
+    case ViewMode::Cpat:
+        std::cout << "active view mode: cpat.grp tile grid" << '\n';
+        break;
+    }
 }
 
 bool ValidateGrpUnpack()
@@ -150,6 +326,12 @@ bool LoadPatternBank(Grp::PatternBank& PatternBank)
     return true;
 }
 
+void PrintActiveFontGroup(std::size_t GroupIndex, const Grp::FontGroup& FontGroup)
+{
+    std::cout << "font.grp active group " << GroupIndex << " has " << FontGroup.Glyphs.size()
+              << " 8x8 glyphs." << '\n';
+}
+
 void DrawFontGlyphGrid(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup)
 {
     constexpr int Columns = 16;
@@ -189,10 +371,40 @@ void DrawFontGlyphGrid(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup)
     }
 }
 
-void PrintActiveFontGroup(std::size_t GroupIndex, const Grp::FontGroup& FontGroup)
+void DrawPatternBankGrid(SDL_Renderer* Renderer, const Grp::PatternBank& PatternBank, const Main64Palette& Palette)
 {
-    std::cout << "font.grp active group " << GroupIndex << " has " << FontGroup.Glyphs.size()
-              << " 8x8 glyphs." << '\n';
+    constexpr int Columns = 16;
+    constexpr float StartX = 17.0f;
+    constexpr float StartY = 11.0f;
+    constexpr float PixelSize = 2.0f;
+    constexpr float TileStep = 18.0f;
+
+    for (std::size_t PatternIndex = 0; PatternIndex < PatternBank.Tiles.size(); ++PatternIndex)
+    {
+        const int TileColumn = static_cast<int>(PatternIndex % Columns);
+        const int TileRow = static_cast<int>(PatternIndex / Columns);
+        const float TileX = StartX + static_cast<float>(TileColumn) * TileStep;
+        const float TileY = StartY + static_cast<float>(TileRow) * TileStep;
+
+        const Grp::PatternTile& Tile = PatternBank.Tiles[PatternIndex];
+        for (std::size_t Row = 0; Row < 8; ++Row)
+        {
+            for (std::size_t Column = 0; Column < 8; ++Column)
+            {
+                const std::uint8_t PaletteIndex = Tile.Pixels[Row * 8 + Column];
+                const SDL_Color& Color = Palette[PaletteIndex];
+                SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+
+                const SDL_FRect PixelRect{
+                    TileX + static_cast<float>(Column) * PixelSize,
+                    TileY + static_cast<float>(Row) * PixelSize,
+                    PixelSize,
+                    PixelSize
+                };
+                SDL_RenderFillRect(Renderer, &PixelRect);
+            }
+        }
+    }
 }
 }
 
@@ -205,12 +417,36 @@ int main()
     }
 
     Grp::PatternBank PatternBank;
-    LoadPatternBank(PatternBank);
+    const bool PatternBankLoaded = LoadPatternBank(PatternBank);
+
+    Main64Palette Palette{};
+    std::string PaletteErrorMessage;
+    const bool PaletteLoaded = LoadMain64Palette(Palette, PaletteErrorMessage);
+    if (!PaletteLoaded)
+    {
+        std::cerr << "cpat.grp palette load failed: " << PaletteErrorMessage << '\n';
+    }
+    else
+    {
+        std::cout << "cpat.grp palette loaded from tools/grpviewer/v15/PALETTE.json main_64." << '\n';
+    }
+
+    const bool CpatViewAvailable = PatternBankLoaded && PaletteLoaded;
+    std::string CpatViewUnavailableMessage;
+    if (!PatternBankLoaded)
+    {
+        CpatViewUnavailableMessage = "pattern bank decode failed";
+    }
+    else if (!PaletteLoaded)
+    {
+        CpatViewUnavailableMessage = PaletteErrorMessage;
+    }
 
     std::array<Grp::FontGroup, 3> FontGroups{};
     std::array<bool, 3> FontGroupAvailable{};
     const bool FontLoaded = LoadFontGroups(FontGroups, FontGroupAvailable);
     std::size_t ActiveFontGroupIndex = 0;
+    ViewMode ActiveViewMode = ViewMode::Font;
 
     if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
     {
@@ -272,50 +508,91 @@ int main()
             }
             else if (Event.type == SDL_EVENT_KEY_DOWN && !Event.key.repeat)
             {
-                std::size_t RequestedGroupIndex = 0;
-                bool HasSelection = true;
+                if (Event.key.key == SDLK_F)
+                {
+                    if (ActiveViewMode != ViewMode::Font)
+                    {
+                        ActiveViewMode = ViewMode::Font;
+                        PrintActiveViewMode(ActiveViewMode);
+                        if (FontLoaded && ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
+                        {
+                            PrintActiveFontGroup(ActiveFontGroupIndex, FontGroups[ActiveFontGroupIndex]);
+                        }
+                    }
+                }
+                else if (Event.key.key == SDLK_C)
+                {
+                    if (CpatViewAvailable)
+                    {
+                        if (ActiveViewMode != ViewMode::Cpat)
+                        {
+                            ActiveViewMode = ViewMode::Cpat;
+                            PrintActiveViewMode(ActiveViewMode);
+                        }
+                    }
+                    else
+                    {
+                        std::cerr << "cpat.grp tile grid unavailable: " << CpatViewUnavailableMessage << '\n';
+                    }
+                }
+                else if (ActiveViewMode == ViewMode::Font)
+                {
+                    std::size_t RequestedGroupIndex = 0;
+                    bool HasSelection = true;
 
-                if (Event.key.key == SDLK_1)
-                {
-                    RequestedGroupIndex = 0;
-                }
-                else if (Event.key.key == SDLK_2)
-                {
-                    RequestedGroupIndex = 1;
-                }
-                else if (Event.key.key == SDLK_3)
-                {
-                    RequestedGroupIndex = 2;
-                }
-                else
-                {
-                    HasSelection = false;
-                }
+                    if (Event.key.key == SDLK_1)
+                    {
+                        RequestedGroupIndex = 0;
+                    }
+                    else if (Event.key.key == SDLK_2)
+                    {
+                        RequestedGroupIndex = 1;
+                    }
+                    else if (Event.key.key == SDLK_3)
+                    {
+                        RequestedGroupIndex = 2;
+                    }
+                    else
+                    {
+                        HasSelection = false;
+                    }
 
-                if (HasSelection && RequestedGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[RequestedGroupIndex] && RequestedGroupIndex != ActiveFontGroupIndex)
-                {
-                    ActiveFontGroupIndex = RequestedGroupIndex;
-                    PrintActiveFontGroup(ActiveFontGroupIndex, FontGroups[ActiveFontGroupIndex]);
+                    if (HasSelection && RequestedGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[RequestedGroupIndex] && RequestedGroupIndex != ActiveFontGroupIndex)
+                    {
+                        ActiveFontGroupIndex = RequestedGroupIndex;
+                        PrintActiveFontGroup(ActiveFontGroupIndex, FontGroups[ActiveFontGroupIndex]);
+                    }
                 }
             }
         }
 
-        if (FontLoaded)
+        if (ActiveViewMode == ViewMode::Font)
         {
-            SDL_SetRenderDrawColor(Renderer, 16, 24, 32, 255);
+            if (FontLoaded)
+            {
+                SDL_SetRenderDrawColor(Renderer, 16, 24, 32, 255);
+            }
+            else
+            {
+                SDL_SetRenderDrawColor(Renderer, 48, 16, 16, 255);
+            }
         }
         else
         {
-            SDL_SetRenderDrawColor(Renderer, 48, 16, 16, 255);
+            SDL_SetRenderDrawColor(Renderer, 12, 18, 12, 255);
         }
         SDL_RenderClear(Renderer);
 
-        if (FontLoaded)
+        if (ActiveViewMode == ViewMode::Font)
         {
-            if (ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
+            if (FontLoaded && ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
             {
                 DrawFontGlyphGrid(Renderer, FontGroups[ActiveFontGroupIndex]);
             }
+        }
+        else if (CpatViewAvailable)
+        {
+            DrawPatternBankGrid(Renderer, PatternBank, Palette);
         }
 
         SDL_RenderPresent(Renderer);
