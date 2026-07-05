@@ -26,8 +26,8 @@ constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
 constexpr std::size_t TownMapViewportWidth = 320;
 constexpr std::size_t SpriteFrameCount = 40;
 constexpr std::size_t SpriteFrameMaximumIndex = SpriteFrameCount - 1;
-constexpr float TownMapActorMapPixelX = 160.0f;
-constexpr float TownMapActorMapPixelY = 40.0f;
+constexpr std::size_t TownMapActorInitialMapPixelX = 160;
+constexpr std::size_t TownMapActorInitialMapPixelY = 40;
 
 enum class ViewMode
 {
@@ -665,7 +665,30 @@ std::size_t GetTownMapMaximumScrollOffset(const Mdt::TownMapInfo& TownMap)
     return MapWidthPixels > TownMapViewportWidth ? MapWidthPixels - TownMapViewportWidth : 0;
 }
 
-void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels, const Grp::NpcSpriteFrame* ActorFrame, std::size_t ActorFrameIndex, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
+std::size_t GetTownMapMaximumActorMapPixelX(const Mdt::TownMapInfo& TownMap)
+{
+    const std::size_t MapWidthPixels = static_cast<std::size_t>(TownMap.Width) * TownMapTileSize;
+    const std::size_t ActorWidthPixels = Grp::NpcSpriteFrame::FrameWidth;
+    return MapWidthPixels > ActorWidthPixels ? MapWidthPixels - ActorWidthPixels : 0;
+}
+
+std::size_t GetTownMapMaximumActorMapPixelY(const Mdt::TownMapInfo& TownMap)
+{
+    const std::size_t MapHeightPixels = static_cast<std::size_t>(TownMap.Height) * TownMapTileSize;
+    const std::size_t ActorHeightPixels = Grp::NpcSpriteFrame::FrameHeight;
+    return MapHeightPixels > ActorHeightPixels ? MapHeightPixels - ActorHeightPixels : 0;
+}
+
+void ClampTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& ActorMapPixelX, std::size_t& ActorMapPixelY)
+{
+    ActorMapPixelX = std::clamp(ActorMapPixelX, std::size_t{0}, GetTownMapMaximumActorMapPixelX(TownMap));
+    ActorMapPixelY = std::clamp(ActorMapPixelY, std::size_t{0}, GetTownMapMaximumActorMapPixelY(TownMap));
+}
+
+void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank,
+    const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels,
+    const Grp::NpcSpriteFrame* ActorFrame, std::size_t ActorFrameIndex, std::size_t ActorMapPixelX,
+    std::size_t ActorMapPixelY, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
@@ -715,7 +738,8 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
 
     if (ActorFrame != nullptr)
     {
-        DrawNpcSpriteFrameOnTownMap(Renderer, *ActorFrame, Palette, TownMapActorMapPixelX, TownMapActorMapPixelY, ClampedScrollOffset);
+        DrawNpcSpriteFrameOnTownMap(Renderer, *ActorFrame, Palette, static_cast<float>(ActorMapPixelX),
+            static_cast<float>(ActorMapPixelY), ClampedScrollOffset);
     }
 
     if (DebugOverlayEnabled && DebugFontGroup != nullptr)
@@ -733,7 +757,8 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 3.0f, TextScale, "ACTOR MMAN");
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
             "FRAME " + std::to_string(ActorFrameIndex) + " / " + std::to_string(SpriteFrameMaximumIndex));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale, "AX 160 AY 40");
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale,
+            "AX " + std::to_string(ActorMapPixelX) + " AY " + std::to_string(ActorMapPixelY));
     }
 }
 }
@@ -847,6 +872,10 @@ int main()
             }
         }
     }
+
+    std::size_t TownMapActorMapPixelX = TownMapActorInitialMapPixelX;
+    std::size_t TownMapActorMapPixelY = TownMapActorInitialMapPixelY;
+    ClampTownMapActorPosition(TownMap, TownMapActorMapPixelX, TownMapActorMapPixelY);
 
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
@@ -981,6 +1010,33 @@ int main()
                         }
                     }
                 }
+                else if (ActiveViewMode == ViewMode::TownMap)
+                {
+                    if (Event.key.key == SDLK_J)
+                    {
+                        if (TownMapActorMapPixelX > 0)
+                        {
+                            --TownMapActorMapPixelX;
+                        }
+                    }
+                    else if (Event.key.key == SDLK_L)
+                    {
+                        TownMapActorMapPixelX = std::min<std::size_t>(TownMapActorMapPixelX + 1,
+                            GetTownMapMaximumActorMapPixelX(TownMap));
+                    }
+                    else if (Event.key.key == SDLK_I)
+                    {
+                        if (TownMapActorMapPixelY > 0)
+                        {
+                            --TownMapActorMapPixelY;
+                        }
+                    }
+                    else if (Event.key.key == SDLK_K)
+                    {
+                        TownMapActorMapPixelY = std::min<std::size_t>(TownMapActorMapPixelY + 1,
+                            GetTownMapMaximumActorMapPixelY(TownMap));
+                    }
+                }
                 else if (ActiveViewMode == ViewMode::Font)
                 {
                     std::size_t RequestedGroupIndex = 0;
@@ -1073,7 +1129,9 @@ int main()
                     DebugFontGroup = &FontGroups[ActiveFontGroupIndex];
                 }
 
-                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollOffsetPixels, &CurrentSpriteFrame, CurrentSpriteFrameIndex, DebugFontGroup, DebugOverlayEnabled);
+                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted,
+                    TownMapScrollOffsetPixels, &CurrentSpriteFrame, CurrentSpriteFrameIndex,
+                    TownMapActorMapPixelX, TownMapActorMapPixelY, DebugFontGroup, DebugOverlayEnabled);
             }
         }
         else if (ActiveViewMode == ViewMode::Sprite)
