@@ -665,7 +665,7 @@ std::size_t GetTownMapMaximumScrollOffset(const Mdt::TownMapInfo& TownMap)
     return MapWidthPixels > TownMapViewportWidth ? MapWidthPixels - TownMapViewportWidth : 0;
 }
 
-void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels, const Grp::NpcSpriteFrame* ActorFrame, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
+void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels, const Grp::NpcSpriteFrame* ActorFrame, std::size_t ActorFrameIndex, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
@@ -731,7 +731,9 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 2.0f, TextScale,
             "W " + std::to_string(TownMap.Width) + " H " + std::to_string(TownMap.Height));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 3.0f, TextScale, "ACTOR MMAN");
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale, "AX 160 AY 40");
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
+            "FRAME " + std::to_string(ActorFrameIndex) + " / " + std::to_string(SpriteFrameMaximumIndex));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale, "AX 160 AY 40");
     }
 }
 }
@@ -776,8 +778,6 @@ int main()
                   << ", frame " << Grp::NpcSpriteFrame::FrameWidth << "x"
                   << Grp::NpcSpriteFrame::FrameHeight << "." << '\n';
     }
-    const Grp::NpcSpriteFrame TownMapActorFrame = CurrentSpriteFrame;
-
     Main64Palette Palette{};
     std::string PaletteErrorMessage;
     const bool PaletteLoaded = LoadMain64Palette(Palette, PaletteErrorMessage);
@@ -1073,7 +1073,7 @@ int main()
                     DebugFontGroup = &FontGroups[ActiveFontGroupIndex];
                 }
 
-                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollOffsetPixels, &TownMapActorFrame, DebugFontGroup, DebugOverlayEnabled);
+                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollOffsetPixels, &CurrentSpriteFrame, CurrentSpriteFrameIndex, DebugFontGroup, DebugOverlayEnabled);
             }
         }
         else if (ActiveViewMode == ViewMode::Sprite)
