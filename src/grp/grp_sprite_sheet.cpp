@@ -144,11 +144,9 @@ bool DecodeNpcFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t TileB
 
     return true;
 }
-}
 
-bool LoadNpcSpriteSheet(const std::filesystem::path& Path, SpriteSheetSummary& Output, std::string& ErrorMessage)
+bool LoadNpcSpriteData(const std::filesystem::path& Path, std::vector<std::uint8_t>& Unpacked, std::size_t& TileCount, std::string& ErrorMessage)
 {
-    std::vector<std::uint8_t> Unpacked;
     if (!UnpackFile(Path, Unpacked, ErrorMessage))
     {
         return false;
@@ -171,10 +169,24 @@ bool LoadNpcSpriteSheet(const std::filesystem::path& Path, SpriteSheetSummary& O
 
     const std::size_t TileBankOffset = NpcIndexTableBytes;
     const std::size_t TileBankBytes = Unpacked.size() - TileBankOffset;
-    const std::size_t TileCount = TileBankBytes / NpcTileBytes;
+    TileCount = TileBankBytes / NpcTileBytes;
     if (TileCount == 0)
     {
         ErrorMessage = "mman.grp tile bank does not contain any complete 8x8 tiles";
+        return false;
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+}
+
+bool LoadNpcSpriteSheet(const std::filesystem::path& Path, SpriteSheetSummary& Output, std::string& ErrorMessage)
+{
+    std::vector<std::uint8_t> Unpacked;
+    std::size_t TileCount = 0;
+    if (!LoadNpcSpriteData(Path, Unpacked, TileCount, ErrorMessage))
+    {
         return false;
     }
 
@@ -185,6 +197,7 @@ bool LoadNpcSpriteSheet(const std::filesystem::path& Path, SpriteSheetSummary& O
     Output.FrameHeight = NpcFrameHeight;
     Output.DecodedPixelCount = NpcFrameCount * NpcFrameWidth * NpcFrameHeight;
 
+    const std::size_t TileBankOffset = NpcIndexTableBytes;
     std::uint8_t MinimumPaletteIndex = 255;
     std::uint8_t MaximumPaletteIndex = 0;
     std::array<std::uint8_t, NpcFrameWidth * NpcFrameHeight> FramePixels{};
@@ -198,6 +211,34 @@ bool LoadNpcSpriteSheet(const std::filesystem::path& Path, SpriteSheetSummary& O
 
     Output.MinimumPaletteIndex = MinimumPaletteIndex;
     Output.MaximumPaletteIndex = MaximumPaletteIndex;
+    ErrorMessage.clear();
+    return true;
+}
+
+bool LoadNpcSpriteFrame(const std::filesystem::path& Path, std::size_t FrameIndex, NpcSpriteFrame& Output, std::string& ErrorMessage)
+{
+    if (FrameIndex >= NpcFrameCount)
+    {
+        ErrorMessage = "mman.grp frame index " + std::to_string(FrameIndex) + " is outside the 40-frame sheet";
+        return false;
+    }
+
+    std::vector<std::uint8_t> Unpacked;
+    std::size_t TileCount = 0;
+    if (!LoadNpcSpriteData(Path, Unpacked, TileCount, ErrorMessage))
+    {
+        return false;
+    }
+
+    const std::size_t TileBankOffset = NpcIndexTableBytes;
+    Output = {};
+    std::uint8_t MinimumPaletteIndex = 255;
+    std::uint8_t MaximumPaletteIndex = 0;
+    if (!DecodeNpcFrame(Unpacked, TileBankOffset, TileCount, FrameIndex, Output.Pixels, MinimumPaletteIndex, MaximumPaletteIndex, ErrorMessage))
+    {
+        return false;
+    }
+
     ErrorMessage.clear();
     return true;
 }

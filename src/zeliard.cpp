@@ -29,7 +29,8 @@ enum class ViewMode
 {
     Font,
     Cpat,
-    TownMap
+    TownMap,
+    Sprite
 };
 
 using Main64Palette = std::array<SDL_Color, 64>;
@@ -225,6 +226,10 @@ void PrintActiveViewMode(ViewMode ActiveViewMode)
     case ViewMode::TownMap:
         std::cout << "active view mode: cmap.mdt town map" << '\n';
         break;
+
+    case ViewMode::Sprite:
+        std::cout << "active view mode: mman.grp sprite test" << '\n';
+        break;
     }
 }
 
@@ -356,6 +361,23 @@ bool LoadNpcSpriteSheetSummary(Grp::SpriteSheetSummary& SpriteSheet)
               << ", decoded " << SpriteSheet.DecodedPixelCount << " pixels, palette indices "
               << static_cast<int>(SpriteSheet.MinimumPaletteIndex) << ".."
               << static_cast<int>(SpriteSheet.MaximumPaletteIndex) << "." << '\n';
+    return true;
+}
+
+bool LoadNpcSpriteFrameTest(Grp::NpcSpriteFrame& SpriteFrame)
+{
+    std::string ErrorMessage;
+    const std::filesystem::path GrpPath = ProjectRoot / "tools" / "grpviewer" / "mman.grp";
+
+    if (!Grp::LoadNpcSpriteFrame(GrpPath, 0, SpriteFrame, ErrorMessage))
+    {
+        std::cerr << "mman.grp sprite frame 0 load failed: " << ErrorMessage << '\n';
+        return false;
+    }
+
+    std::cout << "mman.grp sprite frame 0 loaded: source " << GrpPath.string()
+              << ", frame " << Grp::NpcSpriteFrame::FrameWidth << "x"
+              << Grp::NpcSpriteFrame::FrameHeight << "." << '\n';
     return true;
 }
 
@@ -566,6 +588,50 @@ void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const
     }
 }
 
+void DrawNpcSpriteFrameView(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& SpriteFrame, const Main64Palette& Palette, const Grp::FontGroup* DebugFontGroup)
+{
+    constexpr float SpritePixelSize = 5.0f;
+    const float SpriteWidthPixels = static_cast<float>(Grp::NpcSpriteFrame::FrameWidth) * SpritePixelSize;
+    const float SpriteHeightPixels = static_cast<float>(Grp::NpcSpriteFrame::FrameHeight) * SpritePixelSize;
+    const float StartX = (320.0f - SpriteWidthPixels) * 0.5f;
+    const float StartY = (200.0f - SpriteHeightPixels) * 0.5f;
+
+    for (std::size_t Row = 0; Row < Grp::NpcSpriteFrame::FrameHeight; ++Row)
+    {
+        for (std::size_t Column = 0; Column < Grp::NpcSpriteFrame::FrameWidth; ++Column)
+        {
+            const std::uint8_t PaletteIndex = SpriteFrame.Pixels[Row * Grp::NpcSpriteFrame::FrameWidth + Column];
+            if (PaletteIndex == 0)
+            {
+                continue;
+            }
+
+            const SDL_Color& Color = Palette[PaletteIndex];
+            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+
+            const SDL_FRect PixelRect{
+                StartX + static_cast<float>(Column) * SpritePixelSize,
+                StartY + static_cast<float>(Row) * SpritePixelSize,
+                SpritePixelSize,
+                SpritePixelSize
+            };
+            SDL_RenderFillRect(Renderer, &PixelRect);
+        }
+    }
+
+    if (DebugFontGroup != nullptr)
+    {
+        constexpr float TextScale = 1.0f;
+        constexpr float TextStartX = 8.0f;
+        constexpr float TextStartY = 8.0f;
+        constexpr float LineSpacing = 10.0f;
+
+        DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY, TextScale, "SPR MMAN");
+        DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY + LineSpacing, TextScale, "FRAME 0");
+        DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY + LineSpacing * 2.0f, TextScale, "W 16 H 24");
+    }
+}
+
 std::size_t GetTownMapMaximumScrollOffset(const Mdt::TownMapInfo& TownMap)
 {
     const std::size_t MapWidthPixels = static_cast<std::size_t>(TownMap.Width) * TownMapTileSize;
@@ -661,6 +727,13 @@ int main()
         std::cerr << "mman.grp sprite validation failed; continuing anyway." << '\n';
     }
 
+    Grp::NpcSpriteFrame SpriteFrame;
+    const bool SpriteFrameLoaded = LoadNpcSpriteFrameTest(SpriteFrame);
+    if (!SpriteFrameLoaded)
+    {
+        std::cerr << "mman.grp sprite frame 0 load failed; continuing anyway." << '\n';
+    }
+
     Main64Palette Palette{};
     std::string PaletteErrorMessage;
     const bool PaletteLoaded = LoadMain64Palette(Palette, PaletteErrorMessage);
@@ -675,6 +748,7 @@ int main()
 
     const bool CpatViewAvailable = PatternBankLoaded && PaletteLoaded;
     const bool TownMapViewAvailable = TownMapLoaded && PatternBankLoaded && PaletteLoaded;
+    const bool SpriteViewAvailable = SpriteFrameLoaded && PaletteLoaded;
     std::string CpatViewUnavailableMessage;
     if (!PatternBankLoaded)
     {
@@ -697,6 +771,16 @@ int main()
     else if (!PaletteLoaded)
     {
         TownMapViewUnavailableMessage = PaletteErrorMessage;
+    }
+
+    std::string SpriteViewUnavailableMessage;
+    if (!SpriteFrameLoaded)
+    {
+        SpriteViewUnavailableMessage = "sprite frame 0 load failed";
+    }
+    else if (!PaletteLoaded)
+    {
+        SpriteViewUnavailableMessage = PaletteErrorMessage;
     }
 
     std::array<Grp::FontGroup, 3> FontGroups{};
@@ -809,6 +893,21 @@ int main()
                         std::cerr << "cmap.mdt town map unavailable: " << TownMapViewUnavailableMessage << '\n';
                     }
                 }
+                else if (Event.key.key == SDLK_S)
+                {
+                    if (SpriteViewAvailable)
+                    {
+                        if (ActiveViewMode != ViewMode::Sprite)
+                        {
+                            ActiveViewMode = ViewMode::Sprite;
+                            PrintActiveViewMode(ActiveViewMode);
+                        }
+                    }
+                    else
+                    {
+                        std::cerr << "mman.grp sprite test unavailable: " << SpriteViewUnavailableMessage << '\n';
+                    }
+                }
                 else if (ActiveViewMode == ViewMode::Font)
                 {
                     std::size_t RequestedGroupIndex = 0;
@@ -874,6 +973,10 @@ int main()
         {
             SDL_SetRenderDrawColor(Renderer, 10, 14, 18, 255);
         }
+        else if (ActiveViewMode == ViewMode::Sprite)
+        {
+            SDL_SetRenderDrawColor(Renderer, 16, 14, 20, 255);
+        }
         else
         {
             SDL_SetRenderDrawColor(Renderer, 12, 18, 12, 255);
@@ -898,6 +1001,19 @@ int main()
                 }
 
                 DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted, TownMapScrollOffsetPixels, DebugFontGroup);
+            }
+        }
+        else if (ActiveViewMode == ViewMode::Sprite)
+        {
+            if (SpriteViewAvailable)
+            {
+                const Grp::FontGroup* DebugFontGroup = nullptr;
+                if (FontLoaded && ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
+                {
+                    DebugFontGroup = &FontGroups[ActiveFontGroupIndex];
+                }
+
+                DrawNpcSpriteFrameView(Renderer, SpriteFrame, Palette, DebugFontGroup);
             }
         }
         else if (CpatViewAvailable)

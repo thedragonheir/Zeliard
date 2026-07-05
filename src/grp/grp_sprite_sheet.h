@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -18,5 +19,15 @@ struct SpriteSheetSummary
     std::uint8_t MaximumPaletteIndex = 0;
 };
 
+struct NpcSpriteFrame
+{
+    static constexpr std::size_t FrameWidth = 16;
+    static constexpr std::size_t FrameHeight = 24;
+    static constexpr std::size_t PixelCount = FrameWidth * FrameHeight;
+
+    std::array<std::uint8_t, PixelCount> Pixels{};
+};
+
 bool LoadNpcSpriteSheet(const std::filesystem::path& Path, SpriteSheetSummary& Output, std::string& ErrorMessage);
+bool LoadNpcSpriteFrame(const std::filesystem::path& Path, std::size_t FrameIndex, NpcSpriteFrame& Output, std::string& ErrorMessage);
 }
