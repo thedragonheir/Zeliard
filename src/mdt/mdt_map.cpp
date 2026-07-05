@@ -40,9 +40,8 @@ bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, st
         return false;
     }
 
-    const auto GridBegin = Data.begin() + static_cast<std::ptrdiff_t>(GridStart);
-    const auto GridFinish = GridBegin + static_cast<std::ptrdiff_t>(CellCount);
-    const auto [MinimumIt, MaximumIt] = std::minmax_element(GridBegin, GridFinish);
+    Output.Cells.assign(Data.begin() + static_cast<std::ptrdiff_t>(GridStart), Data.begin() + static_cast<std::ptrdiff_t>(GridEnd));
+    const auto [MinimumIt, MaximumIt] = std::minmax_element(Output.Cells.begin(), Output.Cells.end());
 
     Output.Width = Width;
     Output.Height = TownHeight;

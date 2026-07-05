@@ -5,6 +5,7 @@
 #include "grp/grp_unpacker.h"
 #include "mdt/mdt_map.h"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdint>
@@ -13,6 +14,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -22,7 +24,8 @@ const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
 enum class ViewMode
 {
     Font,
-    Cpat
+    Cpat,
+    TownMap
 };
 
 using Main64Palette = std::array<SDL_Color, 64>;
@@ -214,6 +217,10 @@ void PrintActiveViewMode(ViewMode ActiveViewMode)
     case ViewMode::Cpat:
         std::cout << "active view mode: cpat.grp tile grid" << '\n';
         break;
+
+    case ViewMode::TownMap:
+        std::cout << "active view mode: cmap.mdt town map" << '\n';
+        break;
     }
 }
 
@@ -327,7 +334,7 @@ bool LoadPatternBank(Grp::PatternBank& PatternBank)
     return true;
 }
 
-bool ValidateCmapMdt()
+bool LoadTownMap(Mdt::TownMapInfo& TownMap)
 {
     const std::filesystem::path MdtPath = ProjectRoot / "tools" / "cmap.mdt";
     std::vector<std::uint8_t> FileBytes;
@@ -349,6 +356,7 @@ bool ValidateCmapMdt()
               << ", height " << MapInfo.Height << ", cells " << MapInfo.CellCount
               << ", tile indices " << static_cast<int>(MapInfo.MinimumTileIndex) << ".."
               << static_cast<int>(MapInfo.MaximumTileIndex) << "." << std::endl;
+    TownMap = std::move(MapInfo);
     return true;
 }
 
@@ -432,6 +440,89 @@ void DrawPatternBankGrid(SDL_Renderer* Renderer, const Grp::PatternBank& Pattern
         }
     }
 }
+
+const Grp::PatternTile& GetFallbackPatternTile()
+{
+    static const Grp::PatternTile FallbackTile = []
+    {
+        Grp::PatternTile Tile{};
+        for (std::size_t Row = 0; Row < 8; ++Row)
+        {
+            for (std::size_t Column = 0; Column < 8; ++Column)
+            {
+                const bool IsBright = ((Row + Column) % 2) == 0;
+                Tile.Pixels[Row * 8 + Column] = IsBright ? 63 : 0;
+            }
+        }
+        return Tile;
+    }();
+
+    return FallbackTile;
+}
+
+void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const Main64Palette& Palette, float TileX, float TileY, float PixelSize)
+{
+    for (std::size_t Row = 0; Row < 8; ++Row)
+    {
+        for (std::size_t Column = 0; Column < 8; ++Column)
+        {
+            const std::uint8_t PaletteIndex = Tile.Pixels[Row * 8 + Column];
+            const SDL_Color& Color = Palette[PaletteIndex];
+            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+
+            const SDL_FRect PixelRect{
+                TileX + static_cast<float>(Column) * PixelSize,
+                TileY + static_cast<float>(Row) * PixelSize,
+                PixelSize,
+                PixelSize
+            };
+            SDL_RenderFillRect(Renderer, &PixelRect);
+        }
+    }
+}
+
+void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank, const Main64Palette& Palette, bool& FallbackWarningPrinted)
+{
+    constexpr std::size_t TileSize = 8;
+    constexpr std::size_t VisibleColumns = 320 / TileSize;
+    const std::size_t ColumnsToRender = std::min<std::size_t>(TownMap.Width, VisibleColumns);
+    const std::size_t RowsToRender = TownMap.Height;
+    const Grp::PatternTile& FallbackTile = GetFallbackPatternTile();
+
+    for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
+    {
+        const float TileX = static_cast<float>(Column * TileSize);
+        for (std::size_t Row = 0; Row < RowsToRender; ++Row)
+        {
+            const std::size_t CellIndex = Column * TownMap.Height + Row;
+            if (CellIndex >= TownMap.Cells.size())
+            {
+                continue;
+            }
+
+            const std::uint8_t TileIndex = TownMap.Cells[CellIndex];
+            const Grp::PatternTile* Tile = nullptr;
+            if (TileIndex < PatternBank.Tiles.size())
+            {
+                Tile = &PatternBank.Tiles[TileIndex];
+            }
+            else
+            {
+                if (!FallbackWarningPrinted)
+                {
+                    std::cerr << "cmap.mdt tile at column " << Column << ", row " << Row
+                              << " uses tile index " << static_cast<int>(TileIndex)
+                              << " outside the cpat.grp pattern bank; drawing fallback tiles." << '\n';
+                    FallbackWarningPrinted = true;
+                }
+
+                Tile = &FallbackTile;
+            }
+
+            DrawPatternTile(Renderer, *Tile, Palette, TileX, static_cast<float>(Row * TileSize), 1.0f);
+        }
+    }
+}
 }
 
 int main()
@@ -442,7 +533,9 @@ int main()
         std::cerr << "cpat.grp unpack validation failed; continuing anyway." << '\n';
     }
 
-    if (!ValidateCmapMdt())
+    Mdt::TownMapInfo TownMap;
+    const bool TownMapLoaded = LoadTownMap(TownMap);
+    if (!TownMapLoaded)
     {
         std::cerr << "cmap.mdt parse validation failed; continuing anyway." << '\n';
     }
@@ -463,6 +556,7 @@ int main()
     }
 
     const bool CpatViewAvailable = PatternBankLoaded && PaletteLoaded;
+    const bool TownMapViewAvailable = TownMapLoaded && PatternBankLoaded && PaletteLoaded;
     std::string CpatViewUnavailableMessage;
     if (!PatternBankLoaded)
     {
@@ -473,11 +567,26 @@ int main()
         CpatViewUnavailableMessage = PaletteErrorMessage;
     }
 
+    std::string TownMapViewUnavailableMessage;
+    if (!TownMapLoaded)
+    {
+        TownMapViewUnavailableMessage = "town map parse failed";
+    }
+    else if (!PatternBankLoaded)
+    {
+        TownMapViewUnavailableMessage = "pattern bank decode failed";
+    }
+    else if (!PaletteLoaded)
+    {
+        TownMapViewUnavailableMessage = PaletteErrorMessage;
+    }
+
     std::array<Grp::FontGroup, 3> FontGroups{};
     std::array<bool, 3> FontGroupAvailable{};
     const bool FontLoaded = LoadFontGroups(FontGroups, FontGroupAvailable);
     std::size_t ActiveFontGroupIndex = 0;
     ViewMode ActiveViewMode = ViewMode::Font;
+    bool TownMapFallbackWarningPrinted = false;
 
     if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
     {
@@ -566,6 +675,21 @@ int main()
                         std::cerr << "cpat.grp tile grid unavailable: " << CpatViewUnavailableMessage << '\n';
                     }
                 }
+                else if (Event.key.key == SDLK_M)
+                {
+                    if (TownMapViewAvailable)
+                    {
+                        if (ActiveViewMode != ViewMode::TownMap)
+                        {
+                            ActiveViewMode = ViewMode::TownMap;
+                            PrintActiveViewMode(ActiveViewMode);
+                        }
+                    }
+                    else
+                    {
+                        std::cerr << "cmap.mdt town map unavailable: " << TownMapViewUnavailableMessage << '\n';
+                    }
+                }
                 else if (ActiveViewMode == ViewMode::Font)
                 {
                     std::size_t RequestedGroupIndex = 0;
@@ -608,6 +732,10 @@ int main()
                 SDL_SetRenderDrawColor(Renderer, 48, 16, 16, 255);
             }
         }
+        else if (ActiveViewMode == ViewMode::TownMap)
+        {
+            SDL_SetRenderDrawColor(Renderer, 10, 14, 18, 255);
+        }
         else
         {
             SDL_SetRenderDrawColor(Renderer, 12, 18, 12, 255);
@@ -619,6 +747,13 @@ int main()
             if (FontLoaded && ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
             {
                 DrawFontGlyphGrid(Renderer, FontGroups[ActiveFontGroupIndex]);
+            }
+        }
+        else if (ActiveViewMode == ViewMode::TownMap)
+        {
+            if (TownMapViewAvailable)
+            {
+                DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted);
             }
         }
         else if (CpatViewAvailable)
