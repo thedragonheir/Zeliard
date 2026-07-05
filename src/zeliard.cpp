@@ -780,24 +780,6 @@ int main()
                         std::cerr << "cmap.mdt town map unavailable: " << TownMapViewUnavailableMessage << '\n';
                     }
                 }
-                else if (ActiveViewMode == ViewMode::TownMap && (Event.key.key == SDLK_LEFT || Event.key.key == SDLK_RIGHT))
-                {
-                    const std::size_t MaximumScrollOffset = GetTownMapMaximumScrollOffset(TownMap);
-                    std::size_t RequestedScrollOffset = TownMapScrollOffsetPixels;
-                    if (Event.key.key == SDLK_LEFT)
-                    {
-                        RequestedScrollOffset = TownMapScrollOffsetPixels > 0 ? TownMapScrollOffsetPixels - 1 : 0;
-                    }
-                    else if (TownMapScrollOffsetPixels < MaximumScrollOffset)
-                    {
-                        RequestedScrollOffset = TownMapScrollOffsetPixels + 1;
-                    }
-
-                    if (RequestedScrollOffset != TownMapScrollOffsetPixels)
-                    {
-                        TownMapScrollOffsetPixels = RequestedScrollOffset;
-                    }
-                }
                 else if (ActiveViewMode == ViewMode::Font)
                 {
                     std::size_t RequestedGroupIndex = 0;
@@ -825,6 +807,25 @@ int main()
                         ActiveFontGroupIndex = RequestedGroupIndex;
                         PrintActiveFontGroup(ActiveFontGroupIndex, FontGroups[ActiveFontGroupIndex]);
                     }
+                }
+            }
+        }
+
+        if (ActiveViewMode == ViewMode::TownMap)
+        {
+            const bool* KeyboardState = SDL_GetKeyboardState(nullptr);
+            if (KeyboardState != nullptr)
+            {
+                constexpr std::size_t ScrollSpeedPixels = 2;
+                const std::size_t MaximumScrollOffset = GetTownMapMaximumScrollOffset(TownMap);
+
+                if (KeyboardState[SDL_SCANCODE_LEFT] && !KeyboardState[SDL_SCANCODE_RIGHT])
+                {
+                    TownMapScrollOffsetPixels = TownMapScrollOffsetPixels > ScrollSpeedPixels ? TownMapScrollOffsetPixels - ScrollSpeedPixels : 0;
+                }
+                else if (KeyboardState[SDL_SCANCODE_RIGHT] && !KeyboardState[SDL_SCANCODE_LEFT])
+                {
+                    TownMapScrollOffsetPixels = std::min<std::size_t>(TownMapScrollOffsetPixels + ScrollSpeedPixels, MaximumScrollOffset);
                 }
             }
         }
