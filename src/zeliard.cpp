@@ -3,6 +3,7 @@
 #include "grp/grp_font.h"
 #include "grp/grp_unpacker.h"
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -70,7 +71,7 @@ bool ValidateGrpUnpack()
     return false;
 }
 
-bool LoadFontGroup(Grp::FontGroup& FontGroup)
+bool LoadFontGroups(std::array<Grp::FontGroup, 3>& FontGroups, std::array<bool, 3>& FontGroupAvailable)
 {
     std::vector<std::uint8_t> Unpacked;
     std::string ErrorMessage;
@@ -82,14 +83,43 @@ bool LoadFontGroup(Grp::FontGroup& FontGroup)
         return false;
     }
 
-    if (!Grp::DecodeFirstFontGroup(Unpacked, FontGroup, ErrorMessage))
+    bool AnyGroupLoaded = false;
+    for (std::size_t GroupIndex = 0; GroupIndex < FontGroups.size(); ++GroupIndex)
     {
-        std::cerr << "font.grp parse failed: " << ErrorMessage << '\n';
+        std::string WarningMessage;
+        if (Grp::DecodeFontGroup(Unpacked, GroupIndex, FontGroups[GroupIndex], ErrorMessage, &WarningMessage))
+        {
+            FontGroupAvailable[GroupIndex] = true;
+            AnyGroupLoaded = true;
+            if (!WarningMessage.empty())
+            {
+                std::cerr << WarningMessage << '\n';
+            }
+        }
+        else
+        {
+            FontGroupAvailable[GroupIndex] = false;
+            std::cerr << "font.grp parse skipped for group " << GroupIndex << ": " << ErrorMessage << '\n';
+        }
+    }
+
+    if (!AnyGroupLoaded)
+    {
+        std::cerr << "font.grp parse failed: no usable font groups were found" << '\n';
         return false;
     }
 
-    std::cout << "font.grp loaded: first font group has " << FontGroup.Glyphs.size()
-              << " 8x8 glyphs (" << Unpacked.size() << " unpacked bytes)." << '\n';
+    std::size_t AvailableGroupCount = 0;
+    for (bool IsAvailable : FontGroupAvailable)
+    {
+        if (IsAvailable)
+        {
+            ++AvailableGroupCount;
+        }
+    }
+
+    std::cout << "font.grp loaded: " << AvailableGroupCount << " font groups available ("
+              << Unpacked.size() << " unpacked bytes)." << '\n';
     return true;
 }
 
@@ -131,13 +161,33 @@ void DrawFontGlyphGrid(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup)
         }
     }
 }
+
+void PrintActiveFontGroup(std::size_t GroupIndex, const Grp::FontGroup& FontGroup)
+{
+    std::cout << "font.grp active group " << GroupIndex << " has " << FontGroup.Glyphs.size()
+              << " 8x8 glyphs." << '\n';
+}
 }
 
 int main()
 {
     const bool ValidationMatch = ValidateGrpUnpack();
-    Grp::FontGroup FontGroup;
-    const bool FontLoaded = LoadFontGroup(FontGroup);
+    std::array<Grp::FontGroup, 3> FontGroups{};
+    std::array<bool, 3> FontGroupAvailable{};
+    const bool FontLoaded = LoadFontGroups(FontGroups, FontGroupAvailable);
+    std::size_t ActiveFontGroupIndex = 0;
+
+    if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
+    {
+        for (std::size_t GroupIndex = 0; GroupIndex < FontGroupAvailable.size(); ++GroupIndex)
+        {
+            if (FontGroupAvailable[GroupIndex])
+            {
+                ActiveFontGroupIndex = GroupIndex;
+                break;
+            }
+        }
+    }
 
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
@@ -185,6 +235,34 @@ int main()
             {
                 Running = false;
             }
+            else if (Event.type == SDL_EVENT_KEY_DOWN && !Event.key.repeat)
+            {
+                std::size_t RequestedGroupIndex = 0;
+                bool HasSelection = true;
+
+                if (Event.key.key == SDLK_1)
+                {
+                    RequestedGroupIndex = 0;
+                }
+                else if (Event.key.key == SDLK_2)
+                {
+                    RequestedGroupIndex = 1;
+                }
+                else if (Event.key.key == SDLK_3)
+                {
+                    RequestedGroupIndex = 2;
+                }
+                else
+                {
+                    HasSelection = false;
+                }
+
+                if (HasSelection && RequestedGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[RequestedGroupIndex] && RequestedGroupIndex != ActiveFontGroupIndex)
+                {
+                    ActiveFontGroupIndex = RequestedGroupIndex;
+                    PrintActiveFontGroup(ActiveFontGroupIndex, FontGroups[ActiveFontGroupIndex]);
+                }
+            }
         }
 
         if (FontLoaded)
@@ -199,7 +277,10 @@ int main()
 
         if (FontLoaded)
         {
-            DrawFontGlyphGrid(Renderer, FontGroup);
+            if (ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
+            {
+                DrawFontGlyphGrid(Renderer, FontGroups[ActiveFontGroupIndex]);
+            }
         }
 
         SDL_RenderPresent(Renderer);

@@ -17,5 +17,6 @@ struct FontGroup
     std::vector<FontGlyph> Glyphs;
 };
 
-bool DecodeFirstFontGroup(const std::vector<std::uint8_t>& Unpacked, FontGroup& Output, std::string& ErrorMessage);
+bool DecodeFontGroup(const std::vector<std::uint8_t>& Unpacked, std::size_t GroupIndex, FontGroup& Output, std::string& ErrorMessage, std::string* WarningMessage = nullptr);
+bool DecodeFirstFontGroup(const std::vector<std::uint8_t>& Unpacked, FontGroup& Output, std::string& ErrorMessage, std::string* WarningMessage = nullptr);
 }
