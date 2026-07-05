@@ -492,6 +492,11 @@ void PrintDebugOverlayState(bool DebugOverlayEnabled)
     std::cout << "debug overlay " << (DebugOverlayEnabled ? "on" : "off") << '\n';
 }
 
+void PrintTownMapBlockedTileOverlayState(bool BlockedTileOverlayEnabled)
+{
+    std::cout << "town map collision overlay " << (BlockedTileOverlayEnabled ? "on" : "off") << '\n';
+}
+
 void DrawFontGlyphGrid(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup)
 {
     constexpr int Columns = 16;
@@ -690,6 +695,51 @@ void DrawNpcSpriteFrameOnTownMap(SDL_Renderer* Renderer, const Grp::NpcSpriteFra
                 MapPixelY + static_cast<float>(Row) * SpritePixelSize,
                 SpritePixelSize,
                 SpritePixelSize
+            };
+            SDL_RenderFillRect(Renderer, &PixelRect);
+        }
+    }
+}
+
+bool IsTownMapBlockedTileIndex(std::uint8_t TileIndex);
+
+void DrawTownMapBlockedTileOverlay(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, std::size_t ScrollOffsetPixels)
+{
+    constexpr std::size_t TileSize = TownMapTileSize;
+    constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
+    const std::size_t MaximumScrollOffset = GetTownMapMaximumScrollOffset(TownMap);
+    const std::size_t ClampedScrollOffset = std::min<std::size_t>(ScrollOffsetPixels, MaximumScrollOffset);
+    const std::size_t FirstColumn = ClampedScrollOffset / TileSize;
+    const std::size_t ColumnPixelOffset = ClampedScrollOffset % TileSize;
+    const std::size_t ColumnsAvailable = TownMap.Width > FirstColumn ? TownMap.Width - FirstColumn : 0;
+    const std::size_t ColumnsToRender = std::min<std::size_t>(ColumnsAvailable, VisibleColumns + (ColumnPixelOffset != 0 ? 1 : 0));
+    const std::size_t RowsToRender = TownMap.Height;
+
+    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(Renderer, 255, 48, 48, 96);
+
+    for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
+    {
+        const std::size_t MapColumn = FirstColumn + Column;
+        const float TileX = static_cast<float>(Column * TileSize) - static_cast<float>(ColumnPixelOffset);
+        for (std::size_t Row = 0; Row < RowsToRender; ++Row)
+        {
+            const std::size_t CellIndex = MapColumn * TownMap.Height + Row;
+            if (CellIndex >= TownMap.Cells.size())
+            {
+                continue;
+            }
+
+            if (!IsTownMapBlockedTileIndex(TownMap.Cells[CellIndex]))
+            {
+                continue;
+            }
+
+            const SDL_FRect PixelRect{
+                TileX,
+                static_cast<float>(Row * TileSize),
+                static_cast<float>(TileSize),
+                static_cast<float>(TileSize)
             };
             SDL_RenderFillRect(Renderer, &PixelRect);
         }
@@ -959,7 +1009,7 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
     const Main64Palette& Palette, bool& FallbackWarningPrinted, std::size_t ScrollOffsetPixels,
     const Grp::NpcSpriteFrame* ActorFrame, std::size_t ActorFrameIndex, TownMapActorFacingDirection ActorFacingDirection,
     std::size_t ActorMapPixelX, std::size_t ActorMapPixelY, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled,
-    bool CameraFollowEnabled, bool ActorCollisionBlocked)
+    bool CameraFollowEnabled, bool ActorCollisionBlocked, bool BlockedTileOverlayEnabled)
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
@@ -1007,6 +1057,11 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
         }
     }
 
+    if (BlockedTileOverlayEnabled)
+    {
+        DrawTownMapBlockedTileOverlay(Renderer, TownMap, ClampedScrollOffset);
+    }
+
     if (ActorFrame != nullptr)
     {
         DrawNpcSpriteFrameOnTownMap(Renderer, *ActorFrame, Palette, static_cast<float>(ActorMapPixelX),
@@ -1033,6 +1088,8 @@ void DrawTownMapView(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, co
             "AX " + std::to_string(ActorMapPixelX) + " AY " + std::to_string(ActorMapPixelY));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 6.0f, TextScale,
             GetTownMapCollisionStatusName(ActorCollisionBlocked));
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 7.0f, TextScale,
+            std::string("TILES ") + (BlockedTileOverlayEnabled ? "ON" : "OFF"));
     }
 }
 }
@@ -1146,6 +1203,7 @@ int main()
     bool TownMapFallbackWarningPrinted = false;
     bool DebugOverlayEnabled = true;
     bool TownMapCameraFollowEnabled = true;
+    bool TownMapBlockedTileOverlayEnabled = false;
     std::size_t TownMapActorAnimationTickCount = 0;
     bool TownMapActorCollisionBlocked = false;
 
@@ -1229,6 +1287,11 @@ int main()
                 {
                     DebugOverlayEnabled = !DebugOverlayEnabled;
                     PrintDebugOverlayState(DebugOverlayEnabled);
+                }
+                else if (Event.key.key == SDLK_T && ActiveViewMode == ViewMode::TownMap)
+                {
+                    TownMapBlockedTileOverlayEnabled = !TownMapBlockedTileOverlayEnabled;
+                    PrintTownMapBlockedTileOverlayState(TownMapBlockedTileOverlayEnabled);
                 }
                 else if (Event.key.key == SDLK_C)
                 {
@@ -1433,7 +1496,8 @@ int main()
                 DrawTownMapView(Renderer, TownMap, PatternBank, Palette, TownMapFallbackWarningPrinted,
                     TownMapScrollOffsetPixels, TownMapActorFrameLoaded ? &TownMapActorFrame : nullptr, TownMapActorFrameIndex,
                     TownMapActorFacingDirectionState, TownMapActorMapPixelX, TownMapActorMapPixelY, DebugFontGroup,
-                    DebugOverlayEnabled, TownMapCameraFollowEnabled, TownMapActorCollisionBlocked);
+                    DebugOverlayEnabled, TownMapCameraFollowEnabled, TownMapActorCollisionBlocked,
+                    TownMapBlockedTileOverlayEnabled);
             }
         }
         else if (ActiveViewMode == ViewMode::Sprite)
