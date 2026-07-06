@@ -33,11 +33,9 @@ public:
     void Update(const bool* KeyboardState);
     void Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled) const;
 
-    void ToggleCameraFollow() noexcept;
     void ToggleBlockedTileOverlay() noexcept;
     void ToggleTownEntityMarkers() noexcept;
 
-    bool IsCameraFollowEnabled() const noexcept;
     bool IsBlockedTileOverlayEnabled() const noexcept;
     bool IsTownEntityMarkersEnabled() const noexcept;
 
@@ -182,7 +180,6 @@ private:
     bool ActorFrameVisible = false;
     bool ActorFrameWarningPrinted = false;
     bool ActorCollisionBlocked = false;
-    bool CameraFollowEnabled = true;
     bool BlockedTileOverlayEnabled = false;
     bool TownEntityMarkersEnabled = false;
     mutable bool FallbackWarningPrinted = false;

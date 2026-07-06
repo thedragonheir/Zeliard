@@ -20,6 +20,7 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
   - `ProximityMapLeftColumnX = 4`
   - `FacingDirection = 0`
   - `HeroAnimationPhase = 0`
+- The old town camera-follow toggle was removed; the town view now projects from the canonical horizontal hero state only.
 
 ## Movement Mapping
 - Normal town updates now read the canonical horizontal state instead of the provisional free 2D actor movement.
@@ -34,8 +35,6 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - Visible hero X is derived from `TownHeroState` and projected into `ActorMapPixelX`.
 - Visible hero Y stays fixed at `TownMapActorInitialMapPixelY` for now.
 - `ScrollOffsetPixels` now follows the canonical horizontal state by projecting `ProximityMapLeftColumnX` into the scroll offset.
-- `CameraFollowEnabled` is no longer part of the normal town movement path.
-
 ## Collision And Scrolling
 - Collision is deferred.
 - I did not implement the full assembly-backed blocker path from `check_tile_in_special_list` plus `find_non_passable_npc_at_x_pos`.
@@ -54,7 +53,6 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - `TownMovementFrameDelay`
 - `ActorAnimationTickCount`
 - `ActorCollisionBlocked`
-- `CameraFollowEnabled`
 - `BlockedTileOverlayEnabled`
 - `TownEntityMarkersEnabled`
 - `ActorMapPixelY`

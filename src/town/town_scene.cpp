@@ -54,11 +54,6 @@ const char* GetTownMapActorFacingDirectionName(TownMapActorFacingDirection Facin
     return "UNKNOWN";
 }
 
-const char* GetTownMapCameraFollowModeName(bool CameraFollowEnabled)
-{
-    return CameraFollowEnabled ? "AUTO" : "MANUAL";
-}
-
 std::size_t GetTownMapMaximumProximityMapLeftColumn(const Mdt::TownMapInfo& TownMap)
 {
     return TownMap.Width > TownHeroProximityMapWidthColumns ? TownMap.Width - TownHeroProximityMapWidthColumns : 0;
@@ -1062,7 +1057,6 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     TownNpcArray = BuildTownNpcRuntimeRecords(TownMap);
     ActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(ActorFrameIndex);
-    CameraFollowEnabled = false;
     SyncTownHeroRuntimeProjection();
 }
 
@@ -1082,8 +1076,8 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
-    const std::size_t MaximumScrollOffset = GetTownMapMaximumScrollOffset(TownMap);
-    const std::size_t ClampedScrollOffset = std::min<std::size_t>(ScrollOffsetPixels, MaximumScrollOffset);
+    const std::size_t ClampedScrollOffset = std::min<std::size_t>(ScrollOffsetPixels,
+        GetTownMapMaximumScrollOffset(TownMap));
     const std::size_t FirstColumn = ClampedScrollOffset / TileSize;
     const std::size_t ColumnPixelOffset = ClampedScrollOffset % TileSize;
     const std::size_t ColumnsAvailable = TownMap.Width > FirstColumn ? TownMap.Width - FirstColumn : 0;
@@ -1123,26 +1117,18 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
             "ACT F" + std::to_string(ActorFrameIndex) + " " + GetTownMapActorFacingDirectionName(ActorFacingDirection)
             + " ACTSPR " + GetTownMapActorSpriteStatusName(ActorFrameLoaded, ActorFrameVisible));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing, TextScale,
-            "CAM " + std::string(GetTownMapCameraFollowModeName(CameraFollowEnabled)) + " X "
-            + std::to_string(ClampedScrollOffset) + "/" + std::to_string(MaximumScrollOffset));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 2.0f, TextScale,
             "POS " + std::to_string(ActorMapPixelX) + "," + std::to_string(ActorMapPixelY) + " "
             + GetTownMapCollisionStatusName(ActorCollisionBlocked));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 3.0f, TextScale,
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 2.0f, TextScale,
             std::string("TILE ") + (BlockedTileOverlayEnabled ? "ON" : "OFF") + " OBJ "
             + (TownEntityMarkersEnabled ? "ON" : "OFF"));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 3.0f, TextScale,
             "NPCSPR " + std::to_string(RenderStats.RenderedNpcSpriteCount) + "/" + std::to_string(NpcMarkerCount)
             + " NPCMISS " + std::to_string(RenderStats.NpcSpriteMissCount)
             + " DOOR " + std::to_string(DoorMarkerCount));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale,
+        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
             GetTownEntityProximityStatus(TownMap, ActorMapPixelX, ActorMapPixelY));
     }
-}
-
-void TownScene::ToggleCameraFollow() noexcept
-{
-    CameraFollowEnabled = false;
 }
 
 void TownScene::ToggleBlockedTileOverlay() noexcept
@@ -1153,11 +1139,6 @@ void TownScene::ToggleBlockedTileOverlay() noexcept
 void TownScene::ToggleTownEntityMarkers() noexcept
 {
     TownEntityMarkersEnabled = !TownEntityMarkersEnabled;
-}
-
-bool TownScene::IsCameraFollowEnabled() const noexcept
-{
-    return CameraFollowEnabled;
 }
 
 bool TownScene::IsBlockedTileOverlayEnabled() const noexcept

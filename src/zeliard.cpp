@@ -1057,11 +1057,6 @@ int main()
                         std::cerr << "cmap.mdt town map unavailable: " << TownMapViewUnavailableMessage << '\n';
                     }
                 }
-                else if (Event.key.key == SDLK_A && ActiveViewMode == ViewMode::TownMap)
-                {
-                    TownMapScene.ToggleCameraFollow();
-                    std::cout << "town map camera follow " << (TownMapScene.IsCameraFollowEnabled() ? "on" : "off") << '\n';
-                }
                 else if (Event.key.key == SDLK_S)
                 {
                     if (SpriteViewAvailable)
