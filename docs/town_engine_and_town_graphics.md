@@ -258,6 +258,7 @@ Four routines scroll decorative parts of the town scene:
 | `scroll_ceiling_left_4px` | Moves top/ceiling band left by 4 pixels. |
 
 Right scroll uses `std` so copy operations proceed backward and avoid overwriting source pixels before they are copied.
+The floor routines are called only when `proximity_map_left_col_x` advances or retreats during horizontal town panning; `hero_x_in_viewport` only decides whether the hero moves within the viewport or the viewport itself scrolls.
 
 ## Lower strip path
 
@@ -267,6 +268,8 @@ The current town scene now also mirrors the floor strip from the background driv
 - YMPD uses the proven `ground` and `ground1` streams at `0x229e` and `0x23f1`, then applies the MCGA `render_ground` bitplane-to-pixel conversion.
 - CKPD uses the MCGA `mode4_mcga` raw tables at `0x1c25` and `0x1de5`.
 - The strip is drawn at logical MCGA coordinates `x = 48`, `y = 14 + 16 * 8 = 142` and occupies a `224 x 16` rectangle.
+- The decoded strip stays at that fixed screen position, but its pixels are sampled with a cyclic 8-pixel horizontal phase that advances only when the viewport pans one town column, matching `scroll_floor_right_8px` and `scroll_floor_left_8px`.
+- No separate background-driver offset was found in the inspected assembly; the proven driver behavior is the in-place 8px scroll step, not a new scenic background system.
 
 ## Town pattern loading
 

@@ -285,15 +285,20 @@ bool LoadTownBackgroundStripPixels(const std::filesystem::path& TownBackgroundBi
     return true;
 }
 
-void DrawTownBackgroundStrip(SDL_Renderer* Renderer, const std::array<std::uint8_t, TownBackgroundStripWidth * TownBackgroundStripHeight>& Pixels,
-    const Main64Palette& Palette)
+void DrawTownBackgroundStrip(SDL_Renderer* Renderer,
+    const std::array<std::uint8_t, TownBackgroundStripWidth * TownBackgroundStripHeight>& Pixels,
+    const Main64Palette& Palette, std::size_t ScrollOffsetPixels)
 {
     SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
     for (std::size_t Row = 0; Row < TownBackgroundStripHeight; ++Row)
     {
         for (std::size_t Column = 0; Column < TownBackgroundStripWidth; ++Column)
         {
-            const std::uint8_t PaletteIndex = Pixels[Row * TownBackgroundStripWidth + Column];
+            // Mirror the DOS floor-band scroll by sampling the decoded strip
+            // with a cyclic 8px phase instead of moving the strip rectangle.
+            const std::size_t SourceColumn = (Column + TownBackgroundStripWidth - ScrollOffsetPixels)
+                % TownBackgroundStripWidth;
+            const std::uint8_t PaletteIndex = Pixels[Row * TownBackgroundStripWidth + SourceColumn];
             if (PaletteIndex >= Palette.size())
             {
                 continue;
@@ -976,6 +981,19 @@ std::size_t TownScene::GetTownHeroScrollOffsetPixels() const noexcept
     return std::min<std::size_t>(ProximityMapScrollOffsetPixels, GetTownMapMaximumScrollOffset(TownMap));
 }
 
+void TownScene::AdvanceTownBackgroundStripScrollOffset(std::ptrdiff_t PixelDelta) noexcept
+{
+    const std::ptrdiff_t StripWidth = static_cast<std::ptrdiff_t>(TownBackgroundStripWidth);
+    std::ptrdiff_t NewOffset = static_cast<std::ptrdiff_t>(TownBackgroundStripScrollOffsetPixels) + PixelDelta;
+    NewOffset %= StripWidth;
+    if (NewOffset < 0)
+    {
+        NewOffset += StripWidth;
+    }
+
+    TownBackgroundStripScrollOffsetPixels = static_cast<std::size_t>(NewOffset);
+}
+
 void TownScene::SyncTownHeroRuntimeProjection() noexcept
 {
     ActorFacingDirection = (TownHeroState.FacingDirection & 1) != 0
@@ -1040,6 +1058,9 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
         else if (!BlockedByNpc && TownHeroState.ProximityMapLeftColumnX > 0)
         {
             --TownHeroState.ProximityMapLeftColumnX;
+            // The assembly scrolls the floor band in 8px steps when the
+            // viewport pans, so keep the strip phase aligned to that step.
+            AdvanceTownBackgroundStripScrollOffset(8);
             HeroMoved = true;
         }
         else if (!BlockedByNpc && TownHeroState.HeroXInViewport > 0)
@@ -1066,6 +1087,9 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
         else if (!BlockedByNpc && TownHeroState.ProximityMapLeftColumnX < MaximumProximityMapLeftColumn)
         {
             ++TownHeroState.ProximityMapLeftColumnX;
+            // Matching the left scroll call keeps the strip moving with the
+            // town view instead of drifting independently.
+            AdvanceTownBackgroundStripScrollOffset(-8);
             HeroMoved = true;
         }
         else if (!BlockedByNpc && TownHeroState.HeroXInViewport < 28)
@@ -1423,7 +1447,7 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
 
     if (TownBackgroundStripLoaded)
     {
-        DrawTownBackgroundStrip(Renderer, TownBackgroundStripPixels, Palette);
+        DrawTownBackgroundStrip(Renderer, TownBackgroundStripPixels, Palette, TownBackgroundStripScrollOffsetPixels);
     }
 
     if (!(ActorFrameLoaded && ActorFrameVisible))

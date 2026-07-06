@@ -130,6 +130,7 @@ private:
     std::size_t GetTownHeroMapPixelX() const noexcept;
     std::size_t GetTownHeroMapPixelY() const noexcept;
     std::size_t GetTownHeroScrollOffsetPixels() const noexcept;
+    void AdvanceTownBackgroundStripScrollOffset(std::ptrdiff_t PixelDelta) noexcept;
     void SyncTownHeroRuntimeProjection() noexcept;
     void UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
@@ -186,6 +187,7 @@ private:
     bool TownEntityMarkersEnabled = false;
     bool TownBackgroundStripLoaded = false;
     bool TownBackgroundStripUsesCkpd = false;
+    std::size_t TownBackgroundStripScrollOffsetPixels = 0;
     mutable bool FallbackWarningPrinted = false;
     mutable std::array<Grp::NpcSpriteFrame, TownNpcSpriteFrameCount> TownNpcSpriteFrames{};
     mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameLoaded{};
