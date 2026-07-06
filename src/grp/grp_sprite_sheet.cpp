@@ -23,6 +23,14 @@ constexpr std::size_t NpcIndexTableBytes = 256;
 constexpr std::size_t NpcIndexBytes = NpcFrameCount * NpcTilesPerFrame;
 constexpr std::size_t NpcTileBytes = 48;
 constexpr std::size_t TownHeroFrameCount = 10;
+constexpr std::size_t DungeonHeroFrameCount = 91;
+constexpr std::size_t DungeonHeroTilesPerFrame = 9;
+constexpr std::size_t DungeonHeroTilesAcross = 3;
+constexpr std::size_t DungeonHeroTilesDown = 3;
+constexpr std::size_t DungeonHeroTileWidth = 8;
+constexpr std::size_t DungeonHeroTileHeight = 8;
+constexpr std::size_t DungeonHeroFrameHeaderBytes = DungeonHeroFrameCount * DungeonHeroTilesPerFrame;
+constexpr std::size_t DungeonHeroTileBytes = 32;
 
 constexpr std::array<std::uint8_t, TownHeroFrameCount * NpcTilesPerFrame> TownHeroFrameTileIndices{
     0x00, 0x02, 0x04, 0x01, 0x03, 0x05,
@@ -35,6 +43,13 @@ constexpr std::array<std::uint8_t, TownHeroFrameCount * NpcTilesPerFrame> TownHe
     0x1A, 0x26, 0x28, 0x1B, 0x27, 0x29,
     0x20, 0x2A, 0x2C, 0x21, 0x2B, 0x2D,
     0x14, 0x16, 0x18, 0x15, 0x17, 0x19
+};
+
+constexpr std::array<std::uint8_t, 16> DungeonHeroPaletteDecodeTable{
+    0x00, 0x01, 0x02, 0x03,
+    0x08, 0x09, 0x0A, 0x0B,
+    0x10, 0x11, 0x12, 0x13,
+    0x18, 0x19, 0x1A, 0x1B
 };
 
 std::uint16_t ReadBigEndianWord(const std::vector<std::uint8_t>& Data, std::size_t Offset)
@@ -206,6 +221,121 @@ bool DecodeTownHeroFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t 
     return true;
 }
 
+void DecodeDungeonHeroTile(const std::array<std::uint8_t, DungeonHeroTileBytes>& TileBytes,
+    std::array<std::uint8_t, DungeonHeroTileWidth * DungeonHeroTileHeight>& Output,
+    std::array<std::uint8_t, DungeonHeroTileWidth * DungeonHeroTileHeight>& VisiblePixels)
+{
+    Output.fill(0);
+    VisiblePixels.fill(0);
+
+    for (std::size_t RowIndex = 0; RowIndex < DungeonHeroTileHeight; ++RowIndex)
+    {
+        const std::size_t RowOffset = RowIndex * 4;
+        const std::uint16_t Plane0 = static_cast<std::uint16_t>(
+            (static_cast<std::uint16_t>(TileBytes[RowOffset]) << 8) | TileBytes[RowOffset + 1]);
+        const std::uint16_t Plane1 = static_cast<std::uint16_t>(
+            (static_cast<std::uint16_t>(TileBytes[RowOffset + 2]) << 8) | TileBytes[RowOffset + 3]);
+        const std::uint16_t Combined = static_cast<std::uint16_t>(Plane0 | Plane1);
+        const std::uint16_t RowMask = static_cast<std::uint16_t>(~(Combined | (Combined >> 1) | (Combined << 2)));
+
+        for (std::size_t ColumnIndex = 0; ColumnIndex < DungeonHeroTileWidth; ++ColumnIndex)
+        {
+            const std::size_t HighBitShift = 15 - ColumnIndex * 2;
+            const std::size_t LowBitShift = 14 - ColumnIndex * 2;
+            const std::uint8_t PaletteNibble = static_cast<std::uint8_t>(
+                (((Plane1 >> HighBitShift) & 1) << 3)
+                | (((Plane0 >> HighBitShift) & 1) << 2)
+                | (((Plane1 >> LowBitShift) & 1) << 1)
+                | ((Plane0 >> LowBitShift) & 1));
+            const bool IsTransparent = ((RowMask >> LowBitShift) & 0x03) == 0x03;
+            const std::size_t PixelIndex = RowIndex * DungeonHeroTileWidth + ColumnIndex;
+
+            if (!IsTransparent)
+            {
+                Output[PixelIndex] = DungeonHeroPaletteDecodeTable[PaletteNibble];
+                VisiblePixels[PixelIndex] = 1;
+            }
+        }
+    }
+}
+
+bool ReadDungeonHeroTile(const std::vector<std::uint8_t>& Unpacked, std::size_t TileBankOffset, std::size_t TileIndex,
+    std::array<std::uint8_t, DungeonHeroTileBytes>& Output, std::string& ErrorMessage)
+{
+    const std::size_t TileOffset = TileBankOffset + TileIndex * DungeonHeroTileBytes;
+    if (TileOffset >= Unpacked.size())
+    {
+        ErrorMessage = "fman.grp references tile index " + std::to_string(TileIndex) + " outside the tile bank";
+        return false;
+    }
+
+    Output.fill(0);
+
+    // fman.grp's unpacked tile bank ends with a short final tile in the Python viewer,
+    // so pad the available bytes instead of rejecting that last partial definition.
+    const std::size_t AvailableBytes = std::min(DungeonHeroTileBytes, Unpacked.size() - TileOffset);
+    std::copy_n(Unpacked.begin() + static_cast<std::ptrdiff_t>(TileOffset),
+        AvailableBytes, Output.begin());
+    return true;
+}
+
+bool DecodeDungeonHeroFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t FrameIndex,
+    std::array<std::uint8_t, DungeonHeroSpriteFrame::PixelCount>& Output,
+    std::array<std::uint8_t, DungeonHeroSpriteFrame::PixelCount>& VisiblePixels,
+    std::string& ErrorMessage)
+{
+    Output.fill(0);
+    VisiblePixels.fill(0);
+
+    if (Unpacked.size() < DungeonHeroFrameHeaderBytes)
+    {
+        ErrorMessage = "fman.grp unpacked data is too small for the frame header";
+        return false;
+    }
+
+    const std::size_t TileBankOffset = DungeonHeroFrameHeaderBytes;
+    const std::size_t FrameOffset = FrameIndex * DungeonHeroTilesPerFrame;
+    for (std::size_t TileRow = 0; TileRow < DungeonHeroTilesDown; ++TileRow)
+    {
+        for (std::size_t TileColumn = 0; TileColumn < DungeonHeroTilesAcross; ++TileColumn)
+        {
+            const std::size_t SourceIndexOffset = FrameOffset + TileRow * DungeonHeroTilesAcross + TileColumn;
+            const std::uint8_t TileIndex = Unpacked[SourceIndexOffset];
+            if (TileIndex == 0)
+            {
+                continue;
+            }
+
+            std::array<std::uint8_t, DungeonHeroTileBytes> TileBytes{};
+            if (!ReadDungeonHeroTile(Unpacked, TileBankOffset, TileIndex, TileBytes, ErrorMessage))
+            {
+                ErrorMessage = "fman.grp frame " + std::to_string(FrameIndex) + " " + ErrorMessage;
+                return false;
+            }
+
+            std::array<std::uint8_t, DungeonHeroTileWidth * DungeonHeroTileHeight> TilePixels{};
+            std::array<std::uint8_t, DungeonHeroTileWidth * DungeonHeroTileHeight> TileVisiblePixels{};
+            DecodeDungeonHeroTile(TileBytes, TilePixels, TileVisiblePixels);
+
+            const std::size_t DestinationX = TileColumn * DungeonHeroTileWidth;
+            const std::size_t DestinationY = TileRow * DungeonHeroTileHeight;
+            for (std::size_t Row = 0; Row < DungeonHeroTileHeight; ++Row)
+            {
+                for (std::size_t Column = 0; Column < DungeonHeroTileWidth; ++Column)
+                {
+                    const std::size_t SourcePixelIndex = Row * DungeonHeroTileWidth + Column;
+                    const std::size_t DestinationPixelIndex =
+                        (DestinationY + Row) * DungeonHeroSpriteFrame::FrameWidth + (DestinationX + Column);
+                    Output[DestinationPixelIndex] = TilePixels[SourcePixelIndex];
+                    VisiblePixels[DestinationPixelIndex] = TileVisiblePixels[SourcePixelIndex];
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
 bool LoadNpcSpriteData(const std::filesystem::path& Path, std::vector<std::uint8_t>& Unpacked, std::size_t& TileCount, std::string& ErrorMessage)
 {
     if (!UnpackFile(Path, Unpacked, ErrorMessage))
@@ -240,6 +370,7 @@ bool LoadNpcSpriteData(const std::filesystem::path& Path, std::vector<std::uint8
     ErrorMessage.clear();
     return true;
 }
+
 }
 
 bool LoadNpcSpriteSheet(const std::filesystem::path& Path, SpriteSheetSummary& Output, std::string& ErrorMessage)
@@ -319,6 +450,30 @@ bool LoadTownHeroSpriteFrame(const std::filesystem::path& Path, std::size_t Fram
     }
 
     if (!DecodeTownHeroFrame(Unpacked, FrameIndex, Output.Pixels, ErrorMessage))
+    {
+        return false;
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+
+bool LoadDungeonHeroSpriteFrame(const std::filesystem::path& Path, std::size_t FrameIndex, DungeonHeroSpriteFrame& Output, std::string& ErrorMessage)
+{
+    if (FrameIndex >= DungeonHeroFrameCount)
+    {
+        ErrorMessage = "fman.grp frame index " + std::to_string(FrameIndex) + " is outside the 91-frame sheet";
+        return false;
+    }
+
+    std::vector<std::uint8_t> Unpacked;
+    if (!UnpackFile(Path, Unpacked, ErrorMessage))
+    {
+        return false;
+    }
+
+    Output = {};
+    if (!DecodeDungeonHeroFrame(Unpacked, FrameIndex, Output.Pixels, Output.VisiblePixels, ErrorMessage))
     {
         return false;
     }

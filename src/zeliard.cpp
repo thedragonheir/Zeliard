@@ -23,8 +23,45 @@
 namespace
 {
 const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
-constexpr std::size_t SpriteFrameCount = 40;
-constexpr std::size_t SpriteFrameMaximumIndex = SpriteFrameCount - 1;
+constexpr std::uint64_t SpriteAnimationFrameDelayMs = 160;
+
+enum class SpriteBankKind
+{
+    Npc,
+    TownHero,
+    DungeonHero
+};
+
+enum class SpriteFrameLoadState
+{
+    Ok,
+    Miss,
+    Empty
+};
+
+struct SpriteBankDefinition
+{
+    const char* FileName = "";
+    SpriteBankKind Kind = SpriteBankKind::Npc;
+    std::size_t FrameCount = 0;
+    std::size_t FrameWidth = 0;
+    std::size_t FrameHeight = 0;
+};
+
+struct SpriteViewFrame
+{
+    std::size_t Width = 0;
+    std::size_t Height = 0;
+    std::vector<std::uint8_t> Pixels;
+    std::vector<std::uint8_t> VisiblePixels;
+};
+
+const std::array<SpriteBankDefinition, 4> SpriteBankDefinitions{{
+    { "mman.grp", SpriteBankKind::Npc, 40, Grp::NpcSpriteFrame::FrameWidth, Grp::NpcSpriteFrame::FrameHeight },
+    { "cman.grp", SpriteBankKind::Npc, 40, Grp::NpcSpriteFrame::FrameWidth, Grp::NpcSpriteFrame::FrameHeight },
+    { "tman.grp", SpriteBankKind::TownHero, 10, Grp::NpcSpriteFrame::FrameWidth, Grp::NpcSpriteFrame::FrameHeight },
+    { "fman.grp", SpriteBankKind::DungeonHero, 91, Grp::DungeonHeroSpriteFrame::FrameWidth, Grp::DungeonHeroSpriteFrame::FrameHeight }
+}};
 
 enum class ViewMode
 {
@@ -227,10 +264,142 @@ void PrintActiveViewMode(ViewMode ActiveViewMode)
         break;
 
     case ViewMode::Sprite:
-        std::cout << "active view mode: mman.grp sprite test" << '\n';
+        std::cout << "active view mode: sprite viewer" << '\n';
         break;
     }
 }
+
+const char* GetSpriteFrameLoadStateName(SpriteFrameLoadState LoadState)
+{
+    switch (LoadState)
+    {
+    case SpriteFrameLoadState::Ok:
+        return "OK";
+
+    case SpriteFrameLoadState::Miss:
+        return "MISS";
+
+    case SpriteFrameLoadState::Empty:
+        return "EMPTY";
+    }
+
+    return "MISS";
+}
+
+std::filesystem::path GetSpriteBankPath(const SpriteBankDefinition& SpriteBank)
+{
+    return ProjectRoot / "tools" / "grpviewer" / SpriteBank.FileName;
+}
+
+void ResetSpriteViewFrame(SpriteViewFrame& SpriteFrame, std::size_t Width, std::size_t Height)
+{
+    SpriteFrame.Width = Width;
+    SpriteFrame.Height = Height;
+    SpriteFrame.Pixels.assign(Width * Height, 0);
+    SpriteFrame.VisiblePixels.assign(Width * Height, 0);
+}
+
+void CopyNpcSpriteFrameForView(const Grp::NpcSpriteFrame& SourceFrame, SpriteViewFrame& SpriteFrame)
+{
+    ResetSpriteViewFrame(SpriteFrame, Grp::NpcSpriteFrame::FrameWidth, Grp::NpcSpriteFrame::FrameHeight);
+
+    for (std::size_t PixelIndex = 0; PixelIndex < SourceFrame.Pixels.size(); ++PixelIndex)
+    {
+        const std::uint8_t PaletteIndex = SourceFrame.Pixels[PixelIndex];
+        SpriteFrame.Pixels[PixelIndex] = PaletteIndex;
+        SpriteFrame.VisiblePixels[PixelIndex] = PaletteIndex != 0 ? 1 : 0;
+    }
+}
+
+void CopyDungeonHeroSpriteFrameForView(const Grp::DungeonHeroSpriteFrame& SourceFrame, SpriteViewFrame& SpriteFrame)
+{
+    ResetSpriteViewFrame(SpriteFrame, Grp::DungeonHeroSpriteFrame::FrameWidth, Grp::DungeonHeroSpriteFrame::FrameHeight);
+    std::copy(SourceFrame.Pixels.begin(), SourceFrame.Pixels.end(), SpriteFrame.Pixels.begin());
+    std::copy(SourceFrame.VisiblePixels.begin(), SourceFrame.VisiblePixels.end(), SpriteFrame.VisiblePixels.begin());
+}
+
+bool HasVisibleSpritePixels(const SpriteViewFrame& SpriteFrame)
+{
+    return std::any_of(SpriteFrame.VisiblePixels.begin(), SpriteFrame.VisiblePixels.end(),
+        [](std::uint8_t IsVisible)
+        {
+            return IsVisible != 0;
+        });
+}
+
+void LoadSpriteFrameForView(const SpriteBankDefinition& SpriteBank, std::size_t FrameIndex,
+    SpriteViewFrame& SpriteFrame, SpriteFrameLoadState& LoadState, std::string& ErrorMessage)
+{
+    ResetSpriteViewFrame(SpriteFrame, SpriteBank.FrameWidth, SpriteBank.FrameHeight);
+
+    if (FrameIndex >= SpriteBank.FrameCount)
+    {
+        LoadState = SpriteFrameLoadState::Miss;
+        ErrorMessage = std::string(SpriteBank.FileName) + " frame index " + std::to_string(FrameIndex)
+            + " is outside the " + std::to_string(SpriteBank.FrameCount) + "-frame sheet";
+        return;
+    }
+
+    const std::filesystem::path SpriteBankPath = GetSpriteBankPath(SpriteBank);
+    bool FrameLoaded = false;
+
+    switch (SpriteBank.Kind)
+    {
+    case SpriteBankKind::Npc:
+    {
+        Grp::NpcSpriteFrame LoadedFrame;
+        FrameLoaded = Grp::LoadNpcSpriteFrame(SpriteBankPath, FrameIndex, LoadedFrame, ErrorMessage);
+        if (FrameLoaded)
+        {
+            CopyNpcSpriteFrameForView(LoadedFrame, SpriteFrame);
+        }
+        break;
+    }
+
+    case SpriteBankKind::TownHero:
+    {
+        Grp::NpcSpriteFrame LoadedFrame;
+        FrameLoaded = Grp::LoadTownHeroSpriteFrame(SpriteBankPath, FrameIndex, LoadedFrame, ErrorMessage);
+        if (FrameLoaded)
+        {
+            CopyNpcSpriteFrameForView(LoadedFrame, SpriteFrame);
+        }
+        break;
+    }
+
+    case SpriteBankKind::DungeonHero:
+    {
+        Grp::DungeonHeroSpriteFrame LoadedFrame;
+        FrameLoaded = Grp::LoadDungeonHeroSpriteFrame(SpriteBankPath, FrameIndex, LoadedFrame, ErrorMessage);
+        if (FrameLoaded)
+        {
+            CopyDungeonHeroSpriteFrameForView(LoadedFrame, SpriteFrame);
+        }
+        break;
+    }
+    }
+
+    if (!FrameLoaded)
+    {
+        LoadState = SpriteFrameLoadState::Miss;
+        return;
+    }
+
+    LoadState = HasVisibleSpritePixels(SpriteFrame) ? SpriteFrameLoadState::Ok : SpriteFrameLoadState::Empty;
+    ErrorMessage.clear();
+}
+
+void PrintActiveSpriteBank(const SpriteBankDefinition& SpriteBank)
+{
+    std::cout << "active sprite bank: " << SpriteBank.FileName
+              << " (" << SpriteBank.FrameCount << " frames)" << '\n';
+}
+
+void PrintSpriteAnimationState(bool SpriteAnimationEnabled)
+{
+    std::cout << "sprite animation " << (SpriteAnimationEnabled ? "on" : "off") << '\n';
+}
+
 bool ValidateGrpUnpack()
 {
     std::vector<std::uint8_t> Unpacked;
@@ -360,11 +529,6 @@ bool LoadNpcSpriteSheetSummary(Grp::SpriteSheetSummary& SpriteSheet)
               << static_cast<int>(SpriteSheet.MinimumPaletteIndex) << ".."
               << static_cast<int>(SpriteSheet.MaximumPaletteIndex) << "." << '\n';
     return true;
-}
-
-bool LoadNpcSpriteFrameForView(const std::filesystem::path& GrpPath, std::size_t FrameIndex, Grp::NpcSpriteFrame& SpriteFrame, std::string& ErrorMessage)
-{
-    return Grp::LoadNpcSpriteFrame(GrpPath, FrameIndex, SpriteFrame, ErrorMessage);
 }
 
 std::filesystem::path GetTownNpcSpriteGrpPath(const std::vector<std::uint8_t>& FileBytes)
@@ -590,35 +754,48 @@ void DrawPatternBankGrid(SDL_Renderer* Renderer, const Grp::PatternBank& Pattern
     }
 }
 
-void DrawNpcSpriteFrameView(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& SpriteFrame, std::size_t SpriteFrameIndex,
+void DrawSpriteFrameView(SDL_Renderer* Renderer, const SpriteBankDefinition& SpriteBank, const SpriteViewFrame& SpriteFrame,
+    std::size_t SpriteFrameIndex, SpriteFrameLoadState LoadState, bool SpriteAnimationEnabled,
     const Main64Palette& Palette, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
 {
-    constexpr float SpritePixelSize = 5.0f;
-    const float SpriteWidthPixels = static_cast<float>(Grp::NpcSpriteFrame::FrameWidth) * SpritePixelSize;
-    const float SpriteHeightPixels = static_cast<float>(Grp::NpcSpriteFrame::FrameHeight) * SpritePixelSize;
-    const float StartX = (320.0f - SpriteWidthPixels) * 0.5f;
-    const float StartY = (200.0f - SpriteHeightPixels) * 0.5f;
-
-    for (std::size_t Row = 0; Row < Grp::NpcSpriteFrame::FrameHeight; ++Row)
+    if (LoadState != SpriteFrameLoadState::Miss && SpriteFrame.Width > 0 && SpriteFrame.Height > 0
+        && SpriteFrame.Pixels.size() == SpriteFrame.VisiblePixels.size())
     {
-        for (std::size_t Column = 0; Column < Grp::NpcSpriteFrame::FrameWidth; ++Column)
+        constexpr float MaximumSpriteViewSize = 120.0f;
+        const float SpritePixelSize = std::min(5.0f,
+            MaximumSpriteViewSize / static_cast<float>(std::max(SpriteFrame.Width, SpriteFrame.Height)));
+        const float SpriteWidthPixels = static_cast<float>(SpriteFrame.Width) * SpritePixelSize;
+        const float SpriteHeightPixels = static_cast<float>(SpriteFrame.Height) * SpritePixelSize;
+        const float StartX = (320.0f - SpriteWidthPixels) * 0.5f;
+        const float StartY = (200.0f - SpriteHeightPixels) * 0.5f;
+
+        for (std::size_t Row = 0; Row < SpriteFrame.Height; ++Row)
         {
-            const std::uint8_t PaletteIndex = SpriteFrame.Pixels[Row * Grp::NpcSpriteFrame::FrameWidth + Column];
-            if (PaletteIndex == 0)
+            for (std::size_t Column = 0; Column < SpriteFrame.Width; ++Column)
             {
-                continue;
+                const std::size_t PixelIndex = Row * SpriteFrame.Width + Column;
+                if (SpriteFrame.VisiblePixels[PixelIndex] == 0)
+                {
+                    continue;
+                }
+
+                const std::uint8_t PaletteIndex = SpriteFrame.Pixels[PixelIndex];
+                if (PaletteIndex >= Palette.size())
+                {
+                    continue;
+                }
+
+                const SDL_Color& Color = Palette[PaletteIndex];
+                SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+
+                const SDL_FRect PixelRect{
+                    StartX + static_cast<float>(Column) * SpritePixelSize,
+                    StartY + static_cast<float>(Row) * SpritePixelSize,
+                    SpritePixelSize,
+                    SpritePixelSize
+                };
+                SDL_RenderFillRect(Renderer, &PixelRect);
             }
-
-            const SDL_Color& Color = Palette[PaletteIndex];
-            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
-
-            const SDL_FRect PixelRect{
-                StartX + static_cast<float>(Column) * SpritePixelSize,
-                StartY + static_cast<float>(Row) * SpritePixelSize,
-                SpritePixelSize,
-                SpritePixelSize
-            };
-            SDL_RenderFillRect(Renderer, &PixelRect);
         }
     }
 
@@ -629,10 +806,14 @@ void DrawNpcSpriteFrameView(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& S
         constexpr float TextStartY = 8.0f;
         constexpr float LineSpacing = 10.0f;
 
-        DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY, TextScale, "SPR MMAN");
+        DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY, TextScale,
+            "GRP " + std::string(SpriteBank.FileName));
         DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY + LineSpacing, TextScale,
-            "FRAME " + std::to_string(SpriteFrameIndex) + " / " + std::to_string(SpriteFrameMaximumIndex));
-        DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY + LineSpacing * 2.0f, TextScale, "W 16 H 24");
+            "FRAME " + std::to_string(SpriteFrameIndex) + " / " + std::to_string(SpriteBank.FrameCount));
+        DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY + LineSpacing * 2.0f, TextScale,
+            "ANIM " + std::string(SpriteAnimationEnabled ? "ON" : "OFF"));
+        DrawFontText(Renderer, *DebugFontGroup, TextStartX, TextStartY + LineSpacing * 3.0f, TextScale,
+            "STATE " + std::string(GetSpriteFrameLoadStateName(LoadState)));
     }
 }
 }
@@ -667,21 +848,25 @@ int main()
         std::cerr << "mman.grp sprite validation failed; continuing anyway." << '\n';
     }
 
-    const std::filesystem::path SpriteViewGrpPath = ProjectRoot / "tools" / "grpviewer" / "mman.grp";
     const std::filesystem::path TownActorSpriteGrpPath = ProjectRoot / "game" / "0" / "tman.grp";
-    Grp::NpcSpriteFrame CurrentSpriteFrame;
+    std::size_t ActiveSpriteBankIndex = 0;
+    SpriteViewFrame CurrentSpriteFrame;
     std::size_t CurrentSpriteFrameIndex = 0;
+    SpriteFrameLoadState CurrentSpriteFrameLoadState = SpriteFrameLoadState::Miss;
     std::string SpriteFrameLoadErrorMessage;
-    const bool SpriteFrameLoaded = LoadNpcSpriteFrameForView(SpriteViewGrpPath, CurrentSpriteFrameIndex, CurrentSpriteFrame, SpriteFrameLoadErrorMessage);
-    if (!SpriteFrameLoaded)
+    LoadSpriteFrameForView(SpriteBankDefinitions[ActiveSpriteBankIndex], CurrentSpriteFrameIndex,
+        CurrentSpriteFrame, CurrentSpriteFrameLoadState, SpriteFrameLoadErrorMessage);
+    if (CurrentSpriteFrameLoadState == SpriteFrameLoadState::Miss)
     {
-        std::cerr << "mman.grp sprite frame 0 load failed: " << SpriteFrameLoadErrorMessage << '\n';
+        std::cerr << SpriteBankDefinitions[ActiveSpriteBankIndex].FileName << " sprite frame 0 load failed: "
+                  << SpriteFrameLoadErrorMessage << '\n';
     }
     else
     {
-        std::cout << "mman.grp sprite frame 0 loaded: source " << SpriteViewGrpPath.string()
-                  << ", frame " << Grp::NpcSpriteFrame::FrameWidth << "x"
-                  << Grp::NpcSpriteFrame::FrameHeight << "." << '\n';
+        std::cout << SpriteBankDefinitions[ActiveSpriteBankIndex].FileName
+                  << " sprite frame 0 loaded: frame " << CurrentSpriteFrame.Width << "x"
+                  << CurrentSpriteFrame.Height << ", state "
+                  << GetSpriteFrameLoadStateName(CurrentSpriteFrameLoadState) << "." << '\n';
     }
     Main64Palette Palette{};
     std::string PaletteErrorMessage;
@@ -699,7 +884,7 @@ int main()
 
     const bool CpatViewAvailable = PatternBankLoaded && PaletteLoaded;
     const bool TownMapViewAvailable = TownMapLoaded && PatternBankLoaded && PaletteLoaded;
-    const bool SpriteViewAvailable = SpriteFrameLoaded && PaletteLoaded;
+    const bool SpriteViewAvailable = PaletteLoaded;
     std::string CpatViewUnavailableMessage;
     if (!PatternBankLoaded)
     {
@@ -725,11 +910,7 @@ int main()
     }
 
     std::string SpriteViewUnavailableMessage;
-    if (!SpriteFrameLoaded)
-    {
-        SpriteViewUnavailableMessage = SpriteFrameLoadErrorMessage.empty() ? "sprite frame load failed" : SpriteFrameLoadErrorMessage;
-    }
-    else if (!PaletteLoaded)
+    if (!PaletteLoaded)
     {
         SpriteViewUnavailableMessage = PaletteErrorMessage;
     }
@@ -740,6 +921,8 @@ int main()
     std::size_t ActiveFontGroupIndex = 0;
     ViewMode ActiveViewMode = ViewMode::Font;
     bool DebugOverlayEnabled = true;
+    bool SpriteAnimationEnabled = false;
+    std::uint64_t LastSpriteAnimationTick = 0;
 
     if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
     {
@@ -875,29 +1058,58 @@ int main()
                     }
                     else
                     {
-                        std::cerr << "mman.grp sprite test unavailable: " << SpriteViewUnavailableMessage << '\n';
+                        std::cerr << "sprite viewer unavailable: " << SpriteViewUnavailableMessage << '\n';
                     }
                 }
                 else if (ActiveViewMode == ViewMode::Sprite)
                 {
-                    if (Event.key.key == SDLK_LEFT || Event.key.key == SDLK_RIGHT)
+                    if (Event.key.key == SDLK_G)
                     {
+                        ActiveSpriteBankIndex = (ActiveSpriteBankIndex + 1) % SpriteBankDefinitions.size();
+                        CurrentSpriteFrameIndex = 0;
+                        LoadSpriteFrameForView(SpriteBankDefinitions[ActiveSpriteBankIndex], CurrentSpriteFrameIndex,
+                            CurrentSpriteFrame, CurrentSpriteFrameLoadState, SpriteFrameLoadErrorMessage);
+                        LastSpriteAnimationTick = SDL_GetTicks();
+                        PrintActiveSpriteBank(SpriteBankDefinitions[ActiveSpriteBankIndex]);
+                        if (CurrentSpriteFrameLoadState == SpriteFrameLoadState::Miss)
+                        {
+                            std::cerr << SpriteBankDefinitions[ActiveSpriteBankIndex].FileName
+                                      << " sprite frame " << CurrentSpriteFrameIndex
+                                      << " load failed: " << SpriteFrameLoadErrorMessage << '\n';
+                        }
+                    }
+                    else if (Event.key.key == SDLK_SPACE)
+                    {
+                        SpriteAnimationEnabled = !SpriteAnimationEnabled;
+                        LastSpriteAnimationTick = SDL_GetTicks();
+                        PrintSpriteAnimationState(SpriteAnimationEnabled);
+                    }
+                    else if (Event.key.key == SDLK_LEFT || Event.key.key == SDLK_RIGHT)
+                    {
+                        const SpriteBankDefinition& ActiveSpriteBank = SpriteBankDefinitions[ActiveSpriteBankIndex];
                         std::size_t RequestedSpriteFrameIndex = CurrentSpriteFrameIndex;
                         if (Event.key.key == SDLK_LEFT)
                         {
-                            RequestedSpriteFrameIndex = RequestedSpriteFrameIndex == 0 ? SpriteFrameMaximumIndex : RequestedSpriteFrameIndex - 1;
+                            RequestedSpriteFrameIndex = RequestedSpriteFrameIndex == 0
+                                ? ActiveSpriteBank.FrameCount - 1
+                                : RequestedSpriteFrameIndex - 1;
                         }
                         else
                         {
-                            RequestedSpriteFrameIndex = RequestedSpriteFrameIndex == SpriteFrameMaximumIndex ? 0 : RequestedSpriteFrameIndex + 1;
+                            RequestedSpriteFrameIndex = RequestedSpriteFrameIndex + 1 >= ActiveSpriteBank.FrameCount
+                                ? 0
+                                : RequestedSpriteFrameIndex + 1;
                         }
 
-                        Grp::NpcSpriteFrame RequestedSpriteFrame;
-                        std::string RequestedSpriteFrameErrorMessage;
-                        if (LoadNpcSpriteFrameForView(SpriteViewGrpPath, RequestedSpriteFrameIndex, RequestedSpriteFrame, RequestedSpriteFrameErrorMessage))
+                        CurrentSpriteFrameIndex = RequestedSpriteFrameIndex;
+                        LoadSpriteFrameForView(ActiveSpriteBank, CurrentSpriteFrameIndex,
+                            CurrentSpriteFrame, CurrentSpriteFrameLoadState, SpriteFrameLoadErrorMessage);
+                        LastSpriteAnimationTick = SDL_GetTicks();
+                        if (CurrentSpriteFrameLoadState == SpriteFrameLoadState::Miss)
                         {
-                            CurrentSpriteFrameIndex = RequestedSpriteFrameIndex;
-                            CurrentSpriteFrame = std::move(RequestedSpriteFrame);
+                            std::cerr << ActiveSpriteBank.FileName
+                                      << " sprite frame " << CurrentSpriteFrameIndex
+                                      << " load failed: " << SpriteFrameLoadErrorMessage << '\n';
                         }
                     }
                 }
@@ -938,6 +1150,25 @@ int main()
             {
                 const bool* KeyboardState = SDL_GetKeyboardState(nullptr);
                 TownMapScene.Update(KeyboardState);
+            }
+        }
+        else if (ActiveViewMode == ViewMode::Sprite && SpriteAnimationEnabled)
+        {
+            const std::uint64_t CurrentTick = SDL_GetTicks();
+            if (LastSpriteAnimationTick == 0)
+            {
+                LastSpriteAnimationTick = CurrentTick;
+            }
+
+            const std::uint64_t ElapsedTicks = CurrentTick - LastSpriteAnimationTick;
+            if (ElapsedTicks >= SpriteAnimationFrameDelayMs)
+            {
+                const SpriteBankDefinition& ActiveSpriteBank = SpriteBankDefinitions[ActiveSpriteBankIndex];
+                const std::size_t FrameStep = static_cast<std::size_t>(ElapsedTicks / SpriteAnimationFrameDelayMs);
+                CurrentSpriteFrameIndex = (CurrentSpriteFrameIndex + FrameStep) % ActiveSpriteBank.FrameCount;
+                LastSpriteAnimationTick += static_cast<std::uint64_t>(FrameStep) * SpriteAnimationFrameDelayMs;
+                LoadSpriteFrameForView(ActiveSpriteBank, CurrentSpriteFrameIndex,
+                    CurrentSpriteFrame, CurrentSpriteFrameLoadState, SpriteFrameLoadErrorMessage);
             }
         }
 
@@ -988,7 +1219,9 @@ int main()
             {
                 const Grp::FontGroup* DebugFontGroup = FontLoaded ? GetDebugFontGroup(FontGroups, FontGroupAvailable) : nullptr;
 
-                DrawNpcSpriteFrameView(Renderer, CurrentSpriteFrame, CurrentSpriteFrameIndex, Palette, DebugFontGroup, DebugOverlayEnabled);
+                DrawSpriteFrameView(Renderer, SpriteBankDefinitions[ActiveSpriteBankIndex], CurrentSpriteFrame,
+                    CurrentSpriteFrameIndex, CurrentSpriteFrameLoadState, SpriteAnimationEnabled,
+                    Palette, DebugFontGroup, DebugOverlayEnabled);
             }
         }
         else if (CpatViewAvailable)

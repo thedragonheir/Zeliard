@@ -28,7 +28,18 @@ struct NpcSpriteFrame
     std::array<std::uint8_t, PixelCount> Pixels{};
 };
 
+struct DungeonHeroSpriteFrame
+{
+    static constexpr std::size_t FrameWidth = 24;
+    static constexpr std::size_t FrameHeight = 24;
+    static constexpr std::size_t PixelCount = FrameWidth * FrameHeight;
+
+    std::array<std::uint8_t, PixelCount> Pixels{};
+    std::array<std::uint8_t, PixelCount> VisiblePixels{};
+};
+
 bool LoadNpcSpriteSheet(const std::filesystem::path& Path, SpriteSheetSummary& Output, std::string& ErrorMessage);
 bool LoadNpcSpriteFrame(const std::filesystem::path& Path, std::size_t FrameIndex, NpcSpriteFrame& Output, std::string& ErrorMessage);
 bool LoadTownHeroSpriteFrame(const std::filesystem::path& Path, std::size_t FrameIndex, NpcSpriteFrame& Output, std::string& ErrorMessage);
+bool LoadDungeonHeroSpriteFrame(const std::filesystem::path& Path, std::size_t FrameIndex, DungeonHeroSpriteFrame& Output, std::string& ErrorMessage);
 }
