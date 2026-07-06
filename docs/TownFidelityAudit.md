@@ -24,6 +24,7 @@ Live npc_array mirror:
 NPC AI routine audit:
 - `asm/town.inc:1-8,81-85` confirms the 8-byte `NPC STRUC`, `npc_array_addr`, and `npc_patrol_boundaries` layout used by the AI routines below.
 - `update_npcs` dispatches by `n_ai_type`, calls the selected routine, and writes the returned `DX` back to `n_x` (`asm/town.asm:1689-1709`).
+- `npc_ai_jump_table[4]` selects `npc_ai_bob_in_place`, so `n_ai_type == 4` is the confirmed bob-in-place selector.
 - None of the `npc_ai_*` bodies below read `n_ai_type` or `n_flags` directly. `AiType` is only the dispatch key in `update_npcs`, and `Flags` are used by separate interaction helpers such as `start_npc_conversation` and `find_non_passable_npc_at_x_pos`.
 
 | Routine | Reads | Mutates | X | Facing | HeadTile | AnimPhase | Uses AiType | Uses Flags | Collision / non-passable | Dialogue / other gameplay | Patrol boundaries | Safe animation-only | Must stay deferred |
@@ -62,7 +63,7 @@ Confirmed shadow-memory compositor flow:
 Current C++ structural matches:
 - `SaveHeadLevelTilesInNpcs` / `RestoreHeadLevelTilesFromNpcs` match the head-tile save/restore pass.
 - `BuildTownNpcRuntimeRecords` and `BuildTownNpcRuntimeViews` now project the live town npc_array mirror into the compositor-facing view layer.
-- `UpdateTownNpcRuntimeRecordsShell` now occupies the assembly-shaped `update_npcs` slot between runtime mirror construction and view projection; it iterates the mirrored records and leaves them unchanged for now.
+- `UpdateTownNpcRuntimeRecordsShell` now occupies the assembly-shaped `update_npcs` slot between runtime mirror construction and view projection; it threads only the confirmed bob-in-place phase update for `AiType == 4` and leaves every other runtime field unchanged.
 - `GetTownNpcRuntimeViewSpriteColumnMatch`, `FindFirstTownNpcRuntimeViewForColumn`, and `FindFirstTownNpcRuntimeViewForColumnAfterCurrent` mirror the X-based NPC scan and current/next column matching.
 - `GetTownNpcSpriteFrameIndex` matches `get_sprite_vram_address` for selector, facing, and animation phase math.
 - `DispatchTownSpecialTile` is the current stand-in for the `special_tile_dispatcher` branch into the compositor helpers.
@@ -70,13 +71,19 @@ Current C++ structural matches:
 - `RenderTownColumn` is the closest structural match to the per-column walk in `render_town_tiles_28_columns`, but it still draws directly instead of writing the shadow-memory path.
 
 Still provisional:
-- `TownNpcRuntimeRecord` is still a minimal mirror, not a live NPC simulation. `UpdateTownNpcRuntimeRecordsShell` keeps `X`, `Facing`, `HeadTile`, `AnimPhase`, `AiType`, `Flags`, and `Id` unchanged until the confirmed `npc_ai_*` dispatch is wired in.
-- NPC AI stays disabled because the safe first step is now narrowed to `npc_ai_bob_in_place`, while movement, collision, dialogue, shops, and patrol-boundary handling still live behind assembly paths that have not been reintroduced in C++.
+- `TownNpcRuntimeRecord` is still a minimal mirror, not a live NPC simulation. `UpdateTownNpcRuntimeRecordsShell` now advances only the confirmed `npc_ai_bob_in_place` animation phase for `AiType == 4`; `X`, `Facing`, `HeadTile`, `AiType`, `Flags`, and `Id` stay unchanged for every record.
+- `npc_ai_face_hero`, `npc_ai_look_at_hero_and_bob`, `npc_ai_patrol_1bit_phase`, `npc_ai_patrol_2bit_phase`, `npc_ai_patrol_bounce_1bit`, and `npc_ai_patrol_bounce_2bit` remain deferred because they require hero-relative facing changes, `DX` movement, or patrol-boundary support that is still outside the shell.
+- `npc_ai_static` remains deferred because it is already a no-op in assembly and does not add new animation behavior.
 - `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, and `hero_column_shadow_blitter_guard` do not have a byte-faithful C++ counterpart yet.
 - The SDL slice helpers remain the visible path, so `viewport_buffer` and the shadow-memory compositor are not yet reproduced exactly.
 
 Next smallest safe implementation step:
-- Thread only `npc_ai_bob_in_place` into `UpdateTownNpcRuntimeRecordsShell` while keeping movement, collision, dialogue, shops, patrol boundaries, and compositor code untouched.
+- Thread `npc_ai_face_hero` next if we want the next smallest animation-only step; it still only changes facing and does not require movement or collision support.
+
+Confirmed bob threading:
+- Exact phase rule: add `0x10` to `AnimPhase`; if the resulting phase has `(phase & 0x30) == 0`, collapse it to `(phase + 1) & 1`.
+- Mutated fields: `AnimPhase` only.
+- Preserved fields: `X`, `Facing`, `HeadTile`, `AiType`, `Flags`, and `Id`.
 
 | Behavior | C++ location | Assembly evidence | Status | Recommendation |
 | --- | --- | --- | --- | --- |

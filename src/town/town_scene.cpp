@@ -93,6 +93,8 @@ std::size_t GetTownNpcSpriteFrameIndexFromFields(std::uint8_t NpcFacing, std::ui
     return (SpriteFamily * TownNpcSpriteFramesPerBlock) + FacingOffset + AnimationPhase;
 }
 
+constexpr std::uint8_t NpcAiTypeBobInPlace = 4;
+
 std::size_t GetTownNpcSpriteFrameIndex(const Mdt::TownEntityMarker& EntityMarker)
 {
     return GetTownNpcSpriteFrameIndexFromFields(EntityMarker.NpcSpriteSelector, EntityMarker.NpcAnimationPhase);
@@ -875,11 +877,31 @@ std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecor
 
 void TownScene::UpdateTownNpcRuntimeRecordsShell(std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords) const
 {
-    // Assembly-shaped update_npcs shell: keep the runtime mirror untouched for now.
+    // Match the confirmed bob-in-place phase step and leave every other AI path neutral.
+    const auto UpdateTownNpcBobInPlace = [](TownNpcRuntimeRecord& RuntimeRecord)
+    {
+        std::uint8_t AnimPhase = static_cast<std::uint8_t>(RuntimeRecord.AnimPhase + 0x10);
+        RuntimeRecord.AnimPhase = AnimPhase;
+
+        if ((AnimPhase & 0x30) != 0)
+        {
+            return;
+        }
+
+        RuntimeRecord.AnimPhase = static_cast<std::uint8_t>((AnimPhase + 1) & 1);
+    };
+
     for (TownNpcRuntimeRecord& TownNpcRuntimeRecord : TownNpcRuntimeRecords)
     {
-        // TODO: Thread the confirmed npc_ai_* dispatch here without changing record state yet.
-        (void)TownNpcRuntimeRecord;
+        switch (TownNpcRuntimeRecord.AiType)
+        {
+        case NpcAiTypeBobInPlace:
+            UpdateTownNpcBobInPlace(TownNpcRuntimeRecord);
+            break;
+
+        default:
+            break;
+        }
     }
 }
 
