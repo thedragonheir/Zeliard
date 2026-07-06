@@ -108,7 +108,7 @@ The filename rule in `get_mdt_tileset()` can also derive `mpp1` through `mppb` f
 - `tools/mdtviewer/rendering/tile_graphics.py`
 - `asm/town.asm`
 - `asm/dungeon.inc`
-- `docs/GrpAnalysis.md`
+- `docs/grp_analysis.md`
 
 ## Next minimal C++ implementation step
 

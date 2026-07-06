@@ -11,9 +11,9 @@ This note collects the repository-local evidence for town NPCs, doors, shops, an
 - `tools/mdtviewer/models.py`
 - `tools/mdtviewer/viewer.py`
 - `tools/mdtviewer/archives/sar_reader.py`
-- `docs/MdtAnalysis.md`
-- `docs/SpriteGrpAnalysis.md`
-- `docs/CollisionAnalysis.md`
+- `docs/mdt_analysis.md`
+- `docs/Spritegrp_analysis.md`
+- `docs/collision_analysis.md`
 - `game/0/mman.grp`
 - `game/0/cman.grp`
 - `game/0/tman.grp`
