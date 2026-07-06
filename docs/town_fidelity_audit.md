@@ -28,7 +28,8 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - Up and down no longer move Duke vertically in normal town mode.
 - Left updates `FacingDirection` bit 0 to `1` and right clears it back to `0`.
 - Each successful horizontal step increments `HeroAnimationPhase` and masks it with `3`.
-- C++ now gates horizontal repeat with `TownMovementFrameCountdown` and `TownMovementFrameDelay` instead of advancing every render/update frame.
+- The main input dispatch also forces `HeroAnimationPhase` bit 0 on when no horizontal move occurs, which keeps the standing pose aligned with the assembly path.
+- `TownMovementFrameCountdown` and `TownMovementFrameDelay` remain provisional. The assembly does not show a town-local fixed repeat cadence, so the C++ throttle is still only a stopgap.
 - `ActorMapPixelX`, `ActorMapPixelY`, `ActorFacingDirection`, `ActorAnimationPhase`, and `ScrollOffsetPixels` are now projections of `TownHeroState`, not the source of truth.
 
 ## Rendering Projection
@@ -41,6 +42,7 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - `ActorCollisionBlocked` is retained only as a debug/provisional field and is cleared by the projection sync.
 - Edge scrolling is implemented narrowly from the confirmed left/right town thresholds by advancing `ProximityMapLeftColumnX` when the viewport needs to pan.
 - The projection clamps scroll to the current map bounds, so the visible hero stays tied to the canonical horizontal state.
+- The exact edge-transition wrap at the far left/right map boundary is still provisional in C++; the assembly shows the transition handoff there, but that loader path is intentionally out of scope here.
 
 ## Removed From Normal Town Mode
 - The free 4-way pixel movement path no longer drives normal town updates.

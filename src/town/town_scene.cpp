@@ -709,6 +709,7 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
     }
     else
     {
+        TownHeroState.HeroAnimationPhase |= 1;
         TownMovementFrameCountdown = 0;
         SyncTownHeroRuntimeProjection();
         return;
