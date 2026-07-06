@@ -2,9 +2,15 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <utility>
+
+namespace Grp
+{
+bool LoadTownHeroSpriteFrame(const std::filesystem::path& Path, std::size_t FrameIndex, NpcSpriteFrame& Output, std::string& ErrorMessage);
+}
 
 namespace
 {
