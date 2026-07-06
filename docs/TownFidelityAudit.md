@@ -4,7 +4,7 @@ Scope: compare the current town-mode C++ behavior against the original Zeliard a
 
 Assembly inspected:
 - `asm/town.inc`: `NPC STRUC`, `npc_array_addr`, `town_head_level_tiles`, `viewport_buffer`
-- `asm/town.asm`: `update_npcs_and_render`, `update_npcs`, `npc_ai_*` routines, `save_head_level_tiles_in_npcs`, `restore_head_level_tiles_from_npcs`, `find_non_passable_npc_at_x_pos`, `find_first_npc_at_x`, `find_first_npc_at_x_after_current`, `start_npc_conversation`
+- `asm/town.asm`: `update_npcs_and_render`, `update_npcs`, `npc_ai_*` routines, `save_head_level_tiles_in_npcs`, `restore_head_level_tiles_from_npcs`, `find_non_passable_npc_at_x_pos`, `find_first_npc_at_x`, `find_first_npc_at_x_after_current`, `is_hero_close_to_npc`, `start_npc_conversation`
 - `asm/gtmcga.asm`: `sprite_descriptor_table_scanner`, `sprite_x_coordinate_lookup`, `sprite_compositor_dispatcher`, `npc_3_tiles_to_shadow_buffer`, `single_sprite_shadow_compositor`, `two_sprite_shadow_compositor`
 
 Key conclusion:
@@ -20,6 +20,28 @@ Live npc_array mirror:
 - `TownNpcRuntimeRecord` now mirrors the confirmed `NPC STRUC` bytes in C++: `X` from `n_x`, `Facing` from `n_facing`, `HeadTile` from `n_head_tile`, `AnimPhase` from `n_anim_phase`, `AiType` from parsed byte 5, `Flags` from parsed byte 6, and `Id` from parsed byte 7.
 - `TownNpcRuntimeView` is projected from that mirror before compositor dispatch, so the SDL path no longer reads the parsed MDT markers directly.
 - `AiType`, `Flags`, and `Id` are now sourced from the parsed MDT NPC table and carried through the runtime record unchanged.
+
+NPC AI routine audit:
+- `asm/town.inc:1-8,81-85` confirms the 8-byte `NPC STRUC`, `npc_array_addr`, and `npc_patrol_boundaries` layout used by the AI routines below.
+- `update_npcs` dispatches by `n_ai_type`, calls the selected routine, and writes the returned `DX` back to `n_x` (`asm/town.asm:1689-1709`).
+- None of the `npc_ai_*` bodies below read `n_ai_type` or `n_flags` directly. `AiType` is only the dispatch key in `update_npcs`, and `Flags` are used by separate interaction helpers such as `start_npc_conversation` and `find_non_passable_npc_at_x_pos`.
+
+| Routine | Reads | Mutates | X | Facing | HeadTile | AnimPhase | Uses AiType | Uses Flags | Collision / non-passable | Dialogue / other gameplay | Patrol boundaries | Safe animation-only | Must stay deferred |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `npc_ai_look_at_hero_and_bob` (`asm/town.asm:1731-1741`) | `n_facing`, `hero_x_in_viewport`, `proximity_map_left_col_x`, `dx` | `n_facing`, `n_anim_phase` via `npc_ai_bob_in_place` | No | Yes | No | Yes | No | No | No | No | No | Yes | No |
+| `npc_ai_patrol_1bit_phase` (`asm/town.asm:1752-1760`) | `n_anim_phase`, `n_facing`, `npc_patrol_boundaries`, `dx` | `n_anim_phase`, `n_facing`, `dx` via `patrol_between_boundaries` | Yes | Yes | No | Yes | No | No | No | No | Yes | No | Yes |
+| `npc_ai_patrol_2bit_phase` (`asm/town.asm:1804-1816`) | `n_anim_phase`, `n_facing`, `npc_patrol_boundaries`, `dx` | `n_anim_phase`, `n_facing`, `dx` via `patrol_between_boundaries` | Yes | Yes | No | Yes | No | No | No | No | Yes | No | Yes |
+| `npc_ai_face_hero` (`asm/town.asm:1829-1843`) | `n_facing`, `hero_x_in_viewport`, `proximity_map_left_col_x`, `dx` | `n_facing` | No | Yes | No | No | No | No | No | No | No | Yes | No |
+| `npc_ai_bob_in_place` (`asm/town.asm:1854-1870`) | `n_anim_phase` | `n_anim_phase` | No | No | No | Yes | No | No | No | No | No | Yes | No |
+| `npc_ai_patrol_bounce_1bit` (`asm/town.asm:1876-1889`) | `n_anim_phase`, `n_facing`, `dx` | `n_anim_phase`, `n_facing`, `dx` via `patrol_bounce_at_phase` | Yes | Yes | No | Yes | No | No | No | No | No | No | Yes |
+| `npc_ai_patrol_bounce_2bit` (`asm/town.asm:1925-1938`) | `n_anim_phase`, `n_facing`, `dx` | `n_anim_phase`, `n_facing`, `dx` via `patrol_bounce_at_phase` | Yes | Yes | No | Yes | No | No | No | No | No | No | Yes |
+| `npc_ai_static` (`asm/town.asm:1940-1946`) | none | none | No | No | No | No | No | No | No | No | No | Yes, as a no-op | No |
+
+Key classification:
+- Smallest safe animation-only candidate: `npc_ai_bob_in_place`. It only advances `n_anim_phase`, does not move `X`, and does not depend on patrol boundaries or interaction state.
+- Also safe as animation-only: `npc_ai_face_hero` and `npc_ai_look_at_hero_and_bob`. They only change facing and/or bob phase, but they are slightly more coupled because they look at hero position.
+- Must stay deferred until movement/collision/patrol-boundary support exists: `npc_ai_patrol_1bit_phase` and `npc_ai_patrol_2bit_phase` because they move by `DX` and consult `npc_patrol_boundaries`; `npc_ai_patrol_bounce_1bit` and `npc_ai_patrol_bounce_2bit` because they move by `DX` and still need the movement path kept in sync.
+- `npc_ai_static` is already a no-op placeholder. It is safe, but it is not a meaningful animation implementation step.
 
 Confirmed viewport buffer role:
 - `viewport_buffer` is the town-pass staging buffer at `0xE000`.
@@ -49,12 +71,12 @@ Current C++ structural matches:
 
 Still provisional:
 - `TownNpcRuntimeRecord` is still a minimal mirror, not a live NPC simulation. `UpdateTownNpcRuntimeRecordsShell` keeps `X`, `Facing`, `HeadTile`, `AnimPhase`, `AiType`, `Flags`, and `Id` unchanged until the confirmed `npc_ai_*` dispatch is wired in.
-- NPC AI, movement, collision, dialogue, and shops stay disabled because the assembly side effects still live behind `npc_ai_*`, interaction, and compositor routines that have not been reintroduced in C++.
+- NPC AI stays disabled because the safe first step is now narrowed to `npc_ai_bob_in_place`, while movement, collision, dialogue, shops, and patrol-boundary handling still live behind assembly paths that have not been reintroduced in C++.
 - `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, and `hero_column_shadow_blitter_guard` do not have a byte-faithful C++ counterpart yet.
 - The SDL slice helpers remain the visible path, so `viewport_buffer` and the shadow-memory compositor are not yet reproduced exactly.
 
 Next smallest safe implementation step:
-- Thread the first confirmed `npc_ai_*` routine into `UpdateTownNpcRuntimeRecordsShell` while keeping movement, collision, dialogue, shops, and compositor code untouched.
+- Thread only `npc_ai_bob_in_place` into `UpdateTownNpcRuntimeRecordsShell` while keeping movement, collision, dialogue, shops, patrol boundaries, and compositor code untouched.
 
 | Behavior | C++ location | Assembly evidence | Status | Recommendation |
 | --- | --- | --- | --- | --- |
