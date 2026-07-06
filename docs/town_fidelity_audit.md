@@ -42,7 +42,7 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - `ActorCollisionBlocked` is retained only as a debug/provisional field and is cleared by the projection sync.
 - Edge scrolling is implemented narrowly from the confirmed left/right town thresholds by advancing `ProximityMapLeftColumnX` when the viewport needs to pan.
 - The projection clamps scroll to the current map bounds, so the visible hero stays tied to the canonical horizontal state.
-- The exact edge-transition wrap at the far left/right map boundary is still provisional in C++; the assembly shows the transition handoff there, but that loader path is intentionally out of scope here.
+- The exact edge-transition wrap at the far left/right map boundary is still provisional in C++; the right-edge sentinel now matches the assembly (`hero_x_in_viewport = 28`), but the destination loader path is intentionally out of scope here.
 
 ## Removed From Normal Town Mode
 - The free 4-way pixel movement path no longer drives normal town updates.

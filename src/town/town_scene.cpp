@@ -760,8 +760,9 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
             ++TownHeroState.ProximityMapLeftColumnX;
             HeroMoved = true;
         }
-        else if (TownHeroState.HeroXInViewport < 27)
+        else if (TownHeroState.HeroXInViewport < 28)
         {
+            // Match the DOS off-screen sentinel; the map handoff itself is still provisional.
             ++TownHeroState.HeroXInViewport;
             HeroMoved = true;
         }
