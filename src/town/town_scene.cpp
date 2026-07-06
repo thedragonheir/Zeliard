@@ -560,7 +560,7 @@ bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Acto
     const std::size_t MaximumActorMapPixelY = GetTownMapMaximumActorMapPixelY(TownMap);
     bool ActorMoved = false;
 
-    if (KeyboardState[SDL_SCANCODE_J] && !KeyboardState[SDL_SCANCODE_L])
+    if (KeyboardState[SDL_SCANCODE_LEFT] && !KeyboardState[SDL_SCANCODE_RIGHT])
     {
         const std::size_t PreviousActorMapPixelX = ActorMapPixelX;
         const std::size_t ProposedActorMapPixelX = ActorMapPixelX > ActorMoveSpeedPixels ? ActorMapPixelX - ActorMoveSpeedPixels : 0;
@@ -578,7 +578,7 @@ bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Acto
             ActorCollisionBlocked = true;
         }
     }
-    else if (KeyboardState[SDL_SCANCODE_L] && !KeyboardState[SDL_SCANCODE_J])
+    else if (KeyboardState[SDL_SCANCODE_RIGHT] && !KeyboardState[SDL_SCANCODE_LEFT])
     {
         const std::size_t PreviousActorMapPixelX = ActorMapPixelX;
         const std::size_t ProposedActorMapPixelX = std::min<std::size_t>(ActorMapPixelX + ActorMoveSpeedPixels, MaximumActorMapPixelX);
@@ -597,7 +597,7 @@ bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Acto
         }
     }
 
-    if (KeyboardState[SDL_SCANCODE_I] && !KeyboardState[SDL_SCANCODE_K])
+    if (KeyboardState[SDL_SCANCODE_UP] && !KeyboardState[SDL_SCANCODE_DOWN])
     {
         const std::size_t PreviousActorMapPixelY = ActorMapPixelY;
         const std::size_t ProposedActorMapPixelY = ActorMapPixelY > ActorMoveSpeedPixels ? ActorMapPixelY - ActorMoveSpeedPixels : 0;
@@ -615,7 +615,7 @@ bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Acto
             ActorCollisionBlocked = true;
         }
     }
-    else if (KeyboardState[SDL_SCANCODE_K] && !KeyboardState[SDL_SCANCODE_I])
+    else if (KeyboardState[SDL_SCANCODE_DOWN] && !KeyboardState[SDL_SCANCODE_UP])
     {
         const std::size_t PreviousActorMapPixelY = ActorMapPixelY;
         const std::size_t ProposedActorMapPixelY = std::min<std::size_t>(ActorMapPixelY + ActorMoveSpeedPixels, MaximumActorMapPixelY);
@@ -741,11 +741,11 @@ void TownScene::Update(const bool* KeyboardState)
     {
         ScrollOffsetPixels = GetTownMapCameraFollowScrollOffset(TownMap, ActorMapPixelX);
     }
-    else if (KeyboardState[SDL_SCANCODE_LEFT] && !KeyboardState[SDL_SCANCODE_RIGHT])
+    else if (KeyboardState[SDL_SCANCODE_PAGEUP] && !KeyboardState[SDL_SCANCODE_PAGEDOWN])
     {
         ScrollOffsetPixels = ScrollOffsetPixels > ScrollSpeedPixels ? ScrollOffsetPixels - ScrollSpeedPixels : 0;
     }
-    else if (KeyboardState[SDL_SCANCODE_RIGHT] && !KeyboardState[SDL_SCANCODE_LEFT])
+    else if (KeyboardState[SDL_SCANCODE_PAGEDOWN] && !KeyboardState[SDL_SCANCODE_PAGEUP])
     {
         ScrollOffsetPixels = std::min<std::size_t>(ScrollOffsetPixels + ScrollSpeedPixels, MaximumScrollOffset);
     }
