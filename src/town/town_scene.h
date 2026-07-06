@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <vector>
 
@@ -41,18 +42,36 @@ public:
     bool IsTownEntityMarkersEnabled() const noexcept;
 
 private:
-    struct TownDynamicSpriteDrawItem
+    struct TownSavedHeadLevelTile
     {
-        std::size_t SortY = 0;
-        std::size_t MapPixelX = 0;
-        std::size_t MapPixelY = 0;
-        const Grp::NpcSpriteFrame* SpriteFrame = nullptr;
+        std::size_t Column = 0;
+        std::uint8_t TileIndex = 0;
+    };
+
+    struct TownHeadLevelTiles
+    {
+        std::vector<std::uint8_t> Tiles;
+        std::vector<std::uint8_t> OriginalTiles;
+        std::vector<bool> HasOriginalTile;
+        std::vector<TownSavedHeadLevelTile> SavedTiles;
+    };
+
+    struct TownColumnRenderStats
+    {
+        std::size_t RenderedNpcSpriteCount = 0;
+        std::size_t NpcSpriteMissCount = 0;
     };
 
     bool UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex);
     bool TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const;
-    std::size_t CollectTownNpcSpriteDrawItems(std::vector<TownDynamicSpriteDrawItem>& DynamicSpriteDrawItems,
-        SDL_Renderer* Renderer, std::size_t ScrollOffsetPixels, std::size_t& NpcSpriteMissCount) const;
+    void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
+        const TownHeadLevelTiles& HeadLevelTiles, std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers,
+        TownColumnRenderStats& RenderStats) const;
+    void DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
+        std::size_t ScrollOffsetPixels, TownColumnRenderStats& RenderStats) const;
+
+    static TownHeadLevelTiles SaveHeadLevelTilesInNpcs(const Mdt::TownMapInfo& TownMap);
+    static void RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles);
 
     static constexpr std::size_t TownMapActorInitialMapPixelX = 160;
     static constexpr std::size_t TownMapActorInitialMapPixelY = 40;

@@ -27,6 +27,8 @@ constexpr std::size_t TownHeroLeftFacingFrameStart = 0;
 constexpr std::size_t TownHeroRightFacingFrameStart = 5;
 constexpr std::size_t TownNpcSpriteFramesPerBlock = 8;
 constexpr std::size_t TownNpcSpriteFamilyCount = 5;
+constexpr std::size_t TownHeadLevelRow = 5;
+constexpr std::uint8_t TownHeadLevelNpcMarkerTile = 0xFD;
 constexpr std::uint8_t TownMapBlockedTileIndexA = 0x3C;
 constexpr std::uint8_t TownMapBlockedTileIndexB = 0x3D;
 
@@ -184,15 +186,27 @@ void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const
     }
 }
 
-void DrawNpcSpriteFrameOnTownMap(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& SpriteFrame, const Main64Palette& Palette, float MapPixelX, float MapPixelY, std::size_t ScrollOffsetPixels)
+void DrawNpcSpriteFrameColumnSliceOnTownMap(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& SpriteFrame,
+    const Main64Palette& Palette, std::size_t MapPixelX, std::size_t MapPixelY,
+    std::size_t ScrollOffsetPixels, std::size_t MapColumn)
 {
     constexpr float SpritePixelSize = 1.0f;
-    const float ScreenX = MapPixelX - static_cast<float>(ScrollOffsetPixels);
+    const std::size_t ColumnLeftPixel = MapColumn * TownMapTileSize;
+    const std::size_t ColumnRightPixel = ColumnLeftPixel + TownMapTileSize;
+    const std::size_t SpriteRightPixel = MapPixelX + Grp::NpcSpriteFrame::FrameWidth;
+    if (SpriteRightPixel <= ColumnLeftPixel || MapPixelX >= ColumnRightPixel)
+    {
+        return;
+    }
+
+    const std::size_t FirstSpriteColumn = ColumnLeftPixel > MapPixelX ? ColumnLeftPixel - MapPixelX : 0;
+    const std::size_t LastSpriteColumn = std::min<std::size_t>(Grp::NpcSpriteFrame::FrameWidth,
+        ColumnRightPixel - MapPixelX);
 
     SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
     for (std::size_t Row = 0; Row < Grp::NpcSpriteFrame::FrameHeight; ++Row)
     {
-        for (std::size_t Column = 0; Column < Grp::NpcSpriteFrame::FrameWidth; ++Column)
+        for (std::size_t Column = FirstSpriteColumn; Column < LastSpriteColumn; ++Column)
         {
             const std::size_t PixelIndex = Row * Grp::NpcSpriteFrame::FrameWidth + Column;
             const std::uint8_t DrawMode = SpriteFrame.DrawModes[PixelIndex];
@@ -213,8 +227,8 @@ void DrawNpcSpriteFrameOnTownMap(SDL_Renderer* Renderer, const Grp::NpcSpriteFra
             }
 
             const SDL_FRect PixelRect{
-                ScreenX + static_cast<float>(Column) * SpritePixelSize,
-                MapPixelY + static_cast<float>(Row) * SpritePixelSize,
+                static_cast<float>(MapPixelX + Column) - static_cast<float>(ScrollOffsetPixels),
+                static_cast<float>(MapPixelY) + static_cast<float>(Row) * SpritePixelSize,
                 SpritePixelSize,
                 SpritePixelSize
             };
@@ -422,18 +436,87 @@ void DrawTownEntityMarker(SDL_Renderer* Renderer, const Mdt::TownEntityMarker& E
     }
 }
 
-void DrawTownEntityMarkers(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap, std::size_t ScrollOffsetPixels,
-    Mdt::TownEntityKind EntityKind)
+void DrawTownEntityMarkersForColumn(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap,
+    std::size_t ScrollOffsetPixels, Mdt::TownEntityKind EntityKind, std::size_t MapColumn)
 {
     for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
     {
-        if (EntityMarker.Kind != EntityKind)
+        if (EntityMarker.Kind != EntityKind || EntityMarker.X != MapColumn)
         {
             continue;
         }
 
         DrawTownEntityMarker(Renderer, EntityMarker, ScrollOffsetPixels);
     }
+}
+
+bool IsTownNpcSpriteColumnSlice(const Mdt::TownEntityMarker& EntityMarker, std::size_t MapColumn)
+{
+    if (EntityMarker.Kind != Mdt::TownEntityKind::Npc)
+    {
+        return false;
+    }
+
+    const std::size_t NpcColumn = static_cast<std::size_t>(EntityMarker.X);
+    if (MapColumn < NpcColumn)
+    {
+        return false;
+    }
+
+    return MapColumn - NpcColumn < Grp::NpcSpriteFrame::FrameWidth / TownMapTileSize;
+}
+
+const Mdt::TownEntityMarker* FindFirstTownNpcSpriteDescriptorForColumn(const Mdt::TownMapInfo& TownMap,
+    std::size_t MapColumn)
+{
+    for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
+    {
+        if (IsTownNpcSpriteColumnSlice(EntityMarker, MapColumn))
+        {
+            return &EntityMarker;
+        }
+    }
+
+    return nullptr;
+}
+
+const Mdt::TownEntityMarker* FindFirstTownNpcSpriteDescriptorForColumnAfterCurrent(const Mdt::TownMapInfo& TownMap,
+    const Mdt::TownEntityMarker* CurrentMarker, std::size_t MapColumn)
+{
+    bool CurrentMarkerFound = false;
+    for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
+    {
+        if (!CurrentMarkerFound)
+        {
+            CurrentMarkerFound = &EntityMarker == CurrentMarker;
+            continue;
+        }
+
+        if (IsTownNpcSpriteColumnSlice(EntityMarker, MapColumn))
+        {
+            return &EntityMarker;
+        }
+    }
+
+    return nullptr;
+}
+
+bool TryGetTownMapTileIndexAtCell(const Mdt::TownMapInfo& TownMap, std::size_t Column, std::size_t Row,
+    std::uint8_t& TileIndex)
+{
+    if (Column >= TownMap.Width || Row >= TownMap.Height)
+    {
+        return false;
+    }
+
+    const std::size_t CellIndex = Column * TownMap.Height + Row;
+    if (CellIndex >= TownMap.Cells.size())
+    {
+        return false;
+    }
+
+    TileIndex = TownMap.Cells[CellIndex];
+    return true;
 }
 
 bool TryGetTownMapTileIndexAtPixel(const Mdt::TownMapInfo& TownMap, std::size_t PixelX, std::size_t PixelY,
@@ -448,14 +531,7 @@ bool TryGetTownMapTileIndexAtPixel(const Mdt::TownMapInfo& TownMap, std::size_t 
 
     const std::size_t Column = PixelX / TownMapTileSize;
     const std::size_t Row = PixelY / TownMapTileSize;
-    const std::size_t CellIndex = Column * TownMap.Height + Row;
-    if (CellIndex >= TownMap.Cells.size())
-    {
-        return false;
-    }
-
-    TileIndex = TownMap.Cells[CellIndex];
-    return true;
+    return TryGetTownMapTileIndexAtCell(TownMap, Column, Row, TileIndex);
 }
 
 bool IsTownMapActorProbeBlocked(const Mdt::TownMapInfo& TownMap, std::size_t ActorMapPixelX, std::size_t ActorMapPixelY,
@@ -687,11 +763,22 @@ bool TownScene::TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcS
     return true;
 }
 
-std::size_t TownScene::CollectTownNpcSpriteDrawItems(std::vector<TownDynamicSpriteDrawItem>& DynamicSpriteDrawItems,
-    SDL_Renderer* Renderer, std::size_t ScrollOffsetPixels, std::size_t& NpcSpriteMissCount) const
+TownScene::TownHeadLevelTiles TownScene::SaveHeadLevelTilesInNpcs(const Mdt::TownMapInfo& TownMap)
 {
-    std::size_t RenderedNpcSpriteCount = 0;
-    NpcSpriteMissCount = 0;
+    TownHeadLevelTiles HeadLevelTiles;
+    HeadLevelTiles.Tiles.assign(TownMap.Width, 0);
+    HeadLevelTiles.OriginalTiles.assign(TownMap.Width, 0);
+    HeadLevelTiles.HasOriginalTile.assign(TownMap.Width, false);
+
+    for (std::size_t Column = 0; Column < TownMap.Width; ++Column)
+    {
+        std::uint8_t TileIndex = 0;
+        if (TryGetTownMapTileIndexAtCell(TownMap, Column, TownHeadLevelRow, TileIndex))
+        {
+            HeadLevelTiles.Tiles[Column] = TileIndex;
+            HeadLevelTiles.OriginalTiles[Column] = TileIndex;
+        }
+    }
 
     for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
     {
@@ -700,33 +787,149 @@ std::size_t TownScene::CollectTownNpcSpriteDrawItems(std::vector<TownDynamicSpri
             continue;
         }
 
-        const std::size_t SpriteFamily = static_cast<std::size_t>(EntityMarker.NpcSpriteSelector & 0x0F);
-        if (!IsConfirmedTownNpcSpriteFamily(SpriteFamily))
+        const std::size_t Column = static_cast<std::size_t>(EntityMarker.X);
+        if (Column >= HeadLevelTiles.Tiles.size())
         {
-            ++NpcSpriteMissCount;
-            DrawTownEntityMarker(Renderer, EntityMarker, ScrollOffsetPixels);
             continue;
         }
 
-        const std::size_t FrameIndex = GetTownNpcSpriteFrameIndex(EntityMarker);
-        const Grp::NpcSpriteFrame* SpriteFrame = nullptr;
-        if (!TryGetTownNpcSpriteFrame(FrameIndex, SpriteFrame))
+        HeadLevelTiles.SavedTiles.push_back(TownSavedHeadLevelTile{Column, HeadLevelTiles.Tiles[Column]});
+        if (!HeadLevelTiles.HasOriginalTile[Column])
         {
-            ++NpcSpriteMissCount;
-            DrawTownEntityMarker(Renderer, EntityMarker, ScrollOffsetPixels);
-            continue;
+            HeadLevelTiles.OriginalTiles[Column] = HeadLevelTiles.Tiles[Column];
+            HeadLevelTiles.HasOriginalTile[Column] = true;
         }
 
-        DynamicSpriteDrawItems.push_back(TownDynamicSpriteDrawItem{
-            static_cast<std::size_t>(EntityMarker.Y * TownMapTileSize + Grp::NpcSpriteFrame::FrameHeight),
-            static_cast<std::size_t>(EntityMarker.X * TownMapTileSize),
-            static_cast<std::size_t>(EntityMarker.Y * TownMapTileSize),
-            SpriteFrame
-        });
-        ++RenderedNpcSpriteCount;
+        HeadLevelTiles.Tiles[Column] = TownHeadLevelNpcMarkerTile;
     }
 
-    return RenderedNpcSpriteCount;
+    return HeadLevelTiles;
+}
+
+void TownScene::RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles)
+{
+    for (const TownSavedHeadLevelTile& SavedTile : HeadLevelTiles.SavedTiles)
+    {
+        if (SavedTile.TileIndex == TownHeadLevelNpcMarkerTile || SavedTile.Column >= HeadLevelTiles.Tiles.size())
+        {
+            continue;
+        }
+
+        HeadLevelTiles.Tiles[SavedTile.Column] = SavedTile.TileIndex;
+    }
+}
+
+void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
+    std::size_t ScrollOffsetPixels, TownColumnRenderStats& RenderStats) const
+{
+    const Mdt::TownEntityMarker* EntityMarker = FindFirstTownNpcSpriteDescriptorForColumn(TownMap, MapColumn);
+    while (EntityMarker != nullptr)
+    {
+        const bool CountThisNpc = static_cast<std::size_t>(EntityMarker->X) == MapColumn;
+        const std::size_t SpriteFamily = static_cast<std::size_t>(EntityMarker->NpcSpriteSelector & 0x0F);
+        const std::size_t FrameIndex = GetTownNpcSpriteFrameIndex(*EntityMarker);
+        const Grp::NpcSpriteFrame* SpriteFrame = nullptr;
+
+        if (!IsConfirmedTownNpcSpriteFamily(SpriteFamily) || !TryGetTownNpcSpriteFrame(FrameIndex, SpriteFrame))
+        {
+            if (CountThisNpc)
+            {
+                ++RenderStats.NpcSpriteMissCount;
+                DrawTownEntityMarker(Renderer, *EntityMarker, ScrollOffsetPixels);
+            }
+        }
+        else
+        {
+            DrawNpcSpriteFrameColumnSliceOnTownMap(Renderer, *SpriteFrame, Palette,
+                static_cast<std::size_t>(EntityMarker->X) * TownMapTileSize,
+                static_cast<std::size_t>(EntityMarker->Y) * TownMapTileSize,
+                ScrollOffsetPixels, MapColumn);
+            if (CountThisNpc)
+            {
+                ++RenderStats.RenderedNpcSpriteCount;
+            }
+        }
+
+        EntityMarker = FindFirstTownNpcSpriteDescriptorForColumnAfterCurrent(TownMap, EntityMarker, MapColumn);
+    }
+}
+
+void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
+    const TownHeadLevelTiles& HeadLevelTiles, std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers,
+    TownColumnRenderStats& RenderStats) const
+{
+    const Grp::PatternTile& FallbackTile = GetFallbackPatternTile();
+    const bool ColumnHasHeadLevelMarker = MapColumn < HeadLevelTiles.Tiles.size()
+        && HeadLevelTiles.Tiles[MapColumn] == TownHeadLevelNpcMarkerTile;
+    const bool PreviousColumnHasHeadLevelMarker = MapColumn > 0 && MapColumn - 1 < HeadLevelTiles.Tiles.size()
+        && HeadLevelTiles.Tiles[MapColumn - 1] == TownHeadLevelNpcMarkerTile;
+
+    for (std::size_t Row = 0; Row < TownMap.Height; ++Row)
+    {
+        std::uint8_t TileIndex = 0;
+        if (Row == TownHeadLevelRow && MapColumn < HeadLevelTiles.Tiles.size())
+        {
+            TileIndex = HeadLevelTiles.Tiles[MapColumn];
+            if (TileIndex == TownHeadLevelNpcMarkerTile && MapColumn < HeadLevelTiles.OriginalTiles.size()
+                && HeadLevelTiles.HasOriginalTile[MapColumn])
+            {
+                TileIndex = HeadLevelTiles.OriginalTiles[MapColumn];
+            }
+        }
+        else if (!TryGetTownMapTileIndexAtCell(TownMap, MapColumn, Row, TileIndex))
+        {
+            continue;
+        }
+
+        const Grp::PatternTile* Tile = nullptr;
+        if (TileIndex < PatternBank.Tiles.size())
+        {
+            Tile = &PatternBank.Tiles[TileIndex];
+        }
+        else
+        {
+            if (!FallbackWarningPrinted)
+            {
+                std::cerr << "cmap.mdt tile at column " << MapColumn << ", row " << Row
+                    << " uses tile index " << static_cast<int>(TileIndex)
+                    << " outside the cpat.grp pattern bank; drawing fallback tiles." << '\n';
+                FallbackWarningPrinted = true;
+            }
+
+            Tile = &FallbackTile;
+        }
+
+        DrawPatternTile(Renderer, *Tile, Palette, ScreenTileX, static_cast<float>(Row * TownMapTileSize), 1.0f);
+
+        if (BlockedTileOverlayEnabled && IsTownMapBlockedTileIndex(TileIndex))
+        {
+            SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(Renderer, 255, 48, 48, 96);
+            const SDL_FRect PixelRect{
+                ScreenTileX,
+                static_cast<float>(Row * TownMapTileSize),
+                static_cast<float>(TownMapTileSize),
+                static_cast<float>(TownMapTileSize)
+            };
+            SDL_RenderFillRect(Renderer, &PixelRect);
+        }
+    }
+
+    if (DrawDebugEntityMarkers)
+    {
+        DrawTownEntityMarkersForColumn(Renderer, TownMap, ScrollOffsetPixels, Mdt::TownEntityKind::Door, MapColumn);
+    }
+
+    if (ColumnHasHeadLevelMarker || PreviousColumnHasHeadLevelMarker)
+    {
+        DispatchTownSpecialTile(Renderer, MapColumn, ScrollOffsetPixels, RenderStats);
+    }
+
+    if (ActorFrameLoaded && ActorFrameVisible)
+    {
+        DrawNpcSpriteFrameColumnSliceOnTownMap(Renderer, ActorFrame, Palette, ActorMapPixelX, ActorMapPixelY,
+            ScrollOffsetPixels, MapColumn);
+    }
 }
 
 TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std::filesystem::path& TownNpcSpriteGrpPath,
@@ -804,114 +1007,18 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     const std::size_t ColumnPixelOffset = ClampedScrollOffset % TileSize;
     const std::size_t ColumnsAvailable = TownMap.Width > FirstColumn ? TownMap.Width - FirstColumn : 0;
     const std::size_t ColumnsToRender = std::min<std::size_t>(ColumnsAvailable, VisibleColumns + (ColumnPixelOffset != 0 ? 1 : 0));
-    const std::size_t RowsToRender = TownMap.Height;
-    const Grp::PatternTile& FallbackTile = GetFallbackPatternTile();
+    TownHeadLevelTiles HeadLevelTiles = SaveHeadLevelTilesInNpcs(TownMap);
+    TownColumnRenderStats RenderStats{};
 
     for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
     {
         const std::size_t MapColumn = FirstColumn + Column;
         const float TileX = static_cast<float>(Column * TileSize) - static_cast<float>(ColumnPixelOffset);
-        for (std::size_t Row = 0; Row < RowsToRender; ++Row)
-        {
-            const std::size_t CellIndex = MapColumn * TownMap.Height + Row;
-            if (CellIndex >= TownMap.Cells.size())
-            {
-                continue;
-            }
-
-            const std::uint8_t TileIndex = TownMap.Cells[CellIndex];
-            const Grp::PatternTile* Tile = nullptr;
-            if (TileIndex < PatternBank.Tiles.size())
-            {
-                Tile = &PatternBank.Tiles[TileIndex];
-            }
-            else
-            {
-                if (!FallbackWarningPrinted)
-                {
-                    std::cerr << "cmap.mdt tile at column " << MapColumn << ", row " << Row
-                        << " uses tile index " << static_cast<int>(TileIndex)
-                        << " outside the cpat.grp pattern bank; drawing fallback tiles." << '\n';
-                    FallbackWarningPrinted = true;
-                }
-
-                Tile = &FallbackTile;
-            }
-
-            DrawPatternTile(Renderer, *Tile, Palette, TileX, static_cast<float>(Row * TileSize), 1.0f);
-        }
+        RenderTownColumn(Renderer, MapColumn, TileX, HeadLevelTiles, ClampedScrollOffset,
+            TownEntityMarkersEnabled, RenderStats);
     }
 
-    if (BlockedTileOverlayEnabled)
-    {
-        SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(Renderer, 255, 48, 48, 96);
-
-        for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
-        {
-            const std::size_t MapColumn = FirstColumn + Column;
-            const float TileX = static_cast<float>(Column * TileSize) - static_cast<float>(ColumnPixelOffset);
-            for (std::size_t Row = 0; Row < RowsToRender; ++Row)
-            {
-                const std::size_t CellIndex = MapColumn * TownMap.Height + Row;
-                if (CellIndex >= TownMap.Cells.size())
-                {
-                    continue;
-                }
-
-                if (!IsTownMapBlockedTileIndex(TownMap.Cells[CellIndex]))
-                {
-                    continue;
-                }
-
-                const SDL_FRect PixelRect{
-                    TileX,
-                    static_cast<float>(Row * TileSize),
-                    static_cast<float>(TileSize),
-                    static_cast<float>(TileSize)
-                };
-                SDL_RenderFillRect(Renderer, &PixelRect);
-            }
-        }
-    }
-
-    std::vector<TownDynamicSpriteDrawItem> DynamicSpriteDrawItems;
-    DynamicSpriteDrawItems.reserve(TownMap.EntityMarkers.size() + 1);
-
-    std::size_t NpcSpriteMissCount = 0;
-    const std::size_t RenderedNpcSpriteCount = TownEntityMarkersEnabled
-        ? CollectTownNpcSpriteDrawItems(DynamicSpriteDrawItems, Renderer, ClampedScrollOffset, NpcSpriteMissCount)
-        : 0;
-
-    if (TownEntityMarkersEnabled)
-    {
-        DrawTownEntityMarkers(Renderer, TownMap, ClampedScrollOffset, Mdt::TownEntityKind::Door);
-    }
-
-    if (ActorFrameLoaded && ActorFrameVisible)
-    {
-        DynamicSpriteDrawItems.push_back(TownDynamicSpriteDrawItem{
-            ActorMapPixelY + Grp::NpcSpriteFrame::FrameHeight,
-            ActorMapPixelX,
-            ActorMapPixelY,
-            &ActorFrame
-        });
-    }
-
-    // Sort by sprite baseline so lower sprites draw later and sit in front.
-    std::stable_sort(DynamicSpriteDrawItems.begin(), DynamicSpriteDrawItems.end(),
-        [](const TownDynamicSpriteDrawItem& Left, const TownDynamicSpriteDrawItem& Right)
-        {
-            return Left.SortY < Right.SortY;
-        });
-
-    for (const TownDynamicSpriteDrawItem& DynamicSpriteDrawItem : DynamicSpriteDrawItems)
-    {
-        DrawNpcSpriteFrameOnTownMap(Renderer, *DynamicSpriteDrawItem.SpriteFrame, Palette,
-            static_cast<float>(DynamicSpriteDrawItem.MapPixelX),
-            static_cast<float>(DynamicSpriteDrawItem.MapPixelY),
-            ClampedScrollOffset);
-    }
+    RestoreHeadLevelTilesFromNpcs(HeadLevelTiles);
 
     if (!(ActorFrameLoaded && ActorFrameVisible))
     {
@@ -941,8 +1048,8 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
             std::string("TILE ") + (BlockedTileOverlayEnabled ? "ON" : "OFF") + " OBJ "
             + (TownEntityMarkersEnabled ? "ON" : "OFF"));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
-            "NPCSPR " + std::to_string(RenderedNpcSpriteCount) + "/" + std::to_string(NpcMarkerCount)
-            + " NPCMISS " + std::to_string(NpcSpriteMissCount)
+            "NPCSPR " + std::to_string(RenderStats.RenderedNpcSpriteCount) + "/" + std::to_string(NpcMarkerCount)
+            + " NPCMISS " + std::to_string(RenderStats.NpcSpriteMissCount)
             + " DOOR " + std::to_string(DoorMarkerCount));
         DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 5.0f, TextScale,
             GetTownEntityProximityStatus(TownMap, ActorMapPixelX, ActorMapPixelY));
