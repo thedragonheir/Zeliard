@@ -252,6 +252,68 @@ void DrawNpcSpriteFrameColumnSliceOnTownMap(SDL_Renderer* Renderer, const Grp::N
     }
 }
 
+struct TownNpcSpriteShadowSlice
+{
+    const Grp::NpcSpriteFrame* SpriteFrame = nullptr;
+    std::size_t MapPixelX = 0;
+    std::size_t MapPixelY = 0;
+    std::size_t ScrollOffsetPixels = 0;
+    std::size_t MapColumn = 0;
+    bool IsCurrentColumn = false;
+};
+
+// Keep the NPC column slices staged here so we can swap in a real shadow
+// compositor later without changing the visible town output yet.
+struct TownNpcSpriteShadowBuffer
+{
+    void Reserve(std::size_t SliceCount)
+    {
+        Slices.reserve(SliceCount);
+    }
+
+    void AddCurrentColumnSlice(const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapPixelX, std::size_t MapPixelY,
+        std::size_t ScrollOffsetPixels, std::size_t MapColumn)
+    {
+        Slices.push_back(TownNpcSpriteShadowSlice{
+            &SpriteFrame,
+            MapPixelX,
+            MapPixelY,
+            ScrollOffsetPixels,
+            MapColumn,
+            true
+        });
+    }
+
+    void AddNextColumnSlice(const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapPixelX, std::size_t MapPixelY,
+        std::size_t ScrollOffsetPixels, std::size_t MapColumn)
+    {
+        Slices.push_back(TownNpcSpriteShadowSlice{
+            &SpriteFrame,
+            MapPixelX,
+            MapPixelY,
+            ScrollOffsetPixels,
+            MapColumn,
+            false
+        });
+    }
+
+    void Flush(SDL_Renderer* Renderer, const Main64Palette& Palette, std::size_t& RenderedNpcSpriteCount) const
+    {
+        for (const TownNpcSpriteShadowSlice& Slice : Slices)
+        {
+            DrawNpcSpriteFrameColumnSliceOnTownMap(Renderer, *Slice.SpriteFrame, Palette,
+                Slice.MapPixelX, Slice.MapPixelY, Slice.ScrollOffsetPixels, Slice.MapColumn);
+
+            if (Slice.IsCurrentColumn)
+            {
+                ++RenderedNpcSpriteCount;
+            }
+        }
+    }
+
+    std::vector<TownNpcSpriteShadowSlice> Slices;
+};
+
 void DrawTownMapActorFallbackMarker(SDL_Renderer* Renderer, float MapPixelX, float MapPixelY, std::size_t ScrollOffsetPixels)
 {
     constexpr float MarkerSize = 10.0f;
@@ -750,30 +812,6 @@ bool TownScene::TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcS
     return true;
 }
 
-void TownScene::DrawTownNpcRuntimeViewColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeRecord& RuntimeRecord,
-    const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapColumn, std::size_t ScrollOffsetPixels) const
-{
-    DrawNpcSpriteFrameColumnSliceOnTownMap(Renderer, SpriteFrame, Palette,
-        static_cast<std::size_t>(RuntimeRecord.X) * TownMapTileSize,
-        TownHeadLevelRow * TownMapTileSize, ScrollOffsetPixels, MapColumn);
-}
-
-void TownScene::DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap(SDL_Renderer* Renderer,
-    const TownNpcRuntimeRecord& RuntimeRecord, const Grp::NpcSpriteFrame& SpriteFrame, std::size_t ScrollOffsetPixels,
-    TownColumnRenderStats& RenderStats) const
-{
-    DrawTownNpcRuntimeViewColumnSliceOnTownMap(Renderer, RuntimeRecord, SpriteFrame,
-        static_cast<std::size_t>(RuntimeRecord.X), ScrollOffsetPixels);
-    ++RenderStats.RenderedNpcSpriteCount;
-}
-
-void TownScene::DrawTownNpcRuntimeViewNextColumnSliceOnTownMap(SDL_Renderer* Renderer,
-    const TownNpcRuntimeRecord& RuntimeRecord, const Grp::NpcSpriteFrame& SpriteFrame, std::size_t ScrollOffsetPixels) const
-{
-    DrawTownNpcRuntimeViewColumnSliceOnTownMap(Renderer, RuntimeRecord, SpriteFrame,
-        static_cast<std::size_t>(RuntimeRecord.X) + 1, ScrollOffsetPixels);
-}
-
 TownScene::TownHeadLevelTiles TownScene::SaveHeadLevelTilesInNpcs() const
 {
     TownHeadLevelTiles HeadLevelTiles;
@@ -1069,6 +1107,9 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
     bool DrawDebugFallbackMarker,
     TownColumnRenderStats& RenderStats) const
 {
+    TownNpcSpriteShadowBuffer ShadowBuffer;
+    ShadowBuffer.Reserve(TownNpcArray.size() * 2);
+
     const TownNpcRuntimeRecord* RuntimeRecord = FindFirstTownNpcRuntimeRecordForColumn(TownNpcArray, MapColumn);
     while (RuntimeRecord != nullptr)
     {
@@ -1100,17 +1141,26 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
             }
             else
             {
-                DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap(Renderer, *RuntimeRecord, *SpriteFrame,
-                    ScrollOffsetPixels, RenderStats);
+                ShadowBuffer.AddCurrentColumnSlice(*SpriteFrame,
+                    static_cast<std::size_t>(RuntimeRecord->X) * TownMapTileSize,
+                    TownHeadLevelRow * TownMapTileSize,
+                    ScrollOffsetPixels,
+                    static_cast<std::size_t>(RuntimeRecord->X));
             }
         }
         else if (ColumnMatch == 1 && HasSpriteFrame)
         {
-            DrawTownNpcRuntimeViewNextColumnSliceOnTownMap(Renderer, *RuntimeRecord, *SpriteFrame, ScrollOffsetPixels);
+            ShadowBuffer.AddNextColumnSlice(*SpriteFrame,
+                static_cast<std::size_t>(RuntimeRecord->X) * TownMapTileSize,
+                TownHeadLevelRow * TownMapTileSize,
+                ScrollOffsetPixels,
+                static_cast<std::size_t>(RuntimeRecord->X) + 1);
         }
 
         RuntimeRecord = FindFirstTownNpcRuntimeRecordForColumnAfterCurrent(TownNpcArray, RuntimeRecord, MapColumn);
     }
+
+    ShadowBuffer.Flush(Renderer, Palette, RenderStats.RenderedNpcSpriteCount);
 }
 
 void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
@@ -1119,10 +1169,8 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
     TownColumnRenderStats& RenderStats) const
 {
     const Grp::PatternTile& FallbackTile = GetFallbackPatternTile();
-    const bool ColumnHasHeadLevelMarker = MapColumn < HeadLevelTiles.Tiles.size()
+    const bool HasTownNpcMarker = MapColumn < HeadLevelTiles.Tiles.size()
         && HeadLevelTiles.Tiles[MapColumn] == TownHeadLevelNpcMarkerTile;
-    const bool PreviousColumnHasHeadLevelMarker = MapColumn > 0 && MapColumn - 1 < HeadLevelTiles.Tiles.size()
-        && HeadLevelTiles.Tiles[MapColumn - 1] == TownHeadLevelNpcMarkerTile;
 
     for (std::size_t Row = 0; Row < TownMap.Height; ++Row)
     {
@@ -1180,7 +1228,8 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
         DrawTownEntityMarkersForColumn(Renderer, TownMap, ScrollOffsetPixels, Mdt::TownEntityKind::Door, MapColumn);
     }
 
-    if (ColumnHasHeadLevelMarker || PreviousColumnHasHeadLevelMarker)
+    // Match the DOS flow: only the row-5 0xFD marker opens the NPC compositor.
+    if (HasTownNpcMarker)
     {
         DispatchTownSpecialTile(Renderer, MapColumn, TownNpcArray, ScrollOffsetPixels,
             DrawDebugFallbackMarker, RenderStats);
