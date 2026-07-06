@@ -859,15 +859,13 @@ std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecor
             HeadTile = HeadLevelTiles.Tiles[Column];
         }
 
-        // AiType and Flags stay mirrored but inactive until the live NPC state
-        // is reconstructed from the assembly-driven update path.
         TownNpcRuntimeRecords.push_back(TownNpcRuntimeRecord{
             EntityMarker.X,
             EntityMarker.NpcSpriteSelector,
             HeadTile,
             EntityMarker.NpcAnimationPhase,
-            0,
-            0,
+            EntityMarker.NpcAiType,
+            EntityMarker.NpcFlags,
             EntityMarker.NpcId
         });
     }

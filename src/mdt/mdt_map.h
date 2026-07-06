@@ -25,6 +25,10 @@ struct TownEntityMarker
     std::uint8_t NpcSpriteSelector = 0;
     // Byte 4 in the raw NPC record: the animation phase used by town rendering.
     std::uint8_t NpcAnimationPhase = 0;
+    // Byte 5 in the raw NPC record: the AI type used by the original update loop.
+    std::uint8_t NpcAiType = 0;
+    // Byte 6 in the raw NPC record: NPC flags, including the non-passable bit.
+    std::uint8_t NpcFlags = 0;
     // Byte 7 in the raw NPC record: the dialogue lookup key.
     std::uint8_t NpcId = 0;
 };
