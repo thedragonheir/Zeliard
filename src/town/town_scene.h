@@ -99,6 +99,11 @@ private:
     bool UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex);
     bool TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const;
     std::size_t GetTownHeroAbsoluteX() const noexcept;
+    std::size_t GetTownHeroMapPixelX() const noexcept;
+    std::size_t GetTownHeroMapPixelY() const noexcept;
+    std::size_t GetTownHeroScrollOffsetPixels() const noexcept;
+    void SyncTownHeroRuntimeProjection() noexcept;
+    void UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
         const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews,
         std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, bool DrawDebugFallbackMarker,
@@ -133,6 +138,8 @@ private:
 
     static constexpr std::size_t TownMapActorInitialMapPixelX = 160;
     static constexpr std::size_t TownMapActorInitialMapPixelY = 40;
+    // Provisional until DOSBox confirms the exact held-input cadence.
+    static constexpr std::size_t TownMovementFrameDelay = 4;
     static constexpr std::size_t TownNpcSpriteFrameCount = 40;
 
     const std::filesystem::path ActorSpriteGrpPath;
@@ -149,6 +156,7 @@ private:
     std::size_t ActorMapPixelX = TownMapActorInitialMapPixelX;
     std::size_t ActorMapPixelY = TownMapActorInitialMapPixelY;
     std::size_t ScrollOffsetPixels = 0;
+    std::size_t TownMovementFrameCountdown = 0;
 
     bool ActorFrameLoaded = false;
     bool ActorFrameVisible = false;

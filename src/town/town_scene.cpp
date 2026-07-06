@@ -20,8 +20,10 @@ namespace
 constexpr std::size_t TownMapTileSize = 8;
 constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
 constexpr std::size_t TownMapViewportWidth = 320;
+constexpr std::size_t TownHeroViewportLeftThreshold = 10;
+constexpr std::size_t TownHeroViewportRightThreshold = 16;
+constexpr std::size_t TownHeroProximityMapWidthColumns = 36;
 constexpr std::size_t TownEntityProximityRadiusPixels = 20;
-constexpr std::size_t TownMapActorAnimationFrameDelay = 8;
 constexpr std::size_t TownMapActorAnimationPhaseCount = 4;
 constexpr std::size_t TownHeroLeftFacingFrameStart = 0;
 constexpr std::size_t TownHeroRightFacingFrameStart = 5;
@@ -57,6 +59,11 @@ const char* GetTownMapCameraFollowModeName(bool CameraFollowEnabled)
     return CameraFollowEnabled ? "AUTO" : "MANUAL";
 }
 
+std::size_t GetTownMapMaximumProximityMapLeftColumn(const Mdt::TownMapInfo& TownMap)
+{
+    return TownMap.Width > TownHeroProximityMapWidthColumns ? TownMap.Width - TownHeroProximityMapWidthColumns : 0;
+}
+
 std::size_t GetTownMapActorFrameStartIndex(TownMapActorFacingDirection FacingDirection)
 {
     switch (FacingDirection)
@@ -77,10 +84,11 @@ std::size_t GetTownMapActorFrameStartIndex(TownMapActorFacingDirection FacingDir
     return TownHeroRightFacingFrameStart;
 }
 
-std::size_t GetTownMapActorFrameIndex(TownMapActorFacingDirection FacingDirection, bool ActorIsMoving, std::size_t AnimationPhase)
+std::size_t GetTownMapActorFrameIndex(TownMapActorFacingDirection FacingDirection, [[maybe_unused]] bool ActorIsMoving,
+    std::size_t AnimationPhase)
 {
     const std::size_t FrameStartIndex = GetTownMapActorFrameStartIndex(FacingDirection);
-    const std::size_t FramePhase = ActorIsMoving ? (AnimationPhase % TownMapActorAnimationPhaseCount) : 0;
+    const std::size_t FramePhase = AnimationPhase % TownMapActorAnimationPhaseCount;
     return FrameStartIndex + FramePhase;
 }
 
@@ -815,6 +823,133 @@ std::size_t TownScene::GetTownHeroAbsoluteX() const noexcept
         + static_cast<std::size_t>(TownHeroState.HeroXInViewport) + 4;
 }
 
+std::size_t TownScene::GetTownHeroMapPixelX() const noexcept
+{
+    const std::size_t HeroAbsoluteX = GetTownHeroAbsoluteX();
+    return HeroAbsoluteX == 0 ? 0 : HeroAbsoluteX * TownMapTileSize - 1;
+}
+
+std::size_t TownScene::GetTownHeroMapPixelY() const noexcept
+{
+    return TownMapActorInitialMapPixelY;
+}
+
+std::size_t TownScene::GetTownHeroScrollOffsetPixels() const noexcept
+{
+    const std::size_t ProximityMapScrollOffsetPixels = static_cast<std::size_t>(TownHeroState.ProximityMapLeftColumnX)
+        * TownMapTileSize;
+    return std::min<std::size_t>(ProximityMapScrollOffsetPixels, GetTownMapMaximumScrollOffset(TownMap));
+}
+
+void TownScene::SyncTownHeroRuntimeProjection() noexcept
+{
+    ActorFacingDirection = (TownHeroState.FacingDirection & 1) != 0
+        ? TownMapActorFacingDirection::Left
+        : TownMapActorFacingDirection::Right;
+    ActorAnimationPhase = static_cast<std::size_t>(TownHeroState.HeroAnimationPhase & 3);
+    ActorMapPixelX = GetTownHeroMapPixelX();
+    ActorMapPixelY = GetTownHeroMapPixelY();
+    ScrollOffsetPixels = GetTownHeroScrollOffsetPixels();
+    ActorCollisionBlocked = false;
+}
+
+void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
+{
+    if (KeyboardState == nullptr)
+    {
+        SyncTownHeroRuntimeProjection();
+        return;
+    }
+
+    const bool LeftPressed = KeyboardState[SDL_SCANCODE_LEFT] && !KeyboardState[SDL_SCANCODE_RIGHT];
+    const bool RightPressed = KeyboardState[SDL_SCANCODE_RIGHT] && !KeyboardState[SDL_SCANCODE_LEFT];
+    const std::size_t MaximumProximityMapLeftColumn = GetTownMapMaximumProximityMapLeftColumn(TownMap);
+    bool HeroMoved = false;
+
+    if (LeftPressed)
+    {
+        TownHeroState.FacingDirection |= 1;
+    }
+    else if (RightPressed)
+    {
+        TownHeroState.FacingDirection &= 0xFE;
+    }
+    else
+    {
+        TownMovementFrameCountdown = 0;
+        SyncTownHeroRuntimeProjection();
+        return;
+    }
+
+    if (TownMovementFrameCountdown > 0)
+    {
+        --TownMovementFrameCountdown;
+        if (TownMovementFrameCountdown > 0)
+        {
+            SyncTownHeroRuntimeProjection();
+            return;
+        }
+    }
+
+    if (LeftPressed)
+    {
+        if (TownHeroState.HeroXInViewport > TownHeroViewportLeftThreshold)
+        {
+            --TownHeroState.HeroXInViewport;
+            HeroMoved = true;
+        }
+        else if (TownHeroState.ProximityMapLeftColumnX > 0)
+        {
+            --TownHeroState.ProximityMapLeftColumnX;
+            HeroMoved = true;
+        }
+        else if (TownHeroState.HeroXInViewport > 0)
+        {
+            --TownHeroState.HeroXInViewport;
+            HeroMoved = true;
+        }
+
+        if (HeroMoved)
+        {
+            TownMovementFrameCountdown = TownMovementFrameDelay;
+        }
+    }
+    else if (RightPressed)
+    {
+        if (TownHeroState.HeroXInViewport < TownHeroViewportRightThreshold)
+        {
+            ++TownHeroState.HeroXInViewport;
+            HeroMoved = true;
+        }
+        else if (TownHeroState.ProximityMapLeftColumnX < MaximumProximityMapLeftColumn)
+        {
+            ++TownHeroState.ProximityMapLeftColumnX;
+            HeroMoved = true;
+        }
+        else if (TownHeroState.HeroXInViewport < 27)
+        {
+            ++TownHeroState.HeroXInViewport;
+            HeroMoved = true;
+        }
+
+        if (HeroMoved)
+        {
+            TownMovementFrameCountdown = TownMovementFrameDelay;
+        }
+    }
+
+    if (HeroMoved)
+    {
+        TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
+    }
+    else
+    {
+        TownMovementFrameCountdown = 0;
+    }
+
+    SyncTownHeroRuntimeProjection();
+}
+
 void TownScene::RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles)
 {
     for (const TownSavedHeadLevelTile& SavedTile : HeadLevelTiles.SavedTiles)
@@ -1096,8 +1231,8 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
 {
     ActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(ActorFrameIndex);
-
-    ClampTownMapActorPosition(this->TownMap, ActorMapPixelX, ActorMapPixelY);
+    CameraFollowEnabled = false;
+    SyncTownHeroRuntimeProjection();
 }
 
 void TownScene::Update(const bool* KeyboardState)
@@ -1107,50 +1242,8 @@ void TownScene::Update(const bool* KeyboardState)
         return;
     }
 
-    constexpr std::size_t ScrollSpeedPixels = 2;
-    const std::size_t MaximumScrollOffset = GetTownMapMaximumScrollOffset(TownMap);
-
-    if (CameraFollowEnabled)
-    {
-        ScrollOffsetPixels = GetTownMapCameraFollowScrollOffset(TownMap, ActorMapPixelX);
-    }
-    else if (KeyboardState[SDL_SCANCODE_PAGEUP] && !KeyboardState[SDL_SCANCODE_PAGEDOWN])
-    {
-        ScrollOffsetPixels = ScrollOffsetPixels > ScrollSpeedPixels ? ScrollOffsetPixels - ScrollSpeedPixels : 0;
-    }
-    else if (KeyboardState[SDL_SCANCODE_PAGEDOWN] && !KeyboardState[SDL_SCANCODE_PAGEUP])
-    {
-        ScrollOffsetPixels = std::min<std::size_t>(ScrollOffsetPixels + ScrollSpeedPixels, MaximumScrollOffset);
-    }
-
-    const TownMapActorFacingDirection PreviousTownMapActorFacingDirection = ActorFacingDirection;
-    const bool ActorMoved = MoveTownMapActorPosition(TownMap, ActorMapPixelX, ActorMapPixelY, KeyboardState,
-        ActorFacingDirection, ActorCollisionBlocked);
-
-    if (ActorMoved)
-    {
-        if (ActorFacingDirection != PreviousTownMapActorFacingDirection)
-        {
-            ActorAnimationPhase = 0;
-            ActorAnimationTickCount = 0;
-        }
-        else
-        {
-            ++ActorAnimationTickCount;
-            if (ActorAnimationTickCount >= TownMapActorAnimationFrameDelay)
-            {
-                ActorAnimationTickCount = 0;
-                ActorAnimationPhase = (ActorAnimationPhase + 1) % TownMapActorAnimationPhaseCount;
-            }
-        }
-    }
-    else
-    {
-        ActorAnimationTickCount = 0;
-        ActorAnimationPhase = 0;
-    }
-
-    const std::size_t DesiredTownMapActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, ActorMoved, ActorAnimationPhase);
+    UpdateTownHeroRuntimeState(KeyboardState);
+    const std::size_t DesiredTownMapActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, true, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(DesiredTownMapActorFrameIndex);
 }
 
@@ -1218,7 +1311,7 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
 
 void TownScene::ToggleCameraFollow() noexcept
 {
-    CameraFollowEnabled = !CameraFollowEnabled;
+    CameraFollowEnabled = false;
 }
 
 void TownScene::ToggleBlockedTileOverlay() noexcept
