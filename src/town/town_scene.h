@@ -62,16 +62,34 @@ private:
         std::size_t NpcSpriteMissCount = 0;
     };
 
+    struct TownNpcRuntimeView
+    {
+        std::uint16_t X = 0;
+        std::uint8_t HeadTile = 0;
+        std::uint8_t Facing = 0;
+        std::uint8_t AnimPhase = 0;
+    };
+
     bool UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex);
     bool TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
-        const TownHeadLevelTiles& HeadLevelTiles, std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers,
-        TownColumnRenderStats& RenderStats) const;
+        const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews,
+        std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, TownColumnRenderStats& RenderStats) const;
     void DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
-        std::size_t ScrollOffsetPixels, TownColumnRenderStats& RenderStats) const;
+        const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, std::size_t ScrollOffsetPixels,
+        TownColumnRenderStats& RenderStats) const;
 
     static TownHeadLevelTiles SaveHeadLevelTilesInNpcs(const Mdt::TownMapInfo& TownMap);
     static void RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles);
+    static std::vector<TownNpcRuntimeView> BuildTownNpcRuntimeViews(const Mdt::TownMapInfo& TownMap,
+        const TownHeadLevelTiles& HeadLevelTiles);
+    static std::size_t GetTownNpcSpriteFrameIndex(std::uint8_t NpcFacing, std::uint8_t NpcAnimPhase);
+    static bool IsTownNpcRuntimeViewSpriteColumnSlice(const TownNpcRuntimeView& RuntimeView, std::size_t MapColumn);
+    static const TownNpcRuntimeView* FindFirstTownNpcRuntimeViewForColumn(
+        const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, std::size_t MapColumn);
+    static const TownNpcRuntimeView* FindFirstTownNpcRuntimeViewForColumnAfterCurrent(
+        const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, const TownNpcRuntimeView* CurrentRuntimeView,
+        std::size_t MapColumn);
 
     static constexpr std::size_t TownMapActorInitialMapPixelX = 160;
     static constexpr std::size_t TownMapActorInitialMapPixelY = 40;
