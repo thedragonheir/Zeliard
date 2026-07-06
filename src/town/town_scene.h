@@ -62,6 +62,14 @@ private:
         std::size_t NpcSpriteMissCount = 0;
     };
 
+    struct TownHeroRuntimeState
+    {
+        std::uint8_t HeroXInViewport = 12;
+        std::uint16_t ProximityMapLeftColumnX = 4;
+        std::uint8_t FacingDirection = 0; // bit 0: 0=right, 1=left
+        std::uint8_t HeroAnimationPhase = 0;
+    };
+
     struct TownNpcRuntimeRecord
     {
         std::uint16_t X = 0;
@@ -90,6 +98,7 @@ private:
 
     bool UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex);
     bool TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const;
+    std::size_t GetTownHeroAbsoluteX() const noexcept;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
         const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews,
         std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, bool DrawDebugFallbackMarker,
@@ -132,6 +141,7 @@ private:
     const Grp::PatternBank& PatternBank;
     const Main64Palette& Palette;
 
+    TownHeroRuntimeState TownHeroState;
     TownMapActorFacingDirection ActorFacingDirection = TownMapActorFacingDirection::Right;
     std::size_t ActorAnimationPhase = 0;
     std::size_t ActorAnimationTickCount = 0;

@@ -809,6 +809,12 @@ TownScene::TownHeadLevelTiles TownScene::SaveHeadLevelTilesInNpcs(const Mdt::Tow
     return HeadLevelTiles;
 }
 
+std::size_t TownScene::GetTownHeroAbsoluteX() const noexcept
+{
+    return static_cast<std::size_t>(TownHeroState.ProximityMapLeftColumnX)
+        + static_cast<std::size_t>(TownHeroState.HeroXInViewport) + 4;
+}
+
 void TownScene::RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles)
 {
     for (const TownSavedHeadLevelTile& SavedTile : HeadLevelTiles.SavedTiles)

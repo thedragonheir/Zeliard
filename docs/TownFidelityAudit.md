@@ -19,6 +19,19 @@ Scope: confirm the town hero position and movement model before adding hero-rela
   - falter warp: `hero_x_in_viewport = 0Dh`
 - The initial town X at first entry is still a gap in the inspected assembly.
 
+## Canonical Town Hero Runtime State
+- `TownHeroRuntimeState.HeroXInViewport` maps to `hero_x_in_viewport`.
+- `TownHeroRuntimeState.ProximityMapLeftColumnX` maps to `proximity_map_left_col_x`.
+- `TownHeroRuntimeState.FacingDirection` maps to `facing_direction`, and bit 0 still means `0=right, 1=left`.
+- `TownHeroRuntimeState.HeroAnimationPhase` maps to `hero_animation_phase`.
+- `GetTownHeroAbsoluteX()` computes `ProximityMapLeftColumnX + HeroXInViewport + 4`.
+- Current initialization is conservative rather than fully confirmed:
+  - `HeroXInViewport = 12` is a provisional viewport-column default.
+  - `ProximityMapLeftColumnX = 4` is a provisional projection from the current centered scene.
+  - `FacingDirection = 0` preserves the confirmed right-facing bit-0 state.
+  - `HeroAnimationPhase = 0` matches the confirmed town-entry reset.
+- These values are now the canonical horizontal town-hero mirror, but they are not yet the live movement source.
+
 ## Confirmed Movement Model
 - Town walking is horizontal only.
 - The left and right handlers:
@@ -47,7 +60,7 @@ Scope: confirm the town hero position and movement model before adding hero-rela
 - `find_non_passable_npc_at_x_pos` scans the NPC array for exact X matches with `n_flags` bit 6 set, and movement uses it as the horizontal blocker test.
 
 ## Current C++ Mismatches
-- `src/town/town_scene.h:125-148` still models the hero as a 2D actor with `ActorMapPixelX`, `ActorMapPixelY`, `TownMapActorInitialMapPixelX/Y`, `CameraFollowEnabled`, `ActorCollisionBlocked`, and `ActorAnimationTickCount`.
+- `src/town/town_scene.h` now has `TownHeroRuntimeState`, but `ActorMapPixelX`, `ActorMapPixelY`, `TownMapActorInitialMapPixelX/Y`, `CameraFollowEnabled`, `ActorCollisionBlocked`, and `ActorAnimationTickCount` still drive the provisional 2D actor path.
 - `src/town/town_scene.cpp:592-681` implements free 4-way pixel movement at 2 px per step; town assembly only confirms horizontal left/right movement.
 - `src/town/town_scene.cpp:1104-1118` adds manual page-up/page-down camera scrolling; town assembly only confirms automatic edge scroll.
 - `src/town/town_scene.cpp:320-323,493-524,606-680` uses hardcoded blocked tiles `0x3C` and `0x3D` plus pixel-probe collision; town assembly uses `check_tile_in_special_list` and `find_non_passable_npc_at_x_pos`.
@@ -66,15 +79,16 @@ Scope: confirm the town hero position and movement model before adding hero-rela
   - `ActorAnimationTickCount`
   - `TownMapActorFacingDirection::Up` and `Down`
 - `ActorMapPixelX` can remain as a projection or debug field, but it should not be the authoritative town hero state.
+- The canonical horizontal state is now the `TownHeroRuntimeState` mirror above, not the actor fields.
 
 ## npc_ai_face_hero Gate
 - `npc_ai_face_hero` is not safe to implement yet.
 - It depends on a corrected horizontal hero model because the current C++ hero state is still pixel-space and 2D, while the assembly town logic is viewport-X plus map-left-column offset.
 
 ## Smallest Safe Next Step
-- Introduce a canonical town-hero state split with confirmed horizontal fields only: `hero_x_in_viewport`, `proximity_map_left_col_x`, `facing_direction` bit 0, and `hero_animation_phase`.
-- Keep the current 2D and camera-related fields read-only or diagnostic until the horizontal movement path is rebuilt from the assembly.
-- Do not wire `npc_ai_face_hero` until that split exists.
+- Thread the confirmed left/right town movement logic into `TownHeroRuntimeState` so the canonical horizontal state becomes the source of truth for movement and edge scrolling.
+- Keep the current 2D and camera-related fields read-only or diagnostic until that horizontal rewrite is complete.
+- Do not wire `npc_ai_face_hero` until the horizontal state drives movement.
 
 ## Notes
 - `game_loop_with_frame_wait` is confirmed to call `prepare_hero_sprite`, then `clear_6_hero_tiles_in_viewport_buffer`, then `render_town_tiles_28_columns`.
