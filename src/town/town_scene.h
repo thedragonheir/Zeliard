@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <filesystem>
+#include <vector>
 
 #include <SDL3/SDL.h>
 
@@ -40,9 +41,18 @@ public:
     bool IsTownEntityMarkersEnabled() const noexcept;
 
 private:
+    struct TownDynamicSpriteDrawItem
+    {
+        std::size_t SortY = 0;
+        std::size_t MapPixelX = 0;
+        std::size_t MapPixelY = 0;
+        const Grp::NpcSpriteFrame* SpriteFrame = nullptr;
+    };
+
     bool UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex);
     bool TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const;
-    std::size_t DrawTownNpcSprites(SDL_Renderer* Renderer, std::size_t ScrollOffsetPixels, std::size_t& NpcSpriteMissCount) const;
+    std::size_t CollectTownNpcSpriteDrawItems(std::vector<TownDynamicSpriteDrawItem>& DynamicSpriteDrawItems,
+        SDL_Renderer* Renderer, std::size_t ScrollOffsetPixels, std::size_t& NpcSpriteMissCount) const;
 
     static constexpr std::size_t TownMapActorInitialMapPixelX = 160;
     static constexpr std::size_t TownMapActorInitialMapPixelY = 40;

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace Grp
 {
@@ -686,7 +687,8 @@ bool TownScene::TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcS
     return true;
 }
 
-std::size_t TownScene::DrawTownNpcSprites(SDL_Renderer* Renderer, std::size_t ScrollOffsetPixels, std::size_t& NpcSpriteMissCount) const
+std::size_t TownScene::CollectTownNpcSpriteDrawItems(std::vector<TownDynamicSpriteDrawItem>& DynamicSpriteDrawItems,
+    SDL_Renderer* Renderer, std::size_t ScrollOffsetPixels, std::size_t& NpcSpriteMissCount) const
 {
     std::size_t RenderedNpcSpriteCount = 0;
     NpcSpriteMissCount = 0;
@@ -715,11 +717,12 @@ std::size_t TownScene::DrawTownNpcSprites(SDL_Renderer* Renderer, std::size_t Sc
             continue;
         }
 
-        // Keep the first pass anchored to the confirmed town entity row.
-        DrawNpcSpriteFrameOnTownMap(Renderer, *SpriteFrame, Palette,
-            static_cast<float>(EntityMarker.X * TownMapTileSize),
-            static_cast<float>(EntityMarker.Y * TownMapTileSize),
-            ScrollOffsetPixels);
+        DynamicSpriteDrawItems.push_back(TownDynamicSpriteDrawItem{
+            static_cast<std::size_t>(EntityMarker.Y * TownMapTileSize + Grp::NpcSpriteFrame::FrameHeight),
+            static_cast<std::size_t>(EntityMarker.X * TownMapTileSize),
+            static_cast<std::size_t>(EntityMarker.Y * TownMapTileSize),
+            SpriteFrame
+        });
         ++RenderedNpcSpriteCount;
     }
 
@@ -872,9 +875,12 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
         }
     }
 
+    std::vector<TownDynamicSpriteDrawItem> DynamicSpriteDrawItems;
+    DynamicSpriteDrawItems.reserve(TownMap.EntityMarkers.size() + 1);
+
     std::size_t NpcSpriteMissCount = 0;
     const std::size_t RenderedNpcSpriteCount = TownEntityMarkersEnabled
-        ? DrawTownNpcSprites(Renderer, ClampedScrollOffset, NpcSpriteMissCount)
+        ? CollectTownNpcSpriteDrawItems(DynamicSpriteDrawItems, Renderer, ClampedScrollOffset, NpcSpriteMissCount)
         : 0;
 
     if (TownEntityMarkersEnabled)
@@ -884,10 +890,30 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
 
     if (ActorFrameLoaded && ActorFrameVisible)
     {
-        DrawNpcSpriteFrameOnTownMap(Renderer, ActorFrame, Palette, static_cast<float>(ActorMapPixelX),
-            static_cast<float>(ActorMapPixelY), ClampedScrollOffset);
+        DynamicSpriteDrawItems.push_back(TownDynamicSpriteDrawItem{
+            ActorMapPixelY + Grp::NpcSpriteFrame::FrameHeight,
+            ActorMapPixelX,
+            ActorMapPixelY,
+            &ActorFrame
+        });
     }
-    else
+
+    // Sort by sprite baseline so lower sprites draw later and sit in front.
+    std::stable_sort(DynamicSpriteDrawItems.begin(), DynamicSpriteDrawItems.end(),
+        [](const TownDynamicSpriteDrawItem& Left, const TownDynamicSpriteDrawItem& Right)
+        {
+            return Left.SortY < Right.SortY;
+        });
+
+    for (const TownDynamicSpriteDrawItem& DynamicSpriteDrawItem : DynamicSpriteDrawItems)
+    {
+        DrawNpcSpriteFrameOnTownMap(Renderer, *DynamicSpriteDrawItem.SpriteFrame, Palette,
+            static_cast<float>(DynamicSpriteDrawItem.MapPixelX),
+            static_cast<float>(DynamicSpriteDrawItem.MapPixelY),
+            ClampedScrollOffset);
+    }
+
+    if (!(ActorFrameLoaded && ActorFrameVisible))
     {
         DrawTownMapActorFallbackMarker(Renderer, static_cast<float>(ActorMapPixelX),
             static_cast<float>(ActorMapPixelY), ClampedScrollOffset);
