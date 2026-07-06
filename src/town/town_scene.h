@@ -91,9 +91,13 @@ private:
     static const TownNpcRuntimeView* FindFirstTownNpcRuntimeViewForColumnAfterCurrent(
         const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, const TownNpcRuntimeView* CurrentRuntimeView,
         std::size_t MapColumn);
-    void DrawTownNpcRuntimeViewColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeView& RuntimeView,
-        const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapColumn, std::size_t ScrollOffsetPixels,
+    void DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeView& RuntimeView,
+        const Grp::NpcSpriteFrame& SpriteFrame, std::size_t ScrollOffsetPixels,
         TownColumnRenderStats& RenderStats) const;
+    void DrawTownNpcRuntimeViewNextColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeView& RuntimeView,
+        const Grp::NpcSpriteFrame& SpriteFrame, std::size_t ScrollOffsetPixels) const;
+    void DrawTownNpcRuntimeViewColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeView& RuntimeView,
+        const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapColumn, std::size_t ScrollOffsetPixels) const;
 
     static constexpr std::size_t TownMapActorInitialMapPixelX = 160;
     static constexpr std::size_t TownMapActorInitialMapPixelY = 40;
