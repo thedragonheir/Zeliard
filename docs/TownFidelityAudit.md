@@ -1,122 +1,81 @@
 # Town Fidelity Audit
 
-Scope: compare the current town-mode C++ behavior against the original Zeliard assembly before gameplay changes.
+Scope: confirm the town hero position and movement model before adding hero-relative NPC AI.
 
-Assembly inspected:
-- `asm/town.inc`: `NPC STRUC`, `npc_array_addr`, `town_head_level_tiles`, `viewport_buffer`
-- `asm/town.asm`: `update_npcs_and_render`, `update_npcs`, `npc_ai_*` routines, `save_head_level_tiles_in_npcs`, `restore_head_level_tiles_from_npcs`, `find_non_passable_npc_at_x_pos`, `find_first_npc_at_x`, `find_first_npc_at_x_after_current`, `is_hero_close_to_npc`, `start_npc_conversation`
-- `asm/gtmcga.asm`: `sprite_descriptor_table_scanner`, `sprite_x_coordinate_lookup`, `sprite_compositor_dispatcher`, `npc_3_tiles_to_shadow_buffer`, `single_sprite_shadow_compositor`, `two_sprite_shadow_compositor`
+## Assembly inspected
+- `asm/town.inc`: `NPC STRUC`, `town_tiles`, `town_head_level_tiles`, `viewport_buffer`
+- `asm/common.inc`: `hero_x_in_viewport`, `proximity_map_left_col_x`, `facing_direction`, `hero_animation_phase`
+- `asm/town.asm`: `game_loop_with_frame_wait`, `update_npcs_and_render`, `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, left/right movement handlers, `town_up_pressed`, `handle_edge_screen_transition`, `town_entry_common`, `is_hero_close_to_npc`, `find_non_passable_npc_at_x_pos`
+- `asm/gtmcga.asm`: `hero_column_shadow_blitter_guard`, `render_town_tiles_28_columns`, `sprite_descriptor_table_scanner`, `sprite_x_coordinate_lookup`, `sprite_compositor_dispatcher`
 
-Key conclusion:
-- Town rendering is marker-driven. `town_head_level_tiles` is the row-5 overlay, NPCs are marked with `0xFD`, and the visible town pass walks the column buffer instead of a generic Y-sorted sprite list.
+## Confirmed Town Hero Model
+- `hero_x_in_viewport` is the town hero's viewport X byte.
+- I found no town hero Y position in the inspected town assembly. The town code uses horizontal state only for walking and interaction.
+- When town code needs absolute X, it combines `proximity_map_left_col_x + hero_x_in_viewport + 4`.
+- `town_entry_common` sets `hero_animation_phase = 0`, but it does not assign a town X value.
+- The only confirmed town-mode X assignments I found are:
+  - left-edge transition: `hero_x_in_viewport = 26`
+  - right-edge transition: `hero_x_in_viewport = 0`
+  - falter warp: `hero_x_in_viewport = 0Dh`
+- The initial town X at first entry is still a gap in the inspected assembly.
 
-Confirmed NPC layout:
-- `NPC STRUC` is 8 bytes: `n_x` at offset 0, `n_facing` at offset 2, `n_head_tile` at offset 3, `n_anim_phase` at offset 4, `n_ai_type` at offset 5, `n_flags` at offset 6, and `n_id` at offset 7.
-- `npc_array_addr` points at the first NPC entry in a zero-terminated array. The terminator is `n_x == 0xFFFF`.
-- `save_head_level_tiles_in_npcs` reads `town_head_level_tiles[x * 8]`, stores the original byte in `NPC.n_head_tile`, and writes `0xFD` back into the head-level row.
-- `restore_head_level_tiles_from_npcs` restores the saved tile byte unless the saved byte itself is `0xFD`.
+## Confirmed Movement Model
+- Town walking is horizontal only.
+- The left and right handlers:
+  - test the tile ahead with `check_tile_in_special_list`
+  - block movement if `find_non_passable_npc_at_x_pos` finds a non-passable NPC at the destination X
+  - increment `hero_animation_phase` and mask it with `3`
+  - update `facing_direction` bit 0
+  - either move the hero one viewport column or trigger scrolling
+- Left movement scrolls once `hero_x_in_viewport < 11`.
+- Right movement scrolls once `hero_x_in_viewport >= 16` and the map still has room.
+- Scrolling shifts `proximity_map_left_col_x` and `proximity_start_tiles`, then calls the floor and ceiling scroll routines.
 
-Live npc_array mirror:
-- `TownNpcRuntimeRecord` now mirrors the confirmed `NPC STRUC` bytes in C++: `X` from `n_x`, `Facing` from `n_facing`, `HeadTile` from `n_head_tile`, `AnimPhase` from `n_anim_phase`, `AiType` from parsed byte 5, `Flags` from parsed byte 6, and `Id` from parsed byte 7.
-- `TownNpcRuntimeView` is projected from that mirror before compositor dispatch, so the SDL path no longer reads the parsed MDT markers directly.
-- `AiType`, `Flags`, and `Id` are now sourced from the parsed MDT NPC table and carried through the runtime record unchanged.
+## Confirmed Facing And Animation
+- `facing_direction` bit 0 is the town-facing bit.
+- In town movement, left sets bit 0 and right clears it.
+- `hero_animation_phase` is not a frame timer. In town it is:
+  - reset to `0` on town entry
+  - ORed with `1` on up-arrow, spacebar interaction, and some dialog paths
+  - set to `4` for door, falter, and facing-from-viewer transitions
+  - advanced by movement with `inc` followed by `and 3`
+- `prepare_hero_sprite` uses `facing_direction` bit 0 to choose left/right hero art and uses `hero_animation_phase` as the walking-frame index.
 
-NPC AI routine audit:
-- `asm/town.inc:1-8,81-85` confirms the 8-byte `NPC STRUC`, `npc_array_addr`, and `npc_patrol_boundaries` layout used by the AI routines below.
-- `update_npcs` dispatches by `n_ai_type`, calls the selected routine, and writes the returned `DX` back to `n_x` (`asm/town.asm:1689-1709`).
-- `npc_ai_jump_table[4]` selects `npc_ai_bob_in_place`, so `n_ai_type == 4` is the confirmed bob-in-place selector.
-- None of the `npc_ai_*` bodies below read `n_ai_type` or `n_flags` directly. `AiType` is only the dispatch key in `update_npcs`, and `Flags` are used by separate interaction helpers such as `start_npc_conversation` and `find_non_passable_npc_at_x_pos`.
+## Interaction And Comparison Rules
+- `town_up_pressed` computes absolute hero X from `proximity_map_left_col_x + hero_x_in_viewport + 4` and matches doors by X only.
+- `is_hero_close_to_npc` compares the hero's absolute X against `NPC.n_x` only when the hero's 1x3 row buffer contains `0xFD`.
+- `find_non_passable_npc_at_x_pos` scans the NPC array for exact X matches with `n_flags` bit 6 set, and movement uses it as the horizontal blocker test.
 
-| Routine | Reads | Mutates | X | Facing | HeadTile | AnimPhase | Uses AiType | Uses Flags | Collision / non-passable | Dialogue / other gameplay | Patrol boundaries | Safe animation-only | Must stay deferred |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `npc_ai_look_at_hero_and_bob` (`asm/town.asm:1731-1741`) | `n_facing`, `hero_x_in_viewport`, `proximity_map_left_col_x`, `dx` | `n_facing`, `n_anim_phase` via `npc_ai_bob_in_place` | No | Yes | No | Yes | No | No | No | No | No | Yes | No |
-| `npc_ai_patrol_1bit_phase` (`asm/town.asm:1752-1760`) | `n_anim_phase`, `n_facing`, `npc_patrol_boundaries`, `dx` | `n_anim_phase`, `n_facing`, `dx` via `patrol_between_boundaries` | Yes | Yes | No | Yes | No | No | No | No | Yes | No | Yes |
-| `npc_ai_patrol_2bit_phase` (`asm/town.asm:1804-1816`) | `n_anim_phase`, `n_facing`, `npc_patrol_boundaries`, `dx` | `n_anim_phase`, `n_facing`, `dx` via `patrol_between_boundaries` | Yes | Yes | No | Yes | No | No | No | No | Yes | No | Yes |
-| `npc_ai_face_hero` (`asm/town.asm:1829-1843`) | `n_facing`, `hero_x_in_viewport`, `proximity_map_left_col_x`, `dx` | `n_facing` | No | Yes | No | No | No | No | No | No | No | Yes | No |
-| `npc_ai_bob_in_place` (`asm/town.asm:1854-1870`) | `n_anim_phase` | `n_anim_phase` | No | No | No | Yes | No | No | No | No | No | Yes | No |
-| `npc_ai_patrol_bounce_1bit` (`asm/town.asm:1876-1889`) | `n_anim_phase`, `n_facing`, `dx` | `n_anim_phase`, `n_facing`, `dx` via `patrol_bounce_at_phase` | Yes | Yes | No | Yes | No | No | No | No | No | No | Yes |
-| `npc_ai_patrol_bounce_2bit` (`asm/town.asm:1925-1938`) | `n_anim_phase`, `n_facing`, `dx` | `n_anim_phase`, `n_facing`, `dx` via `patrol_bounce_at_phase` | Yes | Yes | No | Yes | No | No | No | No | No | No | Yes |
-| `npc_ai_static` (`asm/town.asm:1940-1946`) | none | none | No | No | No | No | No | No | No | No | No | Yes, as a no-op | No |
+## Current C++ Mismatches
+- `src/town/town_scene.h:125-148` still models the hero as a 2D actor with `ActorMapPixelX`, `ActorMapPixelY`, `TownMapActorInitialMapPixelX/Y`, `CameraFollowEnabled`, `ActorCollisionBlocked`, and `ActorAnimationTickCount`.
+- `src/town/town_scene.cpp:592-681` implements free 4-way pixel movement at 2 px per step; town assembly only confirms horizontal left/right movement.
+- `src/town/town_scene.cpp:1104-1118` adds manual page-up/page-down camera scrolling; town assembly only confirms automatic edge scroll.
+- `src/town/town_scene.cpp:320-323,493-524,606-680` uses hardcoded blocked tiles `0x3C` and `0x3D` plus pixel-probe collision; town assembly uses `check_tile_in_special_list` and `find_non_passable_npc_at_x_pos`.
+- `src/town/town_scene.cpp:1189-1209` exposes debug HUD fields that are useful for inspection, but they are not the town assembly's canonical hero state.
+- `src/town/town_scene.cpp:825-906` still keeps NPC AI mostly inert; only the bob-in-place phase step for `AiType == 4` is confirmed in C++.
 
-Key classification:
-- Smallest safe animation-only candidate: `npc_ai_bob_in_place`. It only advances `n_anim_phase`, does not move `X`, and does not depend on patrol boundaries or interaction state.
-- Also safe as animation-only: `npc_ai_face_hero` and `npc_ai_look_at_hero_and_bob`. They only change facing and/or bob phase, but they are slightly more coupled because they look at hero position.
-- Must stay deferred until movement/collision/patrol-boundary support exists: `npc_ai_patrol_1bit_phase` and `npc_ai_patrol_2bit_phase` because they move by `DX` and consult `npc_patrol_boundaries`; `npc_ai_patrol_bounce_1bit` and `npc_ai_patrol_bounce_2bit` because they move by `DX` and still need the movement path kept in sync.
-- `npc_ai_static` is already a no-op placeholder. It is safe, but it is not a meaningful animation implementation step.
+## Debug-Only Or Provisional
+- Safe to keep as debug-only:
+  - `CameraFollowEnabled`
+  - `ActorCollisionBlocked`
+  - `BlockedTileOverlayEnabled`
+  - `TownEntityMarkersEnabled`
+- Provisional and not canonical for town movement:
+  - `ActorMapPixelY`
+  - `TownMapActorInitialMapPixelY`
+  - `ActorAnimationTickCount`
+  - `TownMapActorFacingDirection::Up` and `Down`
+- `ActorMapPixelX` can remain as a projection or debug field, but it should not be the authoritative town hero state.
 
-Confirmed viewport buffer role:
-- `viewport_buffer` is the town-pass staging buffer at `0xE000`.
-- `render_town_tiles_28_columns` sets `DI` to `viewport_buffer` before the column walk, and `clear_6_hero_tiles_in_viewport_buffer` writes `0xFF` into the hero-adjacent cells to force redraw.
-- The assembly uses the buffer as a dirty/comparison surface for the town pass; it is not the final screen surface.
+## npc_ai_face_hero Gate
+- `npc_ai_face_hero` is not safe to implement yet.
+- It depends on a corrected horizontal hero model because the current C++ hero state is still pixel-space and 2D, while the assembly town logic is viewport-X plus map-left-column offset.
 
-Confirmed shadow-memory compositor flow:
-- `render_town_tiles_28_columns` initializes `blit_cache`, walks each column, and routes row 5 through `special_tile_dispatcher`.
-- `special_tile_dispatcher` checks the previous tile byte for `0xFD` and jumps to `special_multi_tile_column_renderer` for NPC columns.
-- `special_multi_tile_column_renderer` and `pre_pass_special_column_initializer` both scan `npc_array_addr` with `sprite_descriptor_table_scanner` and `sprite_x_coordinate_lookup`.
-- `sprite_x_coordinate_lookup` returns `BL=2` for the current column, `BL=1` for the next column, and `BL=0` otherwise.
-- `sprite_compositor_dispatcher` subtracts 1 from `BL` and indexes `funcs_34D2`, which selects `single_sprite_shadow_compositor` or `two_sprite_shadow_compositor`.
-- `two_sprite_shadow_compositor` starts at `vram_shadow_addr + 192*2`, calls `npc_3_tiles_to_shadow_buffer`, then immediately falls through into the same routine again so both 3-tile slices are composited.
-- `single_sprite_shadow_compositor` adds 3 to `SI` to skip the first slice, starts at `vram_shadow_addr + 192*3`, and then jumps into `npc_3_tiles_to_shadow_buffer`.
-- `npc_3_tiles_to_shadow_buffer` is the 3-tile blitter. It marks each staging slot with `0xFF`, derives the packed tile and mask offsets, and calls `blit_tile_to_shadow_buffer` for each of the three tiles.
-- `hero_column_shadow_blitter_guard` is the separate hero-column copy that pulls 3 vertical tiles from shadow memory into the screen buffer when the current column matches the hero.
+## Smallest Safe Next Step
+- Introduce a canonical town-hero state split with confirmed horizontal fields only: `hero_x_in_viewport`, `proximity_map_left_col_x`, `facing_direction` bit 0, and `hero_animation_phase`.
+- Keep the current 2D and camera-related fields read-only or diagnostic until the horizontal movement path is rebuilt from the assembly.
+- Do not wire `npc_ai_face_hero` until that split exists.
 
-Current C++ structural matches:
-- `SaveHeadLevelTilesInNpcs` / `RestoreHeadLevelTilesFromNpcs` match the head-tile save/restore pass.
-- `BuildTownNpcRuntimeRecords` and `BuildTownNpcRuntimeViews` now project the live town npc_array mirror into the compositor-facing view layer.
-- `UpdateTownNpcRuntimeRecordsShell` now occupies the assembly-shaped `update_npcs` slot between runtime mirror construction and view projection; it threads only the confirmed bob-in-place phase update for `AiType == 4` and leaves every other runtime field unchanged.
-- `GetTownNpcRuntimeViewSpriteColumnMatch`, `FindFirstTownNpcRuntimeViewForColumn`, and `FindFirstTownNpcRuntimeViewForColumnAfterCurrent` mirror the X-based NPC scan and current/next column matching.
-- `GetTownNpcSpriteFrameIndex` matches `get_sprite_vram_address` for selector, facing, and animation phase math.
-- `DispatchTownSpecialTile` is the current stand-in for the `special_tile_dispatcher` branch into the compositor helpers.
-- `DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap` and `DrawTownNpcRuntimeViewNextColumnSliceOnTownMap` are the SDL-only stand-ins for the two compositor branches.
-- `RenderTownColumn` is the closest structural match to the per-column walk in `render_town_tiles_28_columns`, but it still draws directly instead of writing the shadow-memory path.
-
-Still provisional:
-- `TownNpcRuntimeRecord` is still a minimal mirror, not a live NPC simulation. `UpdateTownNpcRuntimeRecordsShell` now advances only the confirmed `npc_ai_bob_in_place` animation phase for `AiType == 4`; `X`, `Facing`, `HeadTile`, `AiType`, `Flags`, and `Id` stay unchanged for every record.
-- `npc_ai_face_hero`, `npc_ai_look_at_hero_and_bob`, `npc_ai_patrol_1bit_phase`, `npc_ai_patrol_2bit_phase`, `npc_ai_patrol_bounce_1bit`, and `npc_ai_patrol_bounce_2bit` remain deferred because they require hero-relative facing changes, `DX` movement, or patrol-boundary support that is still outside the shell.
-- `npc_ai_static` remains deferred because it is already a no-op in assembly and does not add new animation behavior.
-- `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, and `hero_column_shadow_blitter_guard` do not have a byte-faithful C++ counterpart yet.
-- The SDL slice helpers remain the visible path, so `viewport_buffer` and the shadow-memory compositor are not yet reproduced exactly.
-
-Next smallest safe implementation step:
-- Thread `npc_ai_face_hero` next if we want the next smallest animation-only step; it still only changes facing and does not require movement or collision support.
-
-Confirmed bob threading:
-- Exact phase rule: add `0x10` to `AnimPhase`; if the resulting phase has `(phase & 0x30) == 0`, collapse it to `(phase + 1) & 1`.
-- Mutated fields: `AnimPhase` only.
-- Preserved fields: `X`, `Facing`, `HeadTile`, `AiType`, `Flags`, and `Id`.
-
-| Behavior | C++ location | Assembly evidence | Status | Recommendation |
-| --- | --- | --- | --- | --- |
-| Live npc_array mirror | `src/town/town_scene.h:65-110`, `src/town/town_scene.cpp:823-885`, `src/town/town_scene.cpp:1132-1133`, `src/mdt/mdt_map.h:16-33`, `src/mdt/mdt_map.cpp:47-84` | `npc_array_addr` is a zero-terminated NPC list, and the C++ mirror now copies the confirmed `NPC STRUC` bytes into `TownNpcRuntimeRecord` before projecting them into `TownNpcRuntimeView` for compositor use (`asm/town.inc:1-8`, `asm/town.asm:1244-1251`, `asm/town.asm:1958-1977`, `asm/gtmcga.asm:714-855`). | Confirmed by assembly | Keep |
-| Town actor starting position | `src/town/town_scene.h:76`, `src/town/town_scene.h:90` | Town entry sets `hero_x_in_viewport` from transition data or special cases (`asm/town.asm:2088-2129`, `asm/town.asm:2380-2415`) and only initializes `hero_animation_phase` at entry (`asm/town.asm:33-97`). No fixed `160,40` town start appears in the assembly. | Contradicted by assembly | Replace later with assembly-equivalent behavior |
-| Town actor movement speed | `src/town/town_scene.cpp:642-727` | Assembly town movement changes the hero one column at a time and scrolls the map in 1-column steps (`asm/town.asm:1070-1179`). | Contradicted by assembly | Replace later with assembly-equivalent behavior |
-| Town actor free X/Y movement | `src/town/town_scene.cpp:642-727` | Assembly town mode only tracks horizontal hero movement with `hero_x_in_viewport`; up is used for interaction, not vertical walking (`asm/town.asm:2256-2295`, `asm/town.asm:1070-1179`). | Contradicted by assembly | Keep isolated until exact replacement is implemented |
-| Town actor facing and animation frame mapping | `src/town/town_scene.cpp:58-83`, `src/town/town_scene.cpp:935-997`, `src/grp/grp_sprite_sheet.cpp:509-528` | Assembly uses `facing_direction` plus `hero_animation_phase`, and `prepare_hero_sprite` picks `hero_faced_left` or `hero_faced_right` before blitting 6 tiles (`asm/town.asm:1477-1490`). `TMAN.GRP` is the town hero sheet (`asm/town.asm:2231-2248`). | Provisional | Keep temporarily but label provisional |
-| Town actor collision probing | `src/town/town_scene.cpp:537-576`, `src/town/town_scene.cpp:642-727` | Assembly checks passability with `check_tile_in_special_list` and NPC blocking with `find_non_passable_npc_at_x_pos`, not a single-point pixel probe (`asm/town.asm:1074-1093`, `asm/town.asm:1185-1236`). | Contradicted by assembly | Replace later with assembly-equivalent behavior |
-| Blocked tiles `0x3C` and `0x3D` | `src/town/town_scene.cpp:32-33`, `src/town/town_scene.cpp:900-911` | Assembly town passability is driven by a special tile list pointer (`asm/town.asm:1185-1208`); no fixed `0x3C` / `0x3D` town collision rule was found in the town assembly. | Not confirmed | Keep temporarily as debug/provisional |
-| Camera follow | `src/town/town_scene.cpp:284-292`, `src/town/town_scene.cpp:946-958`, `src/town/town_scene.h:98` | Assembly uses automatic edge-scroll handlers tied to hero position and facing (`asm/town.asm:205-225`, `asm/town.asm:1070-1179`, `asm/town.asm:2062-2130`). There is no camera-follow toggle or page-scroll mode in the assembly. | Contradicted by assembly | Replace later with assembly-equivalent behavior |
-| NPC parsing from MDT | `src/mdt/mdt_map.cpp:47-83`, `src/mdt/mdt_map.h:16-30` | Town MDT layout and NPC array location are fixed in `asm/town.inc:76-100`, and `load_town_transition_data` loads town MDT data before town rendering (`asm/town.asm:2142-2178`). | Confirmed by assembly | Keep |
-| Door parsing from MDT | `src/mdt/mdt_map.cpp:47-66`, `src/mdt/mdt_map.h:16-30` | Town doors are a 3-byte array in the MDT (`asm/town.inc:78-100`), and `town_up_pressed` iterates `doors_array_addr` during interaction (`asm/town.asm:2256-2295`). | Confirmed by assembly | Keep |
-| Derived head-level row | `src/mdt/mdt_map.cpp:13-45`, `src/town/town_scene.cpp:30` | `town_head_level_tiles = town_tiles + 5` in `asm/town.inc:84-85`, and the assembly saves/restores NPC head tiles at that row (`asm/town.asm:1951-2012`). | Confirmed by assembly | Keep |
-| NPC head-level marker save/restore | `src/town/town_scene.cpp:766-818` | `save_head_level_tiles_in_npcs` saves `town_head_level_tiles[x * 8]`, writes `0xFD`, and stores the old value in `NPC.n_head_tile`; `restore_head_level_tiles_from_npcs` restores non-`0xFD` saved values (`asm/town.asm:1951-2012`). | Confirmed equivalent | Implemented locally |
-| Column render dispatch | `src/town/town_scene.cpp:915-983`, `src/town/town_scene.cpp:1058-1080` | `render_town_tiles_28_columns` renders columns and calls `special_tile_dispatcher` on row 5; `special_tile_dispatcher` branches on `0xFD` (`asm/gtmcga.asm:79-156`, `asm/gtmcga.asm:212-216`). | Structurally similar, now split into explicit current/next branches | Keep the branch split; shadow-memory behavior is still deferred |
-| Sprite descriptor scanning | `src/town/town_scene.cpp:688-933`, `src/town/town_scene.cpp:1068-1076` | `sprite_descriptor_table_scanner` and `sprite_x_coordinate_lookup` scan the runtime NPC table by X and by the 2-column sprite span (`asm/gtmcga.asm:714-855`). | Runtime view threaded into compositor scan | The C++ path now uses the runtime view x-match helper and passes the matched view into the compositor draw helper; `HeadTile` is still cached context rather than shadow-memory state |
-| NPC sprite selector frame calculation | `src/town/town_scene.cpp:87-98`, `src/town/town_scene.cpp:873-906` | `get_sprite_vram_address` uses `n_facing` bit 7 plus `n_anim_phase & 3`, with a 4-frame facing offset and 6 tiles per phase (`asm/gtmcga.asm:812-833`). | Confirmed equivalent | Keep |
-| NPC animation phase handling | `src/mdt/mdt_map.cpp:68-83`, `src/town/town_scene.cpp:85-92` | Assembly updates `n_anim_phase` every frame through NPC AI routines, and the AI jump table drives those updates (`asm/town.asm:1681-1902`). The current C++ stores the parsed phase and never advances NPC AI. | Contradicted by assembly | Do not change until NPC AI is reconstructed |
-| MMAN.GRP / CMAN.GRP selection | `src/zeliard.cpp:542-595`, `src/town/town_scene.h:28-30`, `src/town/town_scene.cpp:931-935` | Assembly selects the town NPC sheet from town descriptor byte 1 and loads either `MMAN.GRP` or `CMAN.GRP` (`asm/game.asm:193-201`, `asm/town.asm:2142-2186`). | Confirmed by assembly | Keep |
-| TMAN.GRP town hero frame loading | `src/zeliard.cpp:867-899`, `src/town/town_scene.cpp:1089-1121`, `src/grp/grp_sprite_sheet.cpp:509-528` | Assembly hardcodes `TMAN.GRP` in `load_hero_town_sprite` and applies the sprite mask before town rendering (`asm/town.asm:2231-2248`, `asm/town.asm:2251-2253`). | Confirmed by assembly | Keep |
-| Sprite draw modes | `src/grp/grp_sprite_sheet.cpp:100-106`, `src/town/town_scene.cpp:109-115`, `src/town/town_scene.cpp:189-234` | Assembly uses masked sprite composition paths (`asm/town.asm:52`, `asm/gtmcga.asm:553-708`, `asm/gtmcga.asm:774-833`). | Derived from data | Keep |
-| Hero/NPC compositing | `src/town/town_scene.cpp:873-988` | `prepare_hero_sprite` handles NPC markers around the hero, calls `get_sprite_vram_address`, and uses `ui_draw_routine_dispatcher`; `gtmcga.asm` composites NPC columns through the special tile path (`asm/town.asm:1384-1492`, `asm/gtmcga.asm:553-870`). | Provisional | The SDL path now has explicit current-column and next-column helpers, but exact shadow-memory compositing is still not implemented |
-| NPC fallback markers | `src/town/town_scene.cpp:909-940` | No assembly fallback marker exists; the fallback only preserves debug visibility when descriptor mapping or frame loading is incomplete, and only when the debug overlay is enabled. | Debug-overlay only | Keep clearly provisional; debug overlay only |
-| Collision tile overlay | `src/town/town_scene.cpp:904-915` | No town-assembly equivalent was found; the assembly uses special-tile passability checks and NPC blocking (`asm/town.asm:1074-1093`, `asm/town.asm:1185-1236`). | Debug-only | Keep but mark debug-only |
-| Debug HUD | `src/town/town_scene.cpp:1038-1054` | Assembly town HUD work is the real `LIFE / ALMAS / GOLD / PLACE` bar (`asm/town.asm:2018-2033`, `asm/town.asm:2325-2330`) and dialog cursor work (`asm/town.asm:1022-1067`), not the current ACT/CAM/POS debug text. | Debug-only | Keep but mark debug-only |
-| Proximity radius and nearest NPC/door detection | `src/town/town_scene.cpp:342-386` | Assembly uses direct x-coordinate matching and adjacent-tile checks for NPC and door interaction, including `is_hero_close_to_npc`, `find_first_npc_at_x`, and `find_first_npc_at_x_after_current` (`asm/town.asm:1515-1571`, `asm/town.asm:2256-2295`, `asm/town.asm:377-442`). | Contradicted by assembly | Replace later with assembly-equivalent behavior |
-| Former Y-sorted dynamic sprite draw list | Removed from `src/town/town_scene.h` and `src/town/town_scene.cpp` | Assembly renders town columns with `0xFD` markers, `sprite_descriptor_table_scanner`, and sprite compositing; it does not build a global Y-sorted sprite list (`asm/gtmcga.asm:79-156`, `asm/gtmcga.asm:553-855`, `asm/town.asm:1384-1492`). | Contradicted by assembly | Removed |
-| Current town frame order | `src/town/town_scene.cpp:1054-1080` | Assembly frame order is `update_npcs`, `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, then `render_town_tiles_28_columns` (`asm/town.asm:1242-1283`, `asm/town.asm:1384-1492`, `asm/gtmcga.asm:79-156`). The C++ draw path now places an `update_npcs`-shaped shell before view projection, but exact frame/update order remains incomplete. | Provisional | Column foundation started; exact frame/update order remains incomplete |
-
-Deliberately not implemented because evidence or local support is incomplete:
-- No movement or collision rewrite. The current free X/Y movement, fixed speed, single-point collision probe, blocked-tile IDs, proximity radius, and camera follow remain isolated and documented, and the new `update_npcs` shell still performs no movement or collision work.
-- No full NPC AI reconstruction. The assembly AI routines were inspected, but the current C++ does not yet execute the confirmed `npc_ai_*` jump table or maintain live NPC state changes from it.
-- No byte-exact `viewport_buffer`, shadow-memory, or `blit_cache` implementation. The C++ renderer now dispatches by columns with explicit current-column and next-column SDL helpers, but it does not yet reproduce the original shadow-memory compositor.
-- No guessed descriptor format beyond fields already parsed from MDT and supported by `NPC STRUC`.
-- No GRP loading changes for `TMAN.GRP`, `MMAN.GRP`, `CMAN.GRP`, or `FMAN.GRP`.
+## Notes
+- `game_loop_with_frame_wait` is confirmed to call `prepare_hero_sprite`, then `clear_6_hero_tiles_in_viewport_buffer`, then `render_town_tiles_28_columns`.
+- `hero_column_shadow_blitter_guard` and the sprite compositor routines are confirmed in `asm/gtmcga.asm`, but they remain rendering-only and are not part of the hero movement rewrite.
