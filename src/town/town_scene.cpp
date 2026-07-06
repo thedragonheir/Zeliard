@@ -820,14 +820,14 @@ void TownScene::RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles
     }
 }
 
-std::vector<TownScene::TownNpcRuntimeView> TownScene::BuildTownNpcRuntimeViews(const Mdt::TownMapInfo& TownMap,
+std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecords(const Mdt::TownMapInfo& TownMap,
     const TownHeadLevelTiles& HeadLevelTiles)
 {
-    // Keep the runtime view limited to the confirmed NPC bytes and the saved
-    // head tile cache. That mirrors the assembly fields without adding a new
-    // entity layer yet.
-    std::vector<TownNpcRuntimeView> TownNpcRuntimeViews;
-    TownNpcRuntimeViews.reserve(CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Npc));
+    // Mirror the confirmed NPC STRUC bytes here. The C++ path still uses
+    // vectors instead of a synthetic 0xFFFF terminator, so the live mirror is
+    // built from parsed town markers and stops at the end of that list.
+    std::vector<TownNpcRuntimeRecord> TownNpcRuntimeRecords;
+    TownNpcRuntimeRecords.reserve(CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Npc));
 
     std::size_t SavedTileIndex = 0;
     for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
@@ -859,12 +859,31 @@ std::vector<TownScene::TownNpcRuntimeView> TownScene::BuildTownNpcRuntimeViews(c
             HeadTile = HeadLevelTiles.Tiles[Column];
         }
 
-        TownNpcRuntimeViews.push_back(TownNpcRuntimeView{
+        // AiType and Flags stay mirrored but inactive until the live NPC state
+        // is reconstructed from the assembly-driven update path.
+        TownNpcRuntimeRecords.push_back(TownNpcRuntimeRecord{
             EntityMarker.X,
-            HeadTile,
             EntityMarker.NpcSpriteSelector,
-            EntityMarker.NpcAnimationPhase
+            HeadTile,
+            EntityMarker.NpcAnimationPhase,
+            0,
+            0,
+            EntityMarker.NpcId
         });
+    }
+
+    return TownNpcRuntimeRecords;
+}
+
+std::vector<TownScene::TownNpcRuntimeView> TownScene::BuildTownNpcRuntimeViews(
+    const std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords)
+{
+    std::vector<TownNpcRuntimeView> TownNpcRuntimeViews;
+    TownNpcRuntimeViews.reserve(TownNpcRuntimeRecords.size());
+
+    for (const TownNpcRuntimeRecord& RuntimeRecord : TownNpcRuntimeRecords)
+    {
+        TownNpcRuntimeViews.emplace_back(RuntimeRecord);
     }
 
     return TownNpcRuntimeViews;
@@ -1110,7 +1129,8 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     const std::size_t ColumnsAvailable = TownMap.Width > FirstColumn ? TownMap.Width - FirstColumn : 0;
     const std::size_t ColumnsToRender = std::min<std::size_t>(ColumnsAvailable, VisibleColumns + (ColumnPixelOffset != 0 ? 1 : 0));
     TownHeadLevelTiles HeadLevelTiles = SaveHeadLevelTilesInNpcs(TownMap);
-    const std::vector<TownNpcRuntimeView> TownNpcRuntimeViews = BuildTownNpcRuntimeViews(TownMap, HeadLevelTiles);
+    const std::vector<TownNpcRuntimeRecord> TownNpcRuntimeRecords = BuildTownNpcRuntimeRecords(TownMap, HeadLevelTiles);
+    const std::vector<TownNpcRuntimeView> TownNpcRuntimeViews = BuildTownNpcRuntimeViews(TownNpcRuntimeRecords);
     TownColumnRenderStats RenderStats{};
 
     for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)

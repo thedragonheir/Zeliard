@@ -62,8 +62,26 @@ private:
         std::size_t NpcSpriteMissCount = 0;
     };
 
+    struct TownNpcRuntimeRecord
+    {
+        std::uint16_t X = 0;
+        std::uint8_t Facing = 0;
+        std::uint8_t HeadTile = 0;
+        std::uint8_t AnimPhase = 0;
+        std::uint8_t AiType = 0;
+        std::uint8_t Flags = 0;
+        std::uint8_t Id = 0;
+    };
+
     struct TownNpcRuntimeView
     {
+        TownNpcRuntimeView() = default;
+        explicit TownNpcRuntimeView(const TownNpcRuntimeRecord& RuntimeRecord)
+            : X(RuntimeRecord.X), HeadTile(RuntimeRecord.HeadTile), Facing(RuntimeRecord.Facing),
+              AnimPhase(RuntimeRecord.AnimPhase)
+        {
+        }
+
         std::uint16_t X = 0;
         std::uint8_t HeadTile = 0;
         std::uint8_t Facing = 0;
@@ -83,8 +101,10 @@ private:
 
     static TownHeadLevelTiles SaveHeadLevelTilesInNpcs(const Mdt::TownMapInfo& TownMap);
     static void RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles);
-    static std::vector<TownNpcRuntimeView> BuildTownNpcRuntimeViews(const Mdt::TownMapInfo& TownMap,
+    static std::vector<TownNpcRuntimeRecord> BuildTownNpcRuntimeRecords(const Mdt::TownMapInfo& TownMap,
         const TownHeadLevelTiles& HeadLevelTiles);
+    static std::vector<TownNpcRuntimeView> BuildTownNpcRuntimeViews(
+        const std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords);
     static std::size_t GetTownNpcSpriteFrameIndex(std::uint8_t NpcFacing, std::uint8_t NpcAnimPhase);
     static std::uint8_t GetTownNpcRuntimeViewSpriteColumnMatch(const TownNpcRuntimeView& RuntimeView,
         std::size_t MapColumn);
