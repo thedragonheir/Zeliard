@@ -34,8 +34,11 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 
 ## Rendering Projection
 - Visible hero X is derived from `TownHeroState` and projected into `ActorMapPixelX`.
-- Visible hero Y stays fixed at `TownMapActorInitialMapPixelY` for now.
+- Visible hero Y stays fixed at `TownMapActorInitialMapPixelY` for now, and the renderer adds the proven town viewport origin when drawing.
 - `ScrollOffsetPixels` now follows the canonical horizontal state by projecting `ProximityMapLeftColumnX` into the scroll offset.
+- Town tiles now render in the original MCGA town viewport at `x = 48`, `y = 14 + 8 * 8 = 78`, with row `0` starting there and the row-5 NPC/hero band landing at `y = 118`.
+- The NPC sprite compositor was feeding a screen-space row-5 Y into a helper that already adds the viewport origin, so the fix keeps NPC slices viewport-relative and lets the shared draw helper apply the origin once.
+- The floor strip remains at `x = 48`, `y = 142`; the remaining black area is the still-provisional scenic background layer above the town viewport.
 ## Collision And Scrolling
 - The remaining collision work is deferred.
 - The NPC blocker path now matches the assembly's X-column scan and only treats `n_flags` bit 6 as non-passable.
@@ -69,5 +72,6 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - `hero_column_shadow_blitter_guard` and the compositor routines remain rendering-only and were inspected only to confirm they are not part of the movement rewrite.
 - `special_tile_dispatcher` only opens the NPC compositor when the row-5 tile is `0xFD`; the intermediate C++ path should treat that marker as opening a two-column special compositor area, then scan `npc_array_addr` by X and keep the current-column / next-column split through `two_sprite_shadow_compositor` and `single_sprite_shadow_compositor`.
 - The intermediate SDL renderer must also defer or filter staged special-compositor slices so future-column slices are not overwritten by the later background pass.
+- The town viewport projection now matches the proven MCGA origin; what remains provisional is the full YMPD/CKPD scenic background layer above the town tile band and any byte-exact viewport-buffer behavior.
 - The provisional free 2D town-movement helpers were removed from `town_scene.cpp`; the remaining town movement stays on the confirmed horizontal hero state.
 - The DOS town loop still does not expose a proven held-input repeat cadence in a way that maps cleanly to one exact C++ frame delay, so the new movement cooldown is a small provisional throttle rather than a claimed perfect match.

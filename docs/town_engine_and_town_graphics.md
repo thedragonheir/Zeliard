@@ -182,6 +182,15 @@ for column in 0..27:
 
 This avoids redrawing unchanged tiles and is essential for speed on 286-era hardware.
 
+## Proven town viewport coordinates
+
+- `render_town_tiles_28_columns` draws the 28-column town tile layer at logical MCGA coordinates `x = 48`, `y = 14 + 8 * 8 = 78`.
+- Town tile row `0` starts at that viewport origin. Row `7` ends at `y = 141`, so the full town tile band spans `78..141`.
+- The shared NPC and hero sprite band sits on row `5`, which maps to `y = 14 + 13 * 8 = 118` in the same screen space.
+- `current_column_screen_addr` starts from `48 + 78 * 320` and advances 8 pixels per column.
+- The lower floor strip remains the assembly-backed `x = 48`, `y = 142`, `224 x 16` rectangle from the YMPD/CKPD driver.
+- `viewport_top_left_vram_offset = 48 + 14 * 320` belongs to the scenic background driver above the town viewport, not to the town tile layer itself.
+
 ## Tile format
 
 Town pattern tiles are 8×8 pixels and stored as 48 bytes per tile:

@@ -19,8 +19,10 @@ bool LoadTownHeroSpriteFrame(const std::filesystem::path& Path, std::size_t Fram
 namespace
 {
 constexpr std::size_t TownMapTileSize = 8;
-constexpr std::size_t TownMapVisibleColumns = 320 / TownMapTileSize;
-constexpr std::size_t TownMapViewportWidth = 320;
+constexpr std::size_t TownMapVisibleColumns = 28;
+constexpr std::size_t TownMapViewportWidth = TownMapVisibleColumns * TownMapTileSize;
+constexpr std::size_t TownMapViewportLeftPixelX = 48;
+constexpr std::size_t TownMapViewportTopPixelY = 14 + 8 * TownMapTileSize;
 constexpr std::size_t TownHeroViewportLeftThreshold = 10;
 constexpr std::size_t TownHeroViewportRightThreshold = 16;
 constexpr std::size_t TownHeroProximityMapWidthColumns = 36;
@@ -39,6 +41,7 @@ constexpr std::size_t TownBackgroundStripHeight = 16;
 constexpr std::size_t TownBackgroundStripLeftWidth = TownBackgroundStripWidth / 2;
 constexpr std::size_t TownBackgroundStripLeftX = 48;
 constexpr std::size_t TownBackgroundStripLeftY = 14 + 16 * 8;
+constexpr std::size_t TownSpriteBandPixelY = TownHeadLevelRow * TownMapTileSize;
 constexpr std::size_t YmpdGroundOffset = 0x229E;
 constexpr std::size_t YmpdGroundLength = 0x153;
 constexpr std::size_t YmpdGround1Offset = 0x23F1;
@@ -513,8 +516,8 @@ void DrawNpcSpriteFrameColumnSliceOnTownMap(SDL_Renderer* Renderer, const Grp::N
             }
 
             const SDL_FRect PixelRect{
-                static_cast<float>(MapPixelX + Column) - static_cast<float>(ScrollOffsetPixels),
-                static_cast<float>(MapPixelY) + static_cast<float>(Row) * SpritePixelSize,
+                static_cast<float>(TownMapViewportLeftPixelX + MapPixelX + Column) - static_cast<float>(ScrollOffsetPixels),
+                static_cast<float>(TownMapViewportTopPixelY + MapPixelY) + static_cast<float>(Row) * SpritePixelSize,
                 SpritePixelSize,
                 SpritePixelSize
             };
@@ -527,9 +530,10 @@ void DrawTownMapActorFallbackMarker(SDL_Renderer* Renderer, float MapPixelX, flo
 {
     constexpr float MarkerSize = 10.0f;
     constexpr float LineSize = 2.0f;
-    const float ScreenX = MapPixelX - static_cast<float>(ScrollOffsetPixels)
+    const float ScreenX = static_cast<float>(TownMapViewportLeftPixelX) + MapPixelX - static_cast<float>(ScrollOffsetPixels)
         + (static_cast<float>(Grp::NpcSpriteFrame::FrameWidth) - MarkerSize) * 0.5f;
-    const float ScreenY = MapPixelY + (static_cast<float>(Grp::NpcSpriteFrame::FrameHeight) - MarkerSize) * 0.5f;
+    const float ScreenY = static_cast<float>(TownMapViewportTopPixelY) + MapPixelY
+        + (static_cast<float>(Grp::NpcSpriteFrame::FrameHeight) - MarkerSize) * 0.5f;
 
     SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(Renderer, 255, 64, 224, 232);
@@ -647,8 +651,9 @@ void DrawTownEntityMarker(SDL_Renderer* Renderer, const Mdt::TownEntityMarker& E
     constexpr float MarkerSize = 6.0f;
     constexpr float MarkerInset = 1.0f;
 
-    const float ScreenX = static_cast<float>(EntityMarker.X * TownMapTileSize) - static_cast<float>(ScrollOffsetPixels) + MarkerInset;
-    const float ScreenY = static_cast<float>(EntityMarker.Y * TownMapTileSize) + MarkerInset;
+    const float ScreenX = static_cast<float>(TownMapViewportLeftPixelX + EntityMarker.X * TownMapTileSize)
+        - static_cast<float>(ScrollOffsetPixels) + MarkerInset;
+    const float ScreenY = static_cast<float>(TownMapViewportTopPixelY + EntityMarker.Y * TownMapTileSize) + MarkerInset;
     const SDL_Color& Color = GetTownEntityMarkerColor(EntityMarker.Kind);
 
     SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
@@ -1249,12 +1254,12 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
             {
                 ShadowBuffer.AddCurrentColumnSlice(*SpriteFrame,
                     SpriteColumn * TownMapTileSize,
-                    TownHeadLevelRow * TownMapTileSize,
+                    TownSpriteBandPixelY,
                     ScrollOffsetPixels,
                     SpriteColumn);
                 ShadowBuffer.AddNextColumnSlice(*SpriteFrame,
                     SpriteColumn * TownMapTileSize,
-                    TownHeadLevelRow * TownMapTileSize,
+                    TownSpriteBandPixelY,
                     ScrollOffsetPixels,
                     SpriteColumn + 1);
             }
@@ -1263,7 +1268,7 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
         {
             ShadowBuffer.AddCurrentColumnSlice(*SpriteFrame,
                 SpriteColumn * TownMapTileSize,
-                TownHeadLevelRow * TownMapTileSize,
+                TownSpriteBandPixelY,
                 ScrollOffsetPixels,
                 SpriteColumn);
         }
@@ -1316,15 +1321,17 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
             Tile = &FallbackTile;
         }
 
-        DrawPatternTile(Renderer, *Tile, Palette, ScreenTileX, static_cast<float>(Row * TownMapTileSize), 1.0f);
+        DrawPatternTile(Renderer, *Tile, Palette,
+            static_cast<float>(TownMapViewportLeftPixelX) + ScreenTileX,
+            static_cast<float>(TownMapViewportTopPixelY + Row * TownMapTileSize), 1.0f);
 
         if (BlockedTileOverlayEnabled && IsTownMapBlockedTileIndex(TileIndex))
         {
             SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(Renderer, 255, 48, 48, 96);
             const SDL_FRect PixelRect{
-                ScreenTileX,
-                static_cast<float>(Row * TownMapTileSize),
+                static_cast<float>(TownMapViewportLeftPixelX) + ScreenTileX,
+                static_cast<float>(TownMapViewportTopPixelY + Row * TownMapTileSize),
                 static_cast<float>(TownMapTileSize),
                 static_cast<float>(TownMapTileSize)
             };
