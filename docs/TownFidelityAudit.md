@@ -3,35 +3,51 @@
 Scope: compare the current town-mode C++ behavior against the original Zeliard assembly before gameplay changes.
 
 Assembly inspected:
-- `asm/town.inc`: `NPC STRUC`, `town_tiles`, `town_head_level_tiles`, `viewport_buffer`
-- `asm/town.asm`: `update_npcs_and_render`, `game_loop_with_frame_wait`, `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, `save_head_level_tiles_in_npcs`, `restore_head_level_tiles_from_npcs`, `find_first_npc_at_x`, `find_first_npc_at_x_after_current`, `is_hero_close_to_npc`, `update_npcs`, and the `npc_ai_*` routines
-- `asm/gtmcga.asm`: `render_town_tiles_28_columns`, `hero_column_shadow_blitter_guard`, `special_tile_dispatcher`, `special_multi_tile_column_renderer`, `pre_pass_special_column_initializer`, `sprite_descriptor_table_scanner`, `sprite_x_coordinate_lookup`, `sprite_compositor_dispatcher`, `npc_3_tiles_to_shadow_buffer`, `single_sprite_shadow_compositor`, `two_sprite_shadow_compositor`, `get_sprite_vram_address`, `ui_draw_routine_dispatcher`
-- `asm/game.asm`: town driver loading, town MDT loading, and `MMAN.GRP` / `CMAN.GRP` selection
-- `asm/town.asm`: `TMAN.GRP` loading through `load_hero_town_sprite`
-- `asm/gfmcga.asm` and `asm/dungeon.inc`: checked only enough to confirm they are dungeon/cavern references, not the town rendering source
+- `asm/town.inc`: `NPC STRUC`, `npc_array_addr`, `town_tiles`, `town_head_level_tiles`, `viewport_buffer`
+- `asm/town.asm`: `update_npcs_and_render`, `game_loop_with_frame_wait`, `save_head_level_tiles_in_npcs`, `restore_head_level_tiles_from_npcs`, `find_first_npc_at_x`, `find_first_npc_at_x_after_current`, `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`
+- `asm/gtmcga.asm`: `render_town_tiles_28_columns`, `hero_column_shadow_blitter_guard`, `special_tile_dispatcher`, `special_multi_tile_column_renderer`, `pre_pass_special_column_initializer`, `sprite_descriptor_table_scanner`, `sprite_x_coordinate_lookup`, `sprite_compositor_dispatcher`, `npc_3_tiles_to_shadow_buffer`, `single_sprite_shadow_compositor`, `two_sprite_shadow_compositor`, `get_sprite_vram_address`
 
 Key conclusion:
-- Original town rendering is marker-driven. `town_head_level_tiles` is the head-level row, NPCs are marked with `0xFD`, and `gtmcga.asm` composites sprites column-by-column. There is no generic global Y-sorted sprite list in the assembly.
+- Town rendering is marker-driven. `town_head_level_tiles` is the row-5 overlay, NPCs are marked with `0xFD`, and the visible town pass walks the column buffer instead of a generic Y-sorted sprite list.
 
-Town renderer audit snapshot:
-- Confirmed equivalent: `save_head_level_tiles_in_npcs` / `restore_head_level_tiles_from_npcs` still match the row-5 `0xFD` marker rule from `asm/town.asm`, and `GetTownNpcSpriteFrameIndex` still matches `get_sprite_vram_address` for selector, facing, and phase math.
-- Runtime-view threading: `DispatchTownSpecialTile` now routes `ColumnMatch == 2` into `DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap` and `ColumnMatch == 1` into `DrawTownNpcRuntimeViewNextColumnSliceOnTownMap`, so the visible path reads more like the `sprite_compositor_dispatcher` branch table.
-- Structurally similar: `RenderTownColumn`, the marker gate, and the SDL compositor still follow the same column-first town shape as the assembly. The new current/next split mirrors the dispatcher layout more closely, but the renderer still uses direct SDL drawing instead of the live `npc_array`, `viewport_buffer`, and shadow-memory compositor.
-- Provisional: the render-time `TownHeadLevelTiles` cache, the runtime NPC view being rebuilt from parsed MDT markers plus the head-level save cache, and the current hero overlay are still approximations rather than byte-faithful copies of the assembly path. The fallback marker is now debug-only, so it no longer participates in normal 1:1 town rendering.
-- Contradicts assembly: the C++ path still does not reproduce `pre_pass_special_column_initializer`, `hero_column_shadow_blitter_guard`, or the live `npc_array` scan that drives town sprite compositing in `asm/gtmcga.asm` and `asm/town.asm`.
-- Next smallest safe implementation step: rebuild the live `npc_array` / shadow-memory compositor path and then replace the SDL column helpers with it. Keep byte-exact `viewport_buffer` behavior deferred until that path exists.
+Confirmed NPC layout:
+- `NPC STRUC` is 8 bytes: `n_x` at offset 0, `n_facing` at offset 2, `n_head_tile` at offset 3, `n_anim_phase` at offset 4, `n_ai_type` at offset 5, `n_flags` at offset 6, and `n_id` at offset 7.
+- `npc_array_addr` points at the first NPC entry in a zero-terminated array. The terminator is `n_x == 0xFFFF`.
+- `save_head_level_tiles_in_npcs` reads `town_head_level_tiles[x * 8]`, stores the original byte in `NPC.n_head_tile`, and writes `0xFD` back into the head-level row.
+- `restore_head_level_tiles_from_npcs` restores the saved tile byte unless the saved byte itself is `0xFD`.
 
-Runtime NPC view mapping:
-- Assembly fields used: `n_x`, `n_head_tile`, `n_facing`, and `n_anim_phase` from `asm/town.inc:1-7`, with the head-level row still anchored by `town_head_level_tiles` in `asm/town.inc:84-85`.
-- C++ mapping: `TownNpcRuntimeView.X` comes from `Mdt::TownEntityMarker.X`, `TownNpcRuntimeView.HeadTile` comes from `TownHeadLevelTiles.SavedTiles` so it mirrors the saved head-level tile byte that `save_head_level_tiles_in_npcs` writes, `TownNpcRuntimeView.Facing` comes from `Mdt::TownEntityMarker.NpcSpriteSelector`, and `TownNpcRuntimeView.AnimPhase` comes from `Mdt::TownEntityMarker.NpcAnimationPhase`.
-- Compositor-side scan: `FindFirstTownNpcRuntimeViewForColumn` and `FindFirstTownNpcRuntimeViewForColumnAfterCurrent` now feed the matched runtime view into the explicit current-column or next-column branch helper, so the draw path no longer needs to re-read MDT marker bytes.
-- `sprite_x_coordinate_lookup` / `sprite_compositor_dispatcher`: the x-match helper returns `2` for the current column and `1` for the next column. `DispatchTownSpecialTile` now uses that split to mirror the dispatcher table more directly, with the current-column branch corresponding to `two_sprite_shadow_compositor` and the next-column branch corresponding to `single_sprite_shadow_compositor`.
-- Confirmed fields: all four requested fields are mapped.
-- Provisional fields: none of the four requested fields are provisional; the provisional part is the source of truth because the view is still read-only and does not model mutable `npc_array` state or NPC AI updates yet.
-- `HeadTile` remains cached context from the head-level save path; it is not yet live shadow-memory state.
-- Why shadow-memory / `viewport_buffer` is not implemented yet: this step only splits the visible SDL branch logic and threads confirmed NPC fields into it. Recreating the original shadow-memory compositor would require the full live NPC array, column blitter bookkeeping, and byte-exact `viewport_buffer` behavior, which is intentionally deferred.
-- Fallback marker path: the inspected assembly never draws a substitute marker for missing NPC sprite frames, so the C++ marker remains unconfirmed original behavior. The marker now only appears when the debug overlay is enabled, which keeps it out of normal town rendering while still allowing `NPCSPR` / `NPCMISS` diagnosis.
-- Next smallest safe implementation step after this: rebuild the live `npc_array` compositor and shadow-memory path, then remove the SDL-only slice helpers once the byte-faithful path is in place.
+Confirmed viewport buffer role:
+- `viewport_buffer` is the town-pass staging buffer at `0xE000`.
+- `render_town_tiles_28_columns` sets `DI` to `viewport_buffer` before the column walk, and `clear_6_hero_tiles_in_viewport_buffer` writes `0xFF` into the hero-adjacent cells to force redraw.
+- The assembly uses the buffer as a dirty/comparison surface for the town pass; it is not the final screen surface.
+
+Confirmed shadow-memory compositor flow:
+- `render_town_tiles_28_columns` initializes `blit_cache`, walks each column, and routes row 5 through `special_tile_dispatcher`.
+- `special_tile_dispatcher` checks the previous tile byte for `0xFD` and jumps to `special_multi_tile_column_renderer` for NPC columns.
+- `special_multi_tile_column_renderer` and `pre_pass_special_column_initializer` both scan `npc_array_addr` with `sprite_descriptor_table_scanner` and `sprite_x_coordinate_lookup`.
+- `sprite_x_coordinate_lookup` returns `BL=2` for the current column, `BL=1` for the next column, and `BL=0` otherwise.
+- `sprite_compositor_dispatcher` subtracts 1 from `BL` and indexes `funcs_34D2`, which selects `single_sprite_shadow_compositor` or `two_sprite_shadow_compositor`.
+- `two_sprite_shadow_compositor` starts at `vram_shadow_addr + 192*2`, calls `npc_3_tiles_to_shadow_buffer`, then immediately falls through into the same routine again so both 3-tile slices are composited.
+- `single_sprite_shadow_compositor` adds 3 to `SI` to skip the first slice, starts at `vram_shadow_addr + 192*3`, and then jumps into `npc_3_tiles_to_shadow_buffer`.
+- `npc_3_tiles_to_shadow_buffer` is the 3-tile blitter. It marks each staging slot with `0xFF`, derives the packed tile and mask offsets, and calls `blit_tile_to_shadow_buffer` for each of the three tiles.
+- `hero_column_shadow_blitter_guard` is the separate hero-column copy that pulls 3 vertical tiles from shadow memory into the screen buffer when the current column matches the hero.
+
+Current C++ structural matches:
+- `SaveHeadLevelTilesInNpcs` / `RestoreHeadLevelTilesFromNpcs` match the head-tile save/restore pass.
+- `GetTownNpcRuntimeViewSpriteColumnMatch`, `FindFirstTownNpcRuntimeViewForColumn`, and `FindFirstTownNpcRuntimeViewForColumnAfterCurrent` mirror the X-based NPC scan and current/next column matching.
+- `GetTownNpcSpriteFrameIndex` matches `get_sprite_vram_address` for selector, facing, and animation phase math.
+- `DispatchTownSpecialTile` is the current stand-in for the `special_tile_dispatcher` branch into the compositor helpers.
+- `DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap` and `DrawTownNpcRuntimeViewNextColumnSliceOnTownMap` are the SDL-only stand-ins for the two compositor branches.
+- `RenderTownColumn` is the closest structural match to the per-column walk in `render_town_tiles_28_columns`, but it still draws directly instead of writing the shadow-memory path.
+
+Still provisional:
+- `TownNpcRuntimeView` still rebuilds from parsed MDT markers plus the saved head-tile cache. It is not a live mutable `npc_array`.
+- `n_ai_type`, `n_flags`, and `n_id` are confirmed assembly fields but are not yet modeled in C++.
+- `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, and `hero_column_shadow_blitter_guard` do not have a byte-faithful C++ counterpart yet.
+- The SDL slice helpers remain the visible path, so `viewport_buffer` and the shadow-memory compositor are not yet reproduced exactly.
+
+Next smallest safe implementation step:
+- Introduce a minimal live `npc_array` mirror that only carries the confirmed `NPC STRUC` fields needed by the compositor, then thread that mirror into the shadow-memory path without changing draw mode, NPC AI, or gameplay.
 
 | Behavior | C++ location | Assembly evidence | Status | Recommendation |
 | --- | --- | --- | --- | --- |
