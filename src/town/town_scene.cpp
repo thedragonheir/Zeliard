@@ -578,6 +578,27 @@ std::uint8_t TownScene::GetTownNpcRuntimeRecordSpriteColumnMatch(const TownNpcRu
     return 0;
 }
 
+const TownScene::TownNpcRuntimeRecord* TownScene::FindNonPassableTownNpcAtXPos(
+    const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t TargetX) noexcept
+{
+    for (const TownNpcRuntimeRecord& RuntimeRecord : TownNpcArray)
+    {
+        if (static_cast<std::size_t>(RuntimeRecord.X) != TargetX)
+        {
+            continue;
+        }
+
+        if ((RuntimeRecord.NpcFlags & 0x40) == 0)
+        {
+            continue;
+        }
+
+        return &RuntimeRecord;
+    }
+
+    return nullptr;
+}
+
 bool TownScene::TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const
 {
     if (FrameIndex >= TownNpcSpriteFrameCount)
@@ -727,17 +748,20 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
 
     if (LeftPressed)
     {
-        if (TownHeroState.HeroXInViewport > TownHeroViewportLeftThreshold)
+        const std::size_t TargetX = GetTownHeroAbsoluteX() - 1;
+        const bool BlockedByNpc = FindNonPassableTownNpcAtXPos(TownNpcArray, TargetX) != nullptr;
+
+        if (!BlockedByNpc && TownHeroState.HeroXInViewport > TownHeroViewportLeftThreshold)
         {
             --TownHeroState.HeroXInViewport;
             HeroMoved = true;
         }
-        else if (TownHeroState.ProximityMapLeftColumnX > 0)
+        else if (!BlockedByNpc && TownHeroState.ProximityMapLeftColumnX > 0)
         {
             --TownHeroState.ProximityMapLeftColumnX;
             HeroMoved = true;
         }
-        else if (TownHeroState.HeroXInViewport > 0)
+        else if (!BlockedByNpc && TownHeroState.HeroXInViewport > 0)
         {
             --TownHeroState.HeroXInViewport;
             HeroMoved = true;
@@ -750,17 +774,20 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
     }
     else if (RightPressed)
     {
-        if (TownHeroState.HeroXInViewport < TownHeroViewportRightThreshold)
+        const std::size_t TargetX = GetTownHeroAbsoluteX() + 1;
+        const bool BlockedByNpc = FindNonPassableTownNpcAtXPos(TownNpcArray, TargetX) != nullptr;
+
+        if (!BlockedByNpc && TownHeroState.HeroXInViewport < TownHeroViewportRightThreshold)
         {
             ++TownHeroState.HeroXInViewport;
             HeroMoved = true;
         }
-        else if (TownHeroState.ProximityMapLeftColumnX < MaximumProximityMapLeftColumn)
+        else if (!BlockedByNpc && TownHeroState.ProximityMapLeftColumnX < MaximumProximityMapLeftColumn)
         {
             ++TownHeroState.ProximityMapLeftColumnX;
             HeroMoved = true;
         }
-        else if (TownHeroState.HeroXInViewport < 28)
+        else if (!BlockedByNpc && TownHeroState.HeroXInViewport < 28)
         {
             // Match the DOS off-screen sentinel; the map handoff itself is still provisional.
             ++TownHeroState.HeroXInViewport;

@@ -148,6 +148,8 @@ private:
     static std::size_t GetTownNpcSpriteFrameIndex(std::uint8_t SpriteSelector, std::uint8_t AnimationPhase);
     static std::uint8_t GetTownNpcRuntimeRecordSpriteColumnMatch(const TownNpcRuntimeRecord& RuntimeRecord,
         std::size_t MapColumn);
+    static const TownNpcRuntimeRecord* FindNonPassableTownNpcAtXPos(
+        const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t TargetX) noexcept;
     static const TownNpcRuntimeRecord* FindFirstTownNpcRuntimeRecordForColumn(
         const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t MapColumn);
     static const TownNpcRuntimeRecord* FindFirstTownNpcRuntimeRecordForColumnAfterCurrent(

@@ -37,8 +37,8 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - Visible hero Y stays fixed at `TownMapActorInitialMapPixelY` for now.
 - `ScrollOffsetPixels` now follows the canonical horizontal state by projecting `ProximityMapLeftColumnX` into the scroll offset.
 ## Collision And Scrolling
-- Collision is deferred.
-- I did not implement the full assembly-backed blocker path from `check_tile_in_special_list` plus `find_non_passable_npc_at_x_pos`.
+- The remaining collision work is deferred.
+- The NPC blocker path now matches the assembly's X-column scan and only treats `n_flags` bit 6 as non-passable.
 - `ActorCollisionBlocked` is retained only as a debug/provisional field and is cleared by the projection sync.
 - Edge scrolling is implemented narrowly from the confirmed left/right town thresholds by advancing `ProximityMapLeftColumnX` when the viewport needs to pan.
 - The projection clamps scroll to the current map bounds, so the visible hero stays tied to the canonical horizontal state.
