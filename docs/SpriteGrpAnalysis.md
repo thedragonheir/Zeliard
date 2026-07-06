@@ -112,7 +112,11 @@ The viewer's `decode_npc_tile()` and `decode_8()` paths show the mapping:
 - read three plane words
 - rotate through the plane bits in lockstep
 - combine them into a 6-bit palette index per pixel
-- treat zero as transparent
+- keep the ASM transparency byte too, because opaque zero-index pixels are the black-mask clears and not true transparency
+
+For town rendering, the earlier full black-silhouette approach was rejected because it filled the whole sprite rectangle instead of honoring the real mask. The ASM path in `asm\gtmcga.asm` keeps a separate transparency byte per row, so the C++ decode now needs three states instead of two: true transparent pixels skip, normal color pixels draw from the palette, and opaque zero-index pixels draw black.
+
+The current rule is ASM-derived and matches the checked town data: the mask byte is considered transparent only when the extracted 2-bit slot is `11`; when that slot is not `11` and the decoded palette index is `0`, the pixel is treated as the black-mask clear pixel.
 
 That matches the assembly helpers in `asm/gtmcga.asm`:
 
@@ -120,7 +124,7 @@ That matches the assembly helpers in `asm/gtmcga.asm`:
 - `build_48_bits_packed_from_rgb_planes`
 - `extract_transparency_byte_from_mask_plane`
 
-The important point for C++ is that this family does not need a special palette remap table. It draws directly into the base 64-color MCGA palette.
+The important point for C++ is that this family does not need a special palette remap table. It draws directly into the base 64-color MCGA palette, and the exact faithful AND/OR mask emulation can be revisited later if we decide to model the original composite blit more closely.
 
 ### Dungeon hero, monsters, and boss sheets
 

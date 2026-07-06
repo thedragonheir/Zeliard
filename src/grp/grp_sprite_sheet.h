@@ -8,6 +8,10 @@
 
 namespace Grp
 {
+constexpr std::uint8_t TransparentDrawMode = 0;
+constexpr std::uint8_t BlackDrawMode = 1;
+constexpr std::uint8_t ColorDrawMode = 2;
+
 struct SpriteSheetSummary
 {
     std::size_t UnpackedByteCount = 0;
@@ -25,7 +29,10 @@ struct NpcSpriteFrame
     static constexpr std::size_t FrameHeight = 24;
     static constexpr std::size_t PixelCount = FrameWidth * FrameHeight;
 
+    // 0 = transparent, 1 = black-mask clear, 2 = visible palette color.
+    std::array<std::uint8_t, PixelCount> DrawModes{};
     std::array<std::uint8_t, PixelCount> Pixels{};
+    std::array<std::uint8_t, PixelCount> VisiblePixels{};
 };
 
 struct DungeonHeroSpriteFrame

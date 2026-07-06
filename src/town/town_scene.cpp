@@ -107,10 +107,10 @@ bool IsConfirmedTownNpcSpriteFamily(std::size_t SpriteFamily)
 
 bool IsNpcSpriteFrameVisible(const Grp::NpcSpriteFrame& SpriteFrame)
 {
-    return std::any_of(SpriteFrame.Pixels.begin(), SpriteFrame.Pixels.end(),
-        [](std::uint8_t PaletteIndex)
+    return std::any_of(SpriteFrame.DrawModes.begin(), SpriteFrame.DrawModes.end(),
+        [](std::uint8_t DrawMode)
         {
-            return PaletteIndex != 0;
+            return DrawMode != Grp::TransparentDrawMode;
         });
 }
 
@@ -188,18 +188,28 @@ void DrawNpcSpriteFrameOnTownMap(SDL_Renderer* Renderer, const Grp::NpcSpriteFra
     constexpr float SpritePixelSize = 1.0f;
     const float ScreenX = MapPixelX - static_cast<float>(ScrollOffsetPixels);
 
+    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
     for (std::size_t Row = 0; Row < Grp::NpcSpriteFrame::FrameHeight; ++Row)
     {
         for (std::size_t Column = 0; Column < Grp::NpcSpriteFrame::FrameWidth; ++Column)
         {
-            const std::uint8_t PaletteIndex = SpriteFrame.Pixels[Row * Grp::NpcSpriteFrame::FrameWidth + Column];
-            if (PaletteIndex == 0)
+            const std::size_t PixelIndex = Row * Grp::NpcSpriteFrame::FrameWidth + Column;
+            const std::uint8_t DrawMode = SpriteFrame.DrawModes[PixelIndex];
+            if (DrawMode == Grp::TransparentDrawMode)
             {
                 continue;
             }
 
-            const SDL_Color& Color = Palette[PaletteIndex];
-            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+            if (DrawMode == Grp::BlackDrawMode)
+            {
+                SDL_SetRenderDrawColor(Renderer, 0, 0, 0, 255);
+            }
+            else
+            {
+                const std::uint8_t PaletteIndex = SpriteFrame.Pixels[PixelIndex];
+                const SDL_Color& Color = Palette[PaletteIndex];
+                SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+            }
 
             const SDL_FRect PixelRect{
                 ScreenX + static_cast<float>(Column) * SpritePixelSize,

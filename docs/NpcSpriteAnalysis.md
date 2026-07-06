@@ -22,6 +22,9 @@ This note records the repo-local evidence for town NPC sprite selection and why 
 - Town selector families `0` through `4` are confirmed and should render as sprite frames when their bank frame loads cleanly.
 - `tman.grp` is the town player/debug actor source and stays independent from NPC-bank selection.
 - `fman.grp` is for future dungeon/cavern hero rendering, not the current town view.
+- Town actor and NPC sprites should use mask-style drawing for overlap. The earlier full black-silhouette pass was rejected because it blacked out the whole sprite rectangle; the current C++ decode keeps a three-state draw mode so transparent pixels skip, palette pixels draw normally, and opaque zero-index pixels draw black.
+- `asm/gtmcga.asm` shows the original renderer doing an AND-mask pass followed by an OR-blit, with the row mask byte distinguishing true transparency from the black-clear pixels.
+- In the checked town sprite data, the black-mask case is currently the decoded palette index `0` paired with an opaque mask slot, while a transparent slot remains `11` in the extracted mask byte.
 - Actor and NPC frames that load but contain only transparent pixels should be treated as empty and drawn with fallback markers instead of disappearing.
 - The first pass should stay narrow: render confirmed 8-frame family mappings as sprites, but keep every parsed NPC visible.
 - Unconfirmed families, missing frames, or failed frame loads should render as debug markers at the parsed X/Y position instead of disappearing.

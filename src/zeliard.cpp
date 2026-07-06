@@ -53,6 +53,7 @@ struct SpriteViewFrame
     std::size_t Width = 0;
     std::size_t Height = 0;
     std::vector<std::uint8_t> Pixels;
+    std::vector<std::uint8_t> DrawModes;
     std::vector<std::uint8_t> VisiblePixels;
 };
 
@@ -296,6 +297,7 @@ void ResetSpriteViewFrame(SpriteViewFrame& SpriteFrame, std::size_t Width, std::
     SpriteFrame.Width = Width;
     SpriteFrame.Height = Height;
     SpriteFrame.Pixels.assign(Width * Height, 0);
+    SpriteFrame.DrawModes.assign(Width * Height, Grp::TransparentDrawMode);
     SpriteFrame.VisiblePixels.assign(Width * Height, 0);
 }
 
@@ -307,7 +309,8 @@ void CopyNpcSpriteFrameForView(const Grp::NpcSpriteFrame& SourceFrame, SpriteVie
     {
         const std::uint8_t PaletteIndex = SourceFrame.Pixels[PixelIndex];
         SpriteFrame.Pixels[PixelIndex] = PaletteIndex;
-        SpriteFrame.VisiblePixels[PixelIndex] = PaletteIndex != 0 ? 1 : 0;
+        SpriteFrame.DrawModes[PixelIndex] = SourceFrame.DrawModes[PixelIndex];
+        SpriteFrame.VisiblePixels[PixelIndex] = SourceFrame.DrawModes[PixelIndex] == Grp::TransparentDrawMode ? 0 : 1;
     }
 }
 
@@ -316,14 +319,19 @@ void CopyDungeonHeroSpriteFrameForView(const Grp::DungeonHeroSpriteFrame& Source
     ResetSpriteViewFrame(SpriteFrame, Grp::DungeonHeroSpriteFrame::FrameWidth, Grp::DungeonHeroSpriteFrame::FrameHeight);
     std::copy(SourceFrame.Pixels.begin(), SourceFrame.Pixels.end(), SpriteFrame.Pixels.begin());
     std::copy(SourceFrame.VisiblePixels.begin(), SourceFrame.VisiblePixels.end(), SpriteFrame.VisiblePixels.begin());
+    std::transform(SourceFrame.VisiblePixels.begin(), SourceFrame.VisiblePixels.end(), SpriteFrame.DrawModes.begin(),
+        [](std::uint8_t IsVisible)
+        {
+            return IsVisible != 0 ? Grp::ColorDrawMode : Grp::TransparentDrawMode;
+        });
 }
 
 bool HasVisibleSpritePixels(const SpriteViewFrame& SpriteFrame)
 {
-    return std::any_of(SpriteFrame.VisiblePixels.begin(), SpriteFrame.VisiblePixels.end(),
-        [](std::uint8_t IsVisible)
+    return std::any_of(SpriteFrame.DrawModes.begin(), SpriteFrame.DrawModes.end(),
+        [](std::uint8_t DrawMode)
         {
-            return IsVisible != 0;
+            return DrawMode != Grp::TransparentDrawMode;
         });
 }
 
@@ -759,7 +767,7 @@ void DrawSpriteFrameView(SDL_Renderer* Renderer, const SpriteBankDefinition& Spr
     const Main64Palette& Palette, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled)
 {
     if (LoadState != SpriteFrameLoadState::Miss && SpriteFrame.Width > 0 && SpriteFrame.Height > 0
-        && SpriteFrame.Pixels.size() == SpriteFrame.VisiblePixels.size())
+        && SpriteFrame.Pixels.size() == SpriteFrame.DrawModes.size())
     {
         constexpr float MaximumSpriteViewSize = 120.0f;
         const float SpritePixelSize = std::min(5.0f,
@@ -774,19 +782,27 @@ void DrawSpriteFrameView(SDL_Renderer* Renderer, const SpriteBankDefinition& Spr
             for (std::size_t Column = 0; Column < SpriteFrame.Width; ++Column)
             {
                 const std::size_t PixelIndex = Row * SpriteFrame.Width + Column;
-                if (SpriteFrame.VisiblePixels[PixelIndex] == 0)
+                const std::uint8_t DrawMode = SpriteFrame.DrawModes[PixelIndex];
+                if (DrawMode == Grp::TransparentDrawMode)
                 {
                     continue;
                 }
 
-                const std::uint8_t PaletteIndex = SpriteFrame.Pixels[PixelIndex];
-                if (PaletteIndex >= Palette.size())
+                if (DrawMode == Grp::BlackDrawMode)
                 {
-                    continue;
+                    SDL_SetRenderDrawColor(Renderer, 0, 0, 0, 255);
                 }
+                else
+                {
+                    const std::uint8_t PaletteIndex = SpriteFrame.Pixels[PixelIndex];
+                    if (PaletteIndex >= Palette.size())
+                    {
+                        continue;
+                    }
 
-                const SDL_Color& Color = Palette[PaletteIndex];
-                SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+                    const SDL_Color& Color = Palette[PaletteIndex];
+                    SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+                }
 
                 const SDL_FRect PixelRect{
                     StartX + static_cast<float>(Column) * SpritePixelSize,

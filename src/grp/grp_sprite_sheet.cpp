@@ -97,8 +97,26 @@ void DecodeEightPixels(std::uint16_t& PlaneR, std::uint16_t& PlaneG, std::uint16
     std::copy(RightHalf.begin(), RightHalf.end(), Output.begin() + static_cast<std::ptrdiff_t>(LeftHalf.size()));
 }
 
-bool DecodeNpcTile(const std::vector<std::uint8_t>& Unpacked, std::size_t TileOffset, std::array<std::uint8_t, NpcTileWidth * NpcTileHeight>& Output, std::string& ErrorMessage)
+void PopulateVisiblePixelsFromDrawModes(const std::array<std::uint8_t, NpcSpriteFrame::PixelCount>& DrawModes,
+    std::array<std::uint8_t, NpcSpriteFrame::PixelCount>& VisiblePixels)
 {
+    for (std::size_t PixelIndex = 0; PixelIndex < DrawModes.size(); ++PixelIndex)
+    {
+        VisiblePixels[PixelIndex] = DrawModes[PixelIndex] == TransparentDrawMode ? 0 : 1;
+    }
+}
+
+bool DecodeNpcTile(const std::vector<std::uint8_t>& Unpacked, std::size_t TileOffset,
+    std::array<std::uint8_t, NpcTileWidth * NpcTileHeight>& Output,
+    std::array<std::uint8_t, NpcTileWidth * NpcTileHeight>* DrawModes,
+    std::string& ErrorMessage)
+{
+    Output.fill(0);
+    if (DrawModes != nullptr)
+    {
+        DrawModes->fill(TransparentDrawMode);
+    }
+
     for (std::size_t RowIndex = 0; RowIndex < NpcTileHeight; ++RowIndex)
     {
         const std::size_t RowOffset = TileOffset + RowIndex * 6;
@@ -112,6 +130,7 @@ bool DecodeNpcTile(const std::vector<std::uint8_t>& Unpacked, std::size_t TileOf
         std::uint16_t PlaneG = ReadBigEndianWord(Unpacked, RowOffset + 2);
         std::uint16_t PlaneB = ReadBigEndianWord(Unpacked, RowOffset + 4);
 
+        const std::uint16_t TransparencyMask = static_cast<std::uint16_t>(~(PlaneR | PlaneG | PlaneB));
         const std::uint16_t WhiteMask = static_cast<std::uint16_t>(PlaneR & PlaneG & PlaneB);
         PlaneR = static_cast<std::uint16_t>(PlaneR & static_cast<std::uint16_t>(~WhiteMask));
         PlaneG = static_cast<std::uint16_t>(PlaneG & static_cast<std::uint16_t>(~WhiteMask));
@@ -120,14 +139,44 @@ bool DecodeNpcTile(const std::vector<std::uint8_t>& Unpacked, std::size_t TileOf
         std::array<std::uint8_t, 8> RowPixels{};
         DecodeEightPixels(PlaneR, PlaneG, PlaneB, RowPixels);
         std::copy(RowPixels.begin(), RowPixels.end(), Output.begin() + static_cast<std::ptrdiff_t>(RowIndex * NpcTileWidth));
+
+        if (DrawModes != nullptr)
+        {
+            for (std::size_t ColumnIndex = 0; ColumnIndex < NpcTileWidth; ++ColumnIndex)
+            {
+                const std::size_t PixelIndex = RowIndex * NpcTileWidth + ColumnIndex;
+                const bool IsTransparent = ((TransparencyMask >> (14 - ColumnIndex * 2)) & 0x03) == 0x03;
+
+                if (IsTransparent)
+                {
+                    (*DrawModes)[PixelIndex] = TransparentDrawMode;
+                }
+                else if (RowPixels[ColumnIndex] == 0)
+                {
+                    // The ASM mask keeps these pixels opaque, so zero-index pixels stay black here.
+                    (*DrawModes)[PixelIndex] = BlackDrawMode;
+                }
+                else
+                {
+                    (*DrawModes)[PixelIndex] = ColorDrawMode;
+                }
+            }
+        }
     }
 
     return true;
 }
 
-bool DecodeNpcFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t TileBankOffset, std::size_t TileCount, std::size_t FrameIndex, std::array<std::uint8_t, NpcFrameWidth * NpcFrameHeight>& Output, std::uint8_t& MinimumPaletteIndex, std::uint8_t& MaximumPaletteIndex, std::string& ErrorMessage)
+bool DecodeNpcFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t TileBankOffset, std::size_t TileCount,
+    std::size_t FrameIndex, std::array<std::uint8_t, NpcFrameWidth * NpcFrameHeight>& Output,
+    std::array<std::uint8_t, NpcFrameWidth * NpcFrameHeight>* DrawModes,
+    std::uint8_t& MinimumPaletteIndex, std::uint8_t& MaximumPaletteIndex, std::string& ErrorMessage)
 {
     Output.fill(0);
+    if (DrawModes != nullptr)
+    {
+        DrawModes->fill(TransparentDrawMode);
+    }
 
     const std::size_t FrameIndexOffset = FrameIndex * NpcTilesPerFrame;
     for (std::size_t TileColumn = 0; TileColumn < NpcTilesAcross; ++TileColumn)
@@ -150,8 +199,9 @@ bool DecodeNpcFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t TileB
             }
 
             std::array<std::uint8_t, NpcTileWidth * NpcTileHeight> TilePixels{};
+            std::array<std::uint8_t, NpcTileWidth * NpcTileHeight> TileDrawModes{};
             const std::size_t TileOffset = TileBankOffset + TileIndex * NpcTileBytes;
-            if (!DecodeNpcTile(Unpacked, TileOffset, TilePixels, ErrorMessage))
+            if (!DecodeNpcTile(Unpacked, TileOffset, TilePixels, DrawModes != nullptr ? &TileDrawModes : nullptr, ErrorMessage))
             {
                 return false;
             }
@@ -163,7 +213,13 @@ bool DecodeNpcFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t TileB
                 for (std::size_t Column = 0; Column < NpcTileWidth; ++Column)
                 {
                     const std::uint8_t Pixel = TilePixels[Row * NpcTileWidth + Column];
-                    Output[(DestinationY + Row) * NpcFrameWidth + (DestinationX + Column)] = Pixel;
+                    const std::size_t SourcePixelIndex = Row * NpcTileWidth + Column;
+                    const std::size_t DestinationPixelIndex = (DestinationY + Row) * NpcFrameWidth + (DestinationX + Column);
+                    Output[DestinationPixelIndex] = Pixel;
+                    if (DrawModes != nullptr)
+                    {
+                        (*DrawModes)[DestinationPixelIndex] = TileDrawModes[SourcePixelIndex];
+                    }
                     MinimumPaletteIndex = std::min(MinimumPaletteIndex, Pixel);
                     MaximumPaletteIndex = std::max(MaximumPaletteIndex, Pixel);
                 }
@@ -174,9 +230,16 @@ bool DecodeNpcFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t TileB
     return true;
 }
 
-bool DecodeTownHeroFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t FrameIndex, std::array<std::uint8_t, NpcFrameWidth * NpcFrameHeight>& Output, std::string& ErrorMessage)
+bool DecodeTownHeroFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t FrameIndex,
+    std::array<std::uint8_t, NpcFrameWidth * NpcFrameHeight>& Output,
+    std::array<std::uint8_t, NpcFrameWidth * NpcFrameHeight>* DrawModes,
+    std::string& ErrorMessage)
 {
     Output.fill(0);
+    if (DrawModes != nullptr)
+    {
+        DrawModes->fill(TransparentDrawMode);
+    }
 
     const std::size_t TileCount = Unpacked.size() / NpcTileBytes;
     if (TileCount == 0)
@@ -200,8 +263,9 @@ bool DecodeTownHeroFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t 
             }
 
             std::array<std::uint8_t, NpcTileWidth * NpcTileHeight> TilePixels{};
+            std::array<std::uint8_t, NpcTileWidth * NpcTileHeight> TileDrawModes{};
             const std::size_t TileOffset = TileIndex * NpcTileBytes;
-            if (!DecodeNpcTile(Unpacked, TileOffset, TilePixels, ErrorMessage))
+            if (!DecodeNpcTile(Unpacked, TileOffset, TilePixels, DrawModes != nullptr ? &TileDrawModes : nullptr, ErrorMessage))
             {
                 return false;
             }
@@ -212,7 +276,13 @@ bool DecodeTownHeroFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t 
             {
                 for (std::size_t Column = 0; Column < NpcTileWidth; ++Column)
                 {
-                    Output[(DestinationY + Row) * NpcFrameWidth + (DestinationX + Column)] = TilePixels[Row * NpcTileWidth + Column];
+                    const std::size_t SourcePixelIndex = Row * NpcTileWidth + Column;
+                    const std::size_t DestinationPixelIndex = (DestinationY + Row) * NpcFrameWidth + (DestinationX + Column);
+                    Output[DestinationPixelIndex] = TilePixels[SourcePixelIndex];
+                    if (DrawModes != nullptr)
+                    {
+                        (*DrawModes)[DestinationPixelIndex] = TileDrawModes[SourcePixelIndex];
+                    }
                 }
             }
         }
@@ -395,7 +465,7 @@ bool LoadNpcSpriteSheet(const std::filesystem::path& Path, SpriteSheetSummary& O
     std::array<std::uint8_t, NpcFrameWidth * NpcFrameHeight> FramePixels{};
     for (std::size_t FrameIndex = 0; FrameIndex < NpcFrameCount; ++FrameIndex)
     {
-        if (!DecodeNpcFrame(Unpacked, TileBankOffset, TileCount, FrameIndex, FramePixels, MinimumPaletteIndex, MaximumPaletteIndex, ErrorMessage))
+        if (!DecodeNpcFrame(Unpacked, TileBankOffset, TileCount, FrameIndex, FramePixels, nullptr, MinimumPaletteIndex, MaximumPaletteIndex, ErrorMessage))
         {
             return false;
         }
@@ -426,11 +496,12 @@ bool LoadNpcSpriteFrame(const std::filesystem::path& Path, std::size_t FrameInde
     Output = {};
     std::uint8_t MinimumPaletteIndex = 255;
     std::uint8_t MaximumPaletteIndex = 0;
-    if (!DecodeNpcFrame(Unpacked, TileBankOffset, TileCount, FrameIndex, Output.Pixels, MinimumPaletteIndex, MaximumPaletteIndex, ErrorMessage))
+    if (!DecodeNpcFrame(Unpacked, TileBankOffset, TileCount, FrameIndex, Output.Pixels, &Output.DrawModes, MinimumPaletteIndex, MaximumPaletteIndex, ErrorMessage))
     {
         return false;
     }
 
+    PopulateVisiblePixelsFromDrawModes(Output.DrawModes, Output.VisiblePixels);
     ErrorMessage.clear();
     return true;
 }
@@ -449,11 +520,12 @@ bool LoadTownHeroSpriteFrame(const std::filesystem::path& Path, std::size_t Fram
         return false;
     }
 
-    if (!DecodeTownHeroFrame(Unpacked, FrameIndex, Output.Pixels, ErrorMessage))
+    if (!DecodeTownHeroFrame(Unpacked, FrameIndex, Output.Pixels, &Output.DrawModes, ErrorMessage))
     {
         return false;
     }
 
+    PopulateVisiblePixelsFromDrawModes(Output.DrawModes, Output.VisiblePixels);
     ErrorMessage.clear();
     return true;
 }
