@@ -63,10 +63,10 @@ If the goal is a hero-only check after that, `tman.grp` is the next easiest shee
 - Confirmed frame size: 16x24 pixels, made from 6 tile indices and 48-byte tiles.
 - The raw table falls into five 8-frame blocks: `0-7`, `8-15`, `16-23`, `24-31`, and `32-39`.
 - Blocks `0`, `2`, `3`, and `4` look like 4-phase left/right walk families.
-- Block `1` is mostly static and repeats the same two poses, so it looks more like an idle or special NPC set than a full walk cycle.
+- Block `1` is now confirmed by the town selector evidence as a real idle/special family, and it still uses the same 8-frame block arithmetic.
 - The assembly render path in `asm/gtmcga.asm` uses `n_anim_phase & 3` plus a facing offset of `4`, which matches a 4-phase cycle per facing inside each 8-frame block.
 - `asm/town.asm` advances `n_anim_phase` in the patrol and bobbing AI paths, so the frame motion is driven by state code rather than by separate turn rows in the file.
-- What remains uncertain: whether block `1` is a pure idle set, a non-walking special NPC set, or a walk cycle whose differences are too small to read at this scale.
+- What remains uncertain: the exact narrative meaning of each confirmed family, and whether any selector families beyond `0` through `4` are actually used in towns.
 
 ### `tman.grp`
 

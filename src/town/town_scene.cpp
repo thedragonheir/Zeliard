@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iomanip>
 #include <filesystem>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -24,7 +26,6 @@ constexpr std::size_t TownHeroLeftFacingFrameStart = 0;
 constexpr std::size_t TownHeroRightFacingFrameStart = 5;
 constexpr std::size_t TownNpcSpriteFramesPerBlock = 8;
 constexpr std::size_t TownNpcSpriteFamilyCount = 5;
-constexpr std::size_t TownNpcSpriteUnconfirmedFamilyIndex = 1;
 constexpr std::uint8_t TownMapBlockedTileIndexA = 0x3C;
 constexpr std::uint8_t TownMapBlockedTileIndexB = 0x3D;
 
@@ -89,11 +90,19 @@ std::size_t GetTownNpcSpriteFrameIndex(const Mdt::TownEntityMarker& EntityMarker
     return (SpriteFamily * TownNpcSpriteFramesPerBlock) + FacingOffset + AnimationPhase;
 }
 
+std::string FormatTownSpriteByte(std::uint8_t Value)
+{
+    std::ostringstream Stream;
+    Stream << "0X" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+        << static_cast<unsigned int>(Value);
+    return Stream.str();
+}
+
 bool IsConfirmedTownNpcSpriteFamily(std::size_t SpriteFamily)
 {
-    // Family 1 still looks like the special/idle block in the repo notes, so
-    // keep it as a marker until we confirm its original frame mapping.
-    return SpriteFamily < TownNpcSpriteFamilyCount && SpriteFamily != TownNpcSpriteUnconfirmedFamilyIndex;
+    // The checked town data uses selector families 0 through 4, and the sprite
+    // viewer now confirms the same 8-frame block arithmetic for those families.
+    return SpriteFamily < TownNpcSpriteFamilyCount;
 }
 
 bool IsNpcSpriteFrameVisible(const Grp::NpcSpriteFrame& SpriteFrame)
@@ -113,6 +122,25 @@ const char* GetTownMapActorSpriteStatusName(bool ActorFrameLoaded, bool ActorFra
     }
 
     return ActorFrameVisible ? "OK" : "EMPTY";
+}
+
+std::string GetTownNpcSpriteDebugSummary(const Mdt::TownEntityMarker& EntityMarker)
+{
+    const std::size_t SpriteFamily = static_cast<std::size_t>(EntityMarker.NpcSpriteSelector & 0x0F);
+    std::string Summary = "NPC ID " + std::to_string(static_cast<unsigned int>(EntityMarker.NpcId))
+        + " SEL " + FormatTownSpriteByte(EntityMarker.NpcSpriteSelector)
+        + " PH " + FormatTownSpriteByte(EntityMarker.NpcAnimationPhase);
+
+    if (IsConfirmedTownNpcSpriteFamily(SpriteFamily))
+    {
+        Summary += " FR " + std::to_string(GetTownNpcSpriteFrameIndex(EntityMarker));
+    }
+    else
+    {
+        Summary += " FR ?";
+    }
+
+    return Summary;
 }
 
 const Grp::PatternTile& GetFallbackPatternTile()
@@ -326,7 +354,7 @@ std::string GetTownEntityProximityStatus(const Mdt::TownMapInfo& TownMap, std::s
 
     if (ProximityResult.Marker->Kind == Mdt::TownEntityKind::Npc)
     {
-        return "NEAR NPC " + std::to_string(static_cast<unsigned int>(ProximityResult.Marker->NpcId));
+        return "NEAR " + GetTownNpcSpriteDebugSummary(*ProximityResult.Marker);
     }
 
     return "NEAR DOOR " + std::to_string(static_cast<unsigned int>(ProximityResult.Marker->DoorType));
