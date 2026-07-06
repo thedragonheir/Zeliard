@@ -77,6 +77,55 @@ private:
         std::uint8_t NpcId = 0;
     };
 
+    struct TownNpcSpriteShadowSlice
+    {
+        const Grp::NpcSpriteFrame* SpriteFrame = nullptr;
+        std::size_t MapPixelX = 0;
+        std::size_t MapPixelY = 0;
+        std::size_t ScrollOffsetPixels = 0;
+        std::size_t MapColumn = 0;
+        bool IsCurrentColumn = false;
+    };
+
+    struct TownNpcSpriteShadowBuffer
+    {
+        void Reserve(std::size_t SliceCount)
+        {
+            Slices.reserve(SliceCount);
+        }
+
+        void AddCurrentColumnSlice(const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapPixelX,
+            std::size_t MapPixelY, std::size_t ScrollOffsetPixels, std::size_t MapColumn)
+        {
+            Slices.push_back(TownNpcSpriteShadowSlice{
+                &SpriteFrame,
+                MapPixelX,
+                MapPixelY,
+                ScrollOffsetPixels,
+                MapColumn,
+                true
+            });
+        }
+
+        void AddNextColumnSlice(const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapPixelX,
+            std::size_t MapPixelY, std::size_t ScrollOffsetPixels, std::size_t MapColumn)
+        {
+            Slices.push_back(TownNpcSpriteShadowSlice{
+                &SpriteFrame,
+                MapPixelX,
+                MapPixelY,
+                ScrollOffsetPixels,
+                MapColumn,
+                false
+            });
+        }
+
+        void FlushForMapColumn(SDL_Renderer* Renderer, const Main64Palette& Palette, std::size_t MapColumn,
+            std::size_t& RenderedNpcSpriteCount);
+
+        std::vector<TownNpcSpriteShadowSlice> Slices;
+    };
+
     bool UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex);
     bool TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const;
     std::size_t GetTownHeroAbsoluteX() const noexcept;
@@ -87,11 +136,11 @@ private:
     void UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
         const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeRecord>& TownNpcArray,
-        std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, bool DrawDebugFallbackMarker,
-        TownColumnRenderStats& RenderStats) const;
+        std::size_t ScrollOffsetPixels, TownNpcSpriteShadowBuffer& ShadowBuffer, bool DrawDebugEntityMarkers,
+        bool DrawDebugFallbackMarker, TownColumnRenderStats& RenderStats) const;
     void DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
         const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t ScrollOffsetPixels,
-        bool DrawDebugFallbackMarker,
+        TownNpcSpriteShadowBuffer& ShadowBuffer, bool DrawDebugFallbackMarker,
         TownColumnRenderStats& RenderStats) const;
 
     TownHeadLevelTiles SaveHeadLevelTilesInNpcs() const;

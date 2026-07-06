@@ -67,5 +67,7 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 ## Notes
 - `game_loop_with_frame_wait` still matches the assembly order: `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, then `render_town_tiles_28_columns`.
 - `hero_column_shadow_blitter_guard` and the compositor routines remain rendering-only and were inspected only to confirm they are not part of the movement rewrite.
-- `special_tile_dispatcher` only opens the NPC compositor when the row-5 tile is `0xFD`; the compositor then scans `npc_array_addr` by X and keeps the current-column / next-column split.
+- `special_tile_dispatcher` only opens the NPC compositor when the row-5 tile is `0xFD`; the intermediate C++ path should treat that marker as opening a two-column special compositor area, then scan `npc_array_addr` by X and keep the current-column / next-column split through `two_sprite_shadow_compositor` and `single_sprite_shadow_compositor`.
+- The intermediate SDL renderer must also defer or filter staged special-compositor slices so future-column slices are not overwritten by the later background pass.
+- The provisional free 2D town-movement helpers were removed from `town_scene.cpp`; the remaining town movement stays on the confirmed horizontal hero state.
 - The DOS town loop still does not expose a proven held-input repeat cadence in a way that maps cleanly to one exact C++ frame delay, so the new movement cooldown is a small provisional throttle rather than a claimed perfect match.

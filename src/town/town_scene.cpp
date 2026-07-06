@@ -252,68 +252,6 @@ void DrawNpcSpriteFrameColumnSliceOnTownMap(SDL_Renderer* Renderer, const Grp::N
     }
 }
 
-struct TownNpcSpriteShadowSlice
-{
-    const Grp::NpcSpriteFrame* SpriteFrame = nullptr;
-    std::size_t MapPixelX = 0;
-    std::size_t MapPixelY = 0;
-    std::size_t ScrollOffsetPixels = 0;
-    std::size_t MapColumn = 0;
-    bool IsCurrentColumn = false;
-};
-
-// Keep the NPC column slices staged here so we can swap in a real shadow
-// compositor later without changing the visible town output yet.
-struct TownNpcSpriteShadowBuffer
-{
-    void Reserve(std::size_t SliceCount)
-    {
-        Slices.reserve(SliceCount);
-    }
-
-    void AddCurrentColumnSlice(const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapPixelX, std::size_t MapPixelY,
-        std::size_t ScrollOffsetPixels, std::size_t MapColumn)
-    {
-        Slices.push_back(TownNpcSpriteShadowSlice{
-            &SpriteFrame,
-            MapPixelX,
-            MapPixelY,
-            ScrollOffsetPixels,
-            MapColumn,
-            true
-        });
-    }
-
-    void AddNextColumnSlice(const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapPixelX, std::size_t MapPixelY,
-        std::size_t ScrollOffsetPixels, std::size_t MapColumn)
-    {
-        Slices.push_back(TownNpcSpriteShadowSlice{
-            &SpriteFrame,
-            MapPixelX,
-            MapPixelY,
-            ScrollOffsetPixels,
-            MapColumn,
-            false
-        });
-    }
-
-    void Flush(SDL_Renderer* Renderer, const Main64Palette& Palette, std::size_t& RenderedNpcSpriteCount) const
-    {
-        for (const TownNpcSpriteShadowSlice& Slice : Slices)
-        {
-            DrawNpcSpriteFrameColumnSliceOnTownMap(Renderer, *Slice.SpriteFrame, Palette,
-                Slice.MapPixelX, Slice.MapPixelY, Slice.ScrollOffsetPixels, Slice.MapColumn);
-
-            if (Slice.IsCurrentColumn)
-            {
-                ++RenderedNpcSpriteCount;
-            }
-        }
-    }
-
-    std::vector<TownNpcSpriteShadowSlice> Slices;
-};
-
 void DrawTownMapActorFallbackMarker(SDL_Renderer* Renderer, float MapPixelX, float MapPixelY, std::size_t ScrollOffsetPixels)
 {
     constexpr float MarkerSize = 10.0f;
@@ -356,35 +294,6 @@ std::size_t GetTownMapMaximumScrollOffset(const Mdt::TownMapInfo& TownMap)
 {
     const std::size_t MapWidthPixels = static_cast<std::size_t>(TownMap.Width) * TownMapTileSize;
     return MapWidthPixels > TownMapViewportWidth ? MapWidthPixels - TownMapViewportWidth : 0;
-}
-
-std::size_t GetTownMapCameraFollowScrollOffset(const Mdt::TownMapInfo& TownMap, std::size_t ActorMapPixelX)
-{
-    const std::size_t MaximumScrollOffset = GetTownMapMaximumScrollOffset(TownMap);
-    const std::size_t ActorCenterPixelX = ActorMapPixelX + (Grp::NpcSpriteFrame::FrameWidth / 2);
-    const std::size_t ViewportCenterPixelX = TownMapViewportWidth / 2;
-    const std::size_t DesiredScrollOffset = ActorCenterPixelX > ViewportCenterPixelX ? ActorCenterPixelX - ViewportCenterPixelX : 0;
-    return std::min<std::size_t>(DesiredScrollOffset, MaximumScrollOffset);
-}
-
-std::size_t GetTownMapMaximumActorMapPixelX(const Mdt::TownMapInfo& TownMap)
-{
-    const std::size_t MapWidthPixels = static_cast<std::size_t>(TownMap.Width) * TownMapTileSize;
-    const std::size_t ActorWidthPixels = Grp::NpcSpriteFrame::FrameWidth;
-    return MapWidthPixels > ActorWidthPixels ? MapWidthPixels - ActorWidthPixels : 0;
-}
-
-std::size_t GetTownMapMaximumActorMapPixelY(const Mdt::TownMapInfo& TownMap)
-{
-    const std::size_t MapHeightPixels = static_cast<std::size_t>(TownMap.Height) * TownMapTileSize;
-    const std::size_t ActorHeightPixels = Grp::NpcSpriteFrame::FrameHeight;
-    return MapHeightPixels > ActorHeightPixels ? MapHeightPixels - ActorHeightPixels : 0;
-}
-
-void ClampTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& ActorMapPixelX, std::size_t& ActorMapPixelY)
-{
-    ActorMapPixelX = std::clamp(ActorMapPixelX, std::size_t{0}, GetTownMapMaximumActorMapPixelX(TownMap));
-    ActorMapPixelY = std::clamp(ActorMapPixelY, std::size_t{0}, GetTownMapMaximumActorMapPixelY(TownMap));
 }
 
 bool IsTownMapBlockedTileIndex(std::uint8_t TileIndex)
@@ -560,40 +469,6 @@ bool TryGetTownMapTileIndexAtPixel(const Mdt::TownMapInfo& TownMap, std::size_t 
     return TryGetTownMapTileIndexAtCell(TownMap, Column, Row, TileIndex);
 }
 
-bool IsTownMapActorProbeBlocked(const Mdt::TownMapInfo& TownMap, std::size_t ActorMapPixelX, std::size_t ActorMapPixelY,
-    TownMapActorFacingDirection ActorFacingDirection)
-{
-    // This is provisional and checks one leading-edge point instead of a full
-    // footprint, which matches the current town collision evidence without
-    // growing the debug path into a larger gameplay layer.
-    std::size_t ProbePixelX = ActorMapPixelX + (Grp::NpcSpriteFrame::FrameWidth / 2);
-    std::size_t ProbePixelY = ActorMapPixelY + (Grp::NpcSpriteFrame::FrameHeight / 2);
-
-    switch (ActorFacingDirection)
-    {
-    case TownMapActorFacingDirection::Left:
-        ProbePixelX = ActorMapPixelX;
-        break;
-    case TownMapActorFacingDirection::Right:
-        ProbePixelX = ActorMapPixelX + Grp::NpcSpriteFrame::FrameWidth - 1;
-        break;
-    case TownMapActorFacingDirection::Up:
-        ProbePixelY = ActorMapPixelY;
-        break;
-    case TownMapActorFacingDirection::Down:
-        ProbePixelY = ActorMapPixelY + Grp::NpcSpriteFrame::FrameHeight - 1;
-        break;
-    }
-
-    std::uint8_t TileIndex = 0;
-    if (!TryGetTownMapTileIndexAtPixel(TownMap, ProbePixelX, ProbePixelY, TileIndex))
-    {
-        return false;
-    }
-
-    return IsTownMapBlockedTileIndex(TileIndex);
-}
-
 const char* GetTownMapCollisionStatusName(bool ActorCollisionBlocked)
 {
     return ActorCollisionBlocked ? "COL BLOCK" : "COL OK";
@@ -659,97 +534,30 @@ void DrawFontText(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup, float
     }
 }
 
-bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& ActorMapPixelX, std::size_t& ActorMapPixelY,
-    const bool* KeyboardState, TownMapActorFacingDirection& ActorFacingDirection, bool& ActorCollisionBlocked)
-{
-    ActorCollisionBlocked = false;
-    if (KeyboardState == nullptr)
-    {
-        return false;
-    }
-
-    constexpr std::size_t ActorMoveSpeedPixels = 2;
-    const std::size_t MaximumActorMapPixelX = GetTownMapMaximumActorMapPixelX(TownMap);
-    const std::size_t MaximumActorMapPixelY = GetTownMapMaximumActorMapPixelY(TownMap);
-    bool ActorMoved = false;
-
-    if (KeyboardState[SDL_SCANCODE_LEFT] && !KeyboardState[SDL_SCANCODE_RIGHT])
-    {
-        const std::size_t PreviousActorMapPixelX = ActorMapPixelX;
-        const std::size_t ProposedActorMapPixelX = ActorMapPixelX > ActorMoveSpeedPixels ? ActorMapPixelX - ActorMoveSpeedPixels : 0;
-        if (!IsTownMapActorProbeBlocked(TownMap, ProposedActorMapPixelX, ActorMapPixelY, TownMapActorFacingDirection::Left))
-        {
-            ActorMapPixelX = ProposedActorMapPixelX;
-            if (ActorMapPixelX != PreviousActorMapPixelX)
-            {
-                ActorFacingDirection = TownMapActorFacingDirection::Left;
-                ActorMoved = true;
-            }
-        }
-        else
-        {
-            ActorCollisionBlocked = true;
-        }
-    }
-    else if (KeyboardState[SDL_SCANCODE_RIGHT] && !KeyboardState[SDL_SCANCODE_LEFT])
-    {
-        const std::size_t PreviousActorMapPixelX = ActorMapPixelX;
-        const std::size_t ProposedActorMapPixelX = std::min<std::size_t>(ActorMapPixelX + ActorMoveSpeedPixels, MaximumActorMapPixelX);
-        if (!IsTownMapActorProbeBlocked(TownMap, ProposedActorMapPixelX, ActorMapPixelY, TownMapActorFacingDirection::Right))
-        {
-            ActorMapPixelX = ProposedActorMapPixelX;
-            if (ActorMapPixelX != PreviousActorMapPixelX)
-            {
-                ActorFacingDirection = TownMapActorFacingDirection::Right;
-                ActorMoved = true;
-            }
-        }
-        else
-        {
-            ActorCollisionBlocked = true;
-        }
-    }
-
-    if (KeyboardState[SDL_SCANCODE_UP] && !KeyboardState[SDL_SCANCODE_DOWN])
-    {
-        const std::size_t PreviousActorMapPixelY = ActorMapPixelY;
-        const std::size_t ProposedActorMapPixelY = ActorMapPixelY > ActorMoveSpeedPixels ? ActorMapPixelY - ActorMoveSpeedPixels : 0;
-        if (!IsTownMapActorProbeBlocked(TownMap, ActorMapPixelX, ProposedActorMapPixelY, TownMapActorFacingDirection::Up))
-        {
-            ActorMapPixelY = ProposedActorMapPixelY;
-            if (ActorMapPixelY != PreviousActorMapPixelY)
-            {
-                ActorFacingDirection = TownMapActorFacingDirection::Up;
-                ActorMoved = true;
-            }
-        }
-        else
-        {
-            ActorCollisionBlocked = true;
-        }
-    }
-    else if (KeyboardState[SDL_SCANCODE_DOWN] && !KeyboardState[SDL_SCANCODE_UP])
-    {
-        const std::size_t PreviousActorMapPixelY = ActorMapPixelY;
-        const std::size_t ProposedActorMapPixelY = std::min<std::size_t>(ActorMapPixelY + ActorMoveSpeedPixels, MaximumActorMapPixelY);
-        if (!IsTownMapActorProbeBlocked(TownMap, ActorMapPixelX, ProposedActorMapPixelY, TownMapActorFacingDirection::Down))
-        {
-            ActorMapPixelY = ProposedActorMapPixelY;
-            if (ActorMapPixelY != PreviousActorMapPixelY)
-            {
-                ActorFacingDirection = TownMapActorFacingDirection::Down;
-                ActorMoved = true;
-            }
-        }
-        else
-        {
-            ActorCollisionBlocked = true;
-        }
-    }
-
-    ClampTownMapActorPosition(TownMap, ActorMapPixelX, ActorMapPixelY);
-    return ActorMoved;
 }
+
+void TownScene::TownNpcSpriteShadowBuffer::FlushForMapColumn(SDL_Renderer* Renderer, const Main64Palette& Palette,
+    std::size_t MapColumn, std::size_t& RenderedNpcSpriteCount)
+{
+    for (auto SliceIterator = Slices.begin(); SliceIterator != Slices.end(); )
+    {
+        if (SliceIterator->MapColumn != MapColumn)
+        {
+            ++SliceIterator;
+            continue;
+        }
+
+        DrawNpcSpriteFrameColumnSliceOnTownMap(Renderer, *SliceIterator->SpriteFrame, Palette,
+            SliceIterator->MapPixelX, SliceIterator->MapPixelY, SliceIterator->ScrollOffsetPixels,
+            SliceIterator->MapColumn);
+
+        if (SliceIterator->IsCurrentColumn)
+        {
+            ++RenderedNpcSpriteCount;
+        }
+
+        SliceIterator = Slices.erase(SliceIterator);
+    }
 }
 
 std::size_t TownScene::GetTownNpcSpriteFrameIndex(std::uint8_t SpriteSelector, std::uint8_t AnimationPhase)
@@ -761,13 +569,13 @@ std::uint8_t TownScene::GetTownNpcRuntimeRecordSpriteColumnMatch(const TownNpcRu
     std::size_t MapColumn)
 {
     const std::size_t NpcColumn = static_cast<std::size_t>(RuntimeRecord.X);
-    if (MapColumn == NpcColumn)
+    if (NpcColumn == MapColumn)
     {
         // Mirror sprite_x_coordinate_lookup: 2 means the current column, 1 means the next column.
         return 2;
     }
 
-    if (MapColumn == NpcColumn + 1)
+    if (NpcColumn == MapColumn + 1)
     {
         return 1;
     }
@@ -1104,16 +912,14 @@ const TownScene::TownNpcRuntimeRecord* TownScene::FindFirstTownNpcRuntimeRecordF
 
 void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
     const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t ScrollOffsetPixels,
-    bool DrawDebugFallbackMarker,
+    TownNpcSpriteShadowBuffer& ShadowBuffer, bool DrawDebugFallbackMarker,
     TownColumnRenderStats& RenderStats) const
 {
-    TownNpcSpriteShadowBuffer ShadowBuffer;
-    ShadowBuffer.Reserve(TownNpcArray.size() * 2);
-
     const TownNpcRuntimeRecord* RuntimeRecord = FindFirstTownNpcRuntimeRecordForColumn(TownNpcArray, MapColumn);
     while (RuntimeRecord != nullptr)
     {
         const std::uint8_t ColumnMatch = GetTownNpcRuntimeRecordSpriteColumnMatch(*RuntimeRecord, MapColumn);
+        const std::size_t SpriteColumn = static_cast<std::size_t>(RuntimeRecord->X);
         const std::size_t SpriteFamily = static_cast<std::size_t>(RuntimeRecord->SpriteSelector & 0x0F);
         const std::size_t FrameIndex = TownScene::GetTownNpcSpriteFrameIndex(RuntimeRecord->SpriteSelector,
             RuntimeRecord->AnimationPhase);
@@ -1142,31 +948,34 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
             else
             {
                 ShadowBuffer.AddCurrentColumnSlice(*SpriteFrame,
-                    static_cast<std::size_t>(RuntimeRecord->X) * TownMapTileSize,
+                    SpriteColumn * TownMapTileSize,
                     TownHeadLevelRow * TownMapTileSize,
                     ScrollOffsetPixels,
-                    static_cast<std::size_t>(RuntimeRecord->X));
+                    SpriteColumn);
+                ShadowBuffer.AddNextColumnSlice(*SpriteFrame,
+                    SpriteColumn * TownMapTileSize,
+                    TownHeadLevelRow * TownMapTileSize,
+                    ScrollOffsetPixels,
+                    SpriteColumn + 1);
             }
         }
         else if (ColumnMatch == 1 && HasSpriteFrame)
         {
-            ShadowBuffer.AddNextColumnSlice(*SpriteFrame,
-                static_cast<std::size_t>(RuntimeRecord->X) * TownMapTileSize,
+            ShadowBuffer.AddCurrentColumnSlice(*SpriteFrame,
+                SpriteColumn * TownMapTileSize,
                 TownHeadLevelRow * TownMapTileSize,
                 ScrollOffsetPixels,
-                static_cast<std::size_t>(RuntimeRecord->X) + 1);
+                SpriteColumn);
         }
 
         RuntimeRecord = FindFirstTownNpcRuntimeRecordForColumnAfterCurrent(TownNpcArray, RuntimeRecord, MapColumn);
     }
-
-    ShadowBuffer.Flush(Renderer, Palette, RenderStats.RenderedNpcSpriteCount);
 }
 
 void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
     const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeRecord>& TownNpcArray,
-    std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, bool DrawDebugFallbackMarker,
-    TownColumnRenderStats& RenderStats) const
+    std::size_t ScrollOffsetPixels, TownNpcSpriteShadowBuffer& ShadowBuffer, bool DrawDebugEntityMarkers,
+    bool DrawDebugFallbackMarker, TownColumnRenderStats& RenderStats) const
 {
     const Grp::PatternTile& FallbackTile = GetFallbackPatternTile();
     const bool HasTownNpcMarker = MapColumn < HeadLevelTiles.Tiles.size()
@@ -1232,8 +1041,11 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
     if (HasTownNpcMarker)
     {
         DispatchTownSpecialTile(Renderer, MapColumn, TownNpcArray, ScrollOffsetPixels,
-            DrawDebugFallbackMarker, RenderStats);
+            ShadowBuffer, DrawDebugFallbackMarker, RenderStats);
     }
+
+    // Flush only the slices that belong to the column whose background was just drawn.
+    ShadowBuffer.FlushForMapColumn(Renderer, Palette, MapColumn, RenderStats.RenderedNpcSpriteCount);
 
     if (ActorFrameLoaded && ActorFrameVisible)
     {
@@ -1279,13 +1091,15 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     TownHeadLevelTiles HeadLevelTiles = SaveHeadLevelTilesInNpcs();
     UpdateTownNpcRuntimeRecordsShell();
     TownColumnRenderStats RenderStats{};
+    TownNpcSpriteShadowBuffer ShadowBuffer;
+    ShadowBuffer.Reserve(TownNpcArray.size() * 2);
 
     for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
     {
         const std::size_t MapColumn = FirstColumn + Column;
         const float TileX = static_cast<float>(Column * TileSize) - static_cast<float>(ColumnPixelOffset);
         RenderTownColumn(Renderer, MapColumn, TileX, HeadLevelTiles, TownNpcArray, ClampedScrollOffset,
-            TownEntityMarkersEnabled, DebugOverlayEnabled, RenderStats);
+            ShadowBuffer, TownEntityMarkersEnabled, DebugOverlayEnabled, RenderStats);
     }
 
     RestoreHeadLevelTilesFromNpcs(HeadLevelTiles);
