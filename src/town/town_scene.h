@@ -184,11 +184,14 @@ private:
     bool ActorCollisionBlocked = false;
     bool BlockedTileOverlayEnabled = false;
     bool TownEntityMarkersEnabled = false;
+    bool TownBackgroundStripLoaded = false;
+    bool TownBackgroundStripUsesCkpd = false;
     mutable bool FallbackWarningPrinted = false;
     mutable std::array<Grp::NpcSpriteFrame, TownNpcSpriteFrameCount> TownNpcSpriteFrames{};
     mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameLoaded{};
     mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameVisible{};
     mutable bool TownNpcSpriteFrameWarningPrinted = false;
     mutable std::vector<TownNpcRuntimeRecord> TownNpcArray;
+    std::array<std::uint8_t, 224 * 16> TownBackgroundStripPixels{};
     Grp::NpcSpriteFrame ActorFrame;
 };

@@ -250,6 +250,15 @@ Four routines scroll decorative parts of the town scene:
 
 Right scroll uses `std` so copy operations proceed backward and avoid overwriting source pixels before they are copied.
 
+## Lower strip path
+
+The current town scene now also mirrors the floor strip from the background driver instead of leaving the lower area black.
+
+- `town_descriptor_addr[3]` selects `ympd.bin` or `ckpd.bin` from `game/0`.
+- YMPD uses the proven `ground` and `ground1` streams at `0x229e` and `0x23f1`, then applies the MCGA `render_ground` bitplane-to-pixel conversion.
+- CKPD uses the MCGA `mode4_mcga` raw tables at `0x1c25` and `0x1de5`.
+- The strip is drawn at logical MCGA coordinates `x = 48`, `y = 14 + 16 * 8 = 142` and occupies a `224 x 16` rectangle.
+
 ## Town pattern loading
 
 `town.asm` loads pattern groups through:

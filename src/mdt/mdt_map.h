@@ -40,6 +40,8 @@ struct TownMapInfo
     std::size_t CellCount = 0;
     std::uint8_t MinimumTileIndex = 0;
     std::uint8_t MaximumTileIndex = 0;
+    // town_descriptor_addr[3] selects the YMPD/CKPD background module.
+    bool HasMiddleLayer = false;
     std::vector<std::uint8_t> Cells;
     std::vector<TownEntityMarker> EntityMarkers;
 };

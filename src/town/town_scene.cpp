@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <fstream>
 #include <iomanip>
 #include <filesystem>
 #include <iostream>
@@ -33,6 +34,281 @@ constexpr std::size_t TownHeadLevelRow = 5;
 constexpr std::uint8_t TownHeadLevelNpcMarkerTile = 0xFD;
 constexpr std::uint8_t TownMapBlockedTileIndexA = 0x3C;
 constexpr std::uint8_t TownMapBlockedTileIndexB = 0x3D;
+constexpr std::size_t TownBackgroundStripWidth = 224;
+constexpr std::size_t TownBackgroundStripHeight = 16;
+constexpr std::size_t TownBackgroundStripLeftWidth = TownBackgroundStripWidth / 2;
+constexpr std::size_t TownBackgroundStripLeftX = 48;
+constexpr std::size_t TownBackgroundStripLeftY = 14 + 16 * 8;
+constexpr std::size_t YmpdGroundOffset = 0x229E;
+constexpr std::size_t YmpdGroundLength = 0x153;
+constexpr std::size_t YmpdGround1Offset = 0x23F1;
+constexpr std::size_t YmpdGround1Length = 0x174;
+constexpr std::size_t CkpdGroundOffset = 0x1C25;
+constexpr std::size_t CkpdGroundLength = 0x1C0;
+constexpr std::size_t CkpdGround1Offset = 0x1DE5;
+constexpr std::size_t CkpdGround1Length = 0x1C0;
+
+bool ReadWholeFile(const std::filesystem::path& Path, std::vector<std::uint8_t>& Output, std::string& ErrorMessage)
+{
+    std::ifstream Input(Path, std::ios::binary | std::ios::ate);
+    if (!Input)
+    {
+        ErrorMessage = "failed to open " + Path.string();
+        return false;
+    }
+
+    const std::streamsize FileSize = Input.tellg();
+    if (FileSize < 0)
+    {
+        ErrorMessage = "failed to get size for " + Path.string();
+        return false;
+    }
+
+    Output.resize(static_cast<std::size_t>(FileSize));
+    Input.seekg(0, std::ios::beg);
+    if (FileSize > 0 && !Input.read(reinterpret_cast<char*>(Output.data()), FileSize))
+    {
+        ErrorMessage = "failed to read " + Path.string();
+        return false;
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+
+bool DecodeYmpdExtract28Bytes(const std::vector<std::uint8_t>& FileBytes, std::size_t& SourceOffset,
+    std::size_t SourceLimit, std::array<std::uint8_t, 28>& Output, std::string& ErrorMessage)
+{
+    std::size_t OutputIndex = 0;
+    while (OutputIndex < Output.size())
+    {
+        if (SourceOffset >= SourceLimit)
+        {
+            ErrorMessage = "YMPD RLE stream ended before 28 bytes were decoded";
+            return false;
+        }
+
+        const std::uint8_t Token = FileBytes[SourceOffset++];
+        std::uint8_t RepeatCount = 1;
+        std::uint8_t Value = Token;
+
+        if ((Token & 0xF0) == 0x60)
+        {
+            RepeatCount = static_cast<std::uint8_t>(Token & 0x0F);
+            Value = 0;
+        }
+
+        for (std::uint8_t RepeatIndex = 0; RepeatIndex < RepeatCount; ++RepeatIndex)
+        {
+            if (OutputIndex >= Output.size())
+            {
+                ErrorMessage = "YMPD RLE stream overran a 28-byte block";
+                return false;
+            }
+
+            Output[OutputIndex++] = Value;
+        }
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+
+bool DecodeYmpdGroundStream(const std::vector<std::uint8_t>& FileBytes, std::size_t SourceOffset,
+    std::size_t SourceLength, std::array<std::uint8_t, 448>& Output, std::string& ErrorMessage)
+{
+    const std::size_t SourceLimit = SourceOffset + SourceLength;
+    for (std::size_t BlockIndex = 0; BlockIndex < 16; ++BlockIndex)
+    {
+        std::array<std::uint8_t, 28> Block{};
+        if (!DecodeYmpdExtract28Bytes(FileBytes, SourceOffset, SourceLimit, Block, ErrorMessage))
+        {
+            return false;
+        }
+
+        std::copy(Block.begin(), Block.end(), Output.begin() + static_cast<std::ptrdiff_t>(BlockIndex * Block.size()));
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+
+void DecodeYmpdScanline(const std::uint8_t* SourceRow, std::uint8_t* DestinationLeftHalf)
+{
+    for (std::size_t ByteIndex = 0; ByteIndex < TownBackgroundStripLeftWidth / 8; ++ByteIndex)
+    {
+        std::uint16_t TopWord = static_cast<std::uint16_t>(SourceRow[ByteIndex * 2] << 8)
+            | static_cast<std::uint16_t>(SourceRow[ByteIndex * 2 + 1]);
+        std::uint16_t BottomWord = static_cast<std::uint16_t>(SourceRow[28 + ByteIndex * 2] << 8)
+            | static_cast<std::uint16_t>(SourceRow[28 + ByteIndex * 2 + 1]);
+
+        for (std::size_t PixelIndex = 0; PixelIndex < 8; ++PixelIndex)
+        {
+            std::uint8_t Pixel = 0;
+
+            Pixel = static_cast<std::uint8_t>(Pixel << 1);
+            Pixel = static_cast<std::uint8_t>(Pixel | ((TopWord & 0x8000) != 0 ? 1 : 0));
+            TopWord = static_cast<std::uint16_t>(TopWord << 1);
+
+            Pixel = static_cast<std::uint8_t>(Pixel << 1);
+            Pixel = static_cast<std::uint8_t>(Pixel | ((BottomWord & 0x8000) != 0 ? 1 : 0));
+            BottomWord = static_cast<std::uint16_t>(BottomWord << 1);
+
+            Pixel = static_cast<std::uint8_t>(Pixel << 1);
+
+            Pixel = static_cast<std::uint8_t>(Pixel << 1);
+            Pixel = static_cast<std::uint8_t>(Pixel | ((TopWord & 0x8000) != 0 ? 1 : 0));
+            TopWord = static_cast<std::uint16_t>(TopWord << 1);
+
+            Pixel = static_cast<std::uint8_t>(Pixel << 1);
+            Pixel = static_cast<std::uint8_t>(Pixel | ((BottomWord & 0x8000) != 0 ? 1 : 0));
+            BottomWord = static_cast<std::uint16_t>(BottomWord << 1);
+
+            Pixel = static_cast<std::uint8_t>(Pixel << 1);
+
+            DestinationLeftHalf[ByteIndex * 8 + PixelIndex] = Pixel;
+        }
+    }
+}
+
+std::uint8_t DecodeCkpdPixel(std::uint8_t& Dl, std::uint8_t& Dh)
+{
+    std::uint8_t Pixel = 0;
+
+    Pixel = static_cast<std::uint8_t>(Pixel << 1);
+    Pixel = static_cast<std::uint8_t>(Pixel | ((Dh & 0x80) != 0 ? 1 : 0));
+    Dh = static_cast<std::uint8_t>(Dh << 1);
+
+    Pixel = static_cast<std::uint8_t>(Pixel << 1);
+    Pixel = static_cast<std::uint8_t>(Pixel | ((Dl & 0x80) != 0 ? 1 : 0));
+    Dl = static_cast<std::uint8_t>(Dl << 1);
+
+    Pixel = static_cast<std::uint8_t>(Pixel << 1);
+
+    Pixel = static_cast<std::uint8_t>(Pixel << 1);
+    Pixel = static_cast<std::uint8_t>(Pixel | ((Dh & 0x80) != 0 ? 1 : 0));
+    Dh = static_cast<std::uint8_t>(Dh << 1);
+
+    Pixel = static_cast<std::uint8_t>(Pixel << 1);
+    Pixel = static_cast<std::uint8_t>(Pixel | ((Dl & 0x80) != 0 ? 1 : 0));
+    Dl = static_cast<std::uint8_t>(Dl << 1);
+
+    Pixel = static_cast<std::uint8_t>(Pixel << 1);
+    return Pixel;
+}
+
+void DecodeCkpdScanline(const std::uint8_t* SourceLeft, const std::uint8_t* SourceRight, std::uint8_t* DestinationLeftHalf)
+{
+    for (std::size_t ByteIndex = 0; ByteIndex < TownBackgroundStripLeftWidth / 4; ++ByteIndex)
+    {
+        std::uint8_t Dl = SourceLeft[ByteIndex];
+        std::uint8_t Dh = SourceRight[ByteIndex];
+
+        for (std::size_t PixelGroupIndex = 0; PixelGroupIndex < 4; ++PixelGroupIndex)
+        {
+            DestinationLeftHalf[ByteIndex * 4 + PixelGroupIndex] = DecodeCkpdPixel(Dl, Dh);
+        }
+    }
+}
+
+bool LoadTownBackgroundStripPixels(const std::filesystem::path& TownBackgroundBinPath, bool TownHasMiddleLayer,
+    std::array<std::uint8_t, TownBackgroundStripWidth * TownBackgroundStripHeight>& Output, std::string& ErrorMessage)
+{
+    std::vector<std::uint8_t> FileBytes;
+    if (!ReadWholeFile(TownBackgroundBinPath, FileBytes, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (TownHasMiddleLayer)
+    {
+        // The MCGA town path uses the raw mode4_mcga tables here, not the
+        // compressed sub_3300 render_something pair.
+        if (FileBytes.size() < CkpdGround1Offset + CkpdGround1Length)
+        {
+            ErrorMessage = TownBackgroundBinPath.filename().string() + " is too small to contain the CKPD MCGA ground tables";
+            return false;
+        }
+
+        for (std::size_t RowIndex = 0; RowIndex < TownBackgroundStripHeight; ++RowIndex)
+        {
+            const std::size_t SourceOffset = RowIndex * TownBackgroundStripLeftWidth / 4;
+            std::uint8_t* DestinationRow = Output.data() + RowIndex * TownBackgroundStripWidth;
+            DecodeCkpdScanline(FileBytes.data() + CkpdGroundOffset + SourceOffset,
+                FileBytes.data() + CkpdGround1Offset + SourceOffset, DestinationRow);
+            std::copy(DestinationRow, DestinationRow + static_cast<std::ptrdiff_t>(TownBackgroundStripLeftWidth),
+                DestinationRow + TownBackgroundStripLeftWidth);
+        }
+
+        ErrorMessage.clear();
+        return true;
+    }
+
+    if (FileBytes.size() < YmpdGround1Offset + YmpdGround1Length)
+    {
+        ErrorMessage = TownBackgroundBinPath.filename().string() + " is too small to contain the YMPD ground tables";
+        return false;
+    }
+
+    std::array<std::uint8_t, 448> Ground{};
+    std::array<std::uint8_t, 448> Ground1{};
+    if (!DecodeYmpdGroundStream(FileBytes, YmpdGroundOffset, YmpdGroundLength, Ground, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (!DecodeYmpdGroundStream(FileBytes, YmpdGround1Offset, YmpdGround1Length, Ground1, ErrorMessage))
+    {
+        return false;
+    }
+
+    for (std::size_t RowIndex = 0; RowIndex < 8; ++RowIndex)
+    {
+        std::uint8_t* DestinationRow = Output.data() + RowIndex * TownBackgroundStripWidth;
+        DecodeYmpdScanline(Ground.data() + RowIndex * 56, DestinationRow);
+        std::copy(DestinationRow, DestinationRow + static_cast<std::ptrdiff_t>(TownBackgroundStripLeftWidth),
+            DestinationRow + TownBackgroundStripLeftWidth);
+    }
+
+    for (std::size_t RowIndex = 0; RowIndex < 8; ++RowIndex)
+    {
+        std::uint8_t* DestinationRow = Output.data() + (RowIndex + 8) * TownBackgroundStripWidth;
+        DecodeYmpdScanline(Ground1.data() + RowIndex * 56, DestinationRow);
+        std::copy(DestinationRow, DestinationRow + static_cast<std::ptrdiff_t>(TownBackgroundStripLeftWidth),
+            DestinationRow + TownBackgroundStripLeftWidth);
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+
+void DrawTownBackgroundStrip(SDL_Renderer* Renderer, const std::array<std::uint8_t, TownBackgroundStripWidth * TownBackgroundStripHeight>& Pixels,
+    const Main64Palette& Palette)
+{
+    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
+    for (std::size_t Row = 0; Row < TownBackgroundStripHeight; ++Row)
+    {
+        for (std::size_t Column = 0; Column < TownBackgroundStripWidth; ++Column)
+        {
+            const std::uint8_t PaletteIndex = Pixels[Row * TownBackgroundStripWidth + Column];
+            if (PaletteIndex >= Palette.size())
+            {
+                continue;
+            }
+
+            const SDL_Color& Color = Palette[PaletteIndex];
+            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+
+            const SDL_FRect PixelRect{
+                static_cast<float>(TownBackgroundStripLeftX + Column),
+                static_cast<float>(TownBackgroundStripLeftY + Row),
+                1.0f,
+                1.0f
+            };
+            SDL_RenderFillRect(Renderer, &PixelRect);
+        }
+    }
+}
 
 const char* GetTownMapActorFacingDirectionName(TownMapActorFacingDirection FacingDirection)
 {
@@ -1084,6 +1360,17 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     : ActorSpriteGrpPath(ActorSpriteGrpPath), TownNpcSpriteGrpPath(TownNpcSpriteGrpPath), TownMap(TownMap), PatternBank(PatternBank), Palette(Palette)
 {
     TownNpcArray = BuildTownNpcRuntimeRecords(TownMap);
+    TownBackgroundStripUsesCkpd = TownMap.HasMiddleLayer;
+    const std::filesystem::path TownBackgroundBinPath = ActorSpriteGrpPath.parent_path()
+        / (TownBackgroundStripUsesCkpd ? "ckpd.bin" : "ympd.bin");
+    std::string TownBackgroundStripErrorMessage;
+    TownBackgroundStripLoaded = LoadTownBackgroundStripPixels(TownBackgroundBinPath, TownBackgroundStripUsesCkpd,
+        TownBackgroundStripPixels, TownBackgroundStripErrorMessage);
+    if (!TownBackgroundStripLoaded)
+    {
+        std::cerr << TownBackgroundBinPath.filename().string() << " lower strip load failed: "
+            << TownBackgroundStripErrorMessage << '\n';
+    }
     ActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(ActorFrameIndex);
     SyncTownHeroRuntimeProjection();
@@ -1126,6 +1413,11 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     }
 
     RestoreHeadLevelTilesFromNpcs(HeadLevelTiles);
+
+    if (TownBackgroundStripLoaded)
+    {
+        DrawTownBackgroundStrip(Renderer, TownBackgroundStripPixels, Palette);
+    }
 
     if (!(ActorFrameLoaded && ActorFrameVisible))
     {

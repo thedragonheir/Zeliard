@@ -125,6 +125,7 @@ bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, st
     Output.CellCount = CellCount;
     Output.MinimumTileIndex = *MinimumIt;
     Output.MaximumTileIndex = *MaximumIt;
+    Output.HasMiddleLayer = (Data[0x03] & 1) != 0;
 
     Output.EntityMarkers.clear();
     ParseTownEntityMarkers(Data, static_cast<std::uint16_t>(Data[0x09] | (static_cast<std::uint16_t>(Data[0x0A]) << 8)),
