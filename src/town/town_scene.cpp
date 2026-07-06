@@ -873,6 +873,16 @@ std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecor
     return TownNpcRuntimeRecords;
 }
 
+void TownScene::UpdateTownNpcRuntimeRecordsShell(std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords) const
+{
+    // Assembly-shaped update_npcs shell: keep the runtime mirror untouched for now.
+    for (TownNpcRuntimeRecord& TownNpcRuntimeRecord : TownNpcRuntimeRecords)
+    {
+        // TODO: Thread the confirmed npc_ai_* dispatch here without changing record state yet.
+        (void)TownNpcRuntimeRecord;
+    }
+}
+
 std::vector<TownScene::TownNpcRuntimeView> TownScene::BuildTownNpcRuntimeViews(
     const std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords)
 {
@@ -1127,7 +1137,8 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     const std::size_t ColumnsAvailable = TownMap.Width > FirstColumn ? TownMap.Width - FirstColumn : 0;
     const std::size_t ColumnsToRender = std::min<std::size_t>(ColumnsAvailable, VisibleColumns + (ColumnPixelOffset != 0 ? 1 : 0));
     TownHeadLevelTiles HeadLevelTiles = SaveHeadLevelTilesInNpcs(TownMap);
-    const std::vector<TownNpcRuntimeRecord> TownNpcRuntimeRecords = BuildTownNpcRuntimeRecords(TownMap, HeadLevelTiles);
+    std::vector<TownNpcRuntimeRecord> TownNpcRuntimeRecords = BuildTownNpcRuntimeRecords(TownMap, HeadLevelTiles);
+    UpdateTownNpcRuntimeRecordsShell(TownNpcRuntimeRecords);
     const std::vector<TownNpcRuntimeView> TownNpcRuntimeViews = BuildTownNpcRuntimeViews(TownNpcRuntimeRecords);
     TownColumnRenderStats RenderStats{};
 

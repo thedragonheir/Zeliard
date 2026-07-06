@@ -4,7 +4,7 @@ Scope: compare the current town-mode C++ behavior against the original Zeliard a
 
 Assembly inspected:
 - `asm/town.inc`: `NPC STRUC`, `npc_array_addr`, `town_head_level_tiles`, `viewport_buffer`
-- `asm/town.asm`: `update_npcs_and_render`, `update_npcs`, `npc_ai_*` routines, `find_non_passable_npc_at_x_pos`, `find_first_npc_at_x`, `find_first_npc_at_x_after_current`, `start_npc_conversation`
+- `asm/town.asm`: `update_npcs_and_render`, `update_npcs`, `npc_ai_*` routines, `save_head_level_tiles_in_npcs`, `restore_head_level_tiles_from_npcs`, `find_non_passable_npc_at_x_pos`, `find_first_npc_at_x`, `find_first_npc_at_x_after_current`, `start_npc_conversation`
 - `asm/gtmcga.asm`: `sprite_descriptor_table_scanner`, `sprite_x_coordinate_lookup`, `sprite_compositor_dispatcher`, `npc_3_tiles_to_shadow_buffer`, `single_sprite_shadow_compositor`, `two_sprite_shadow_compositor`
 
 Key conclusion:
@@ -40,6 +40,7 @@ Confirmed shadow-memory compositor flow:
 Current C++ structural matches:
 - `SaveHeadLevelTilesInNpcs` / `RestoreHeadLevelTilesFromNpcs` match the head-tile save/restore pass.
 - `BuildTownNpcRuntimeRecords` and `BuildTownNpcRuntimeViews` now project the live town npc_array mirror into the compositor-facing view layer.
+- `UpdateTownNpcRuntimeRecordsShell` now occupies the assembly-shaped `update_npcs` slot between runtime mirror construction and view projection; it iterates the mirrored records and leaves them unchanged for now.
 - `GetTownNpcRuntimeViewSpriteColumnMatch`, `FindFirstTownNpcRuntimeViewForColumn`, and `FindFirstTownNpcRuntimeViewForColumnAfterCurrent` mirror the X-based NPC scan and current/next column matching.
 - `GetTownNpcSpriteFrameIndex` matches `get_sprite_vram_address` for selector, facing, and animation phase math.
 - `DispatchTownSpecialTile` is the current stand-in for the `special_tile_dispatcher` branch into the compositor helpers.
@@ -47,12 +48,13 @@ Current C++ structural matches:
 - `RenderTownColumn` is the closest structural match to the per-column walk in `render_town_tiles_28_columns`, but it still draws directly instead of writing the shadow-memory path.
 
 Still provisional:
-- `TownNpcRuntimeRecord` is a minimal mirror, not a live NPC simulation. `AiType`, `Flags`, and `Id` are present as data only, but NPC AI remains inert and not yet executed from C++.
+- `TownNpcRuntimeRecord` is still a minimal mirror, not a live NPC simulation. `UpdateTownNpcRuntimeRecordsShell` keeps `X`, `Facing`, `HeadTile`, `AnimPhase`, `AiType`, `Flags`, and `Id` unchanged until the confirmed `npc_ai_*` dispatch is wired in.
+- NPC AI, movement, collision, dialogue, and shops stay disabled because the assembly side effects still live behind `npc_ai_*`, interaction, and compositor routines that have not been reintroduced in C++.
 - `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, and `hero_column_shadow_blitter_guard` do not have a byte-faithful C++ counterpart yet.
 - The SDL slice helpers remain the visible path, so `viewport_buffer` and the shadow-memory compositor are not yet reproduced exactly.
 
 Next smallest safe implementation step:
-- Keep the parsed NPC bytes flowing into the runtime record, then rebuild only the assembly-owned `update_npcs` shell around that mirror before any AI, movement, collision, or conversation logic is enabled in C++.
+- Thread the first confirmed `npc_ai_*` routine into `UpdateTownNpcRuntimeRecordsShell` while keeping movement, collision, dialogue, shops, and compositor code untouched.
 
 | Behavior | C++ location | Assembly evidence | Status | Recommendation |
 | --- | --- | --- | --- | --- |
@@ -81,11 +83,11 @@ Next smallest safe implementation step:
 | Debug HUD | `src/town/town_scene.cpp:1038-1054` | Assembly town HUD work is the real `LIFE / ALMAS / GOLD / PLACE` bar (`asm/town.asm:2018-2033`, `asm/town.asm:2325-2330`) and dialog cursor work (`asm/town.asm:1022-1067`), not the current ACT/CAM/POS debug text. | Debug-only | Keep but mark debug-only |
 | Proximity radius and nearest NPC/door detection | `src/town/town_scene.cpp:342-386` | Assembly uses direct x-coordinate matching and adjacent-tile checks for NPC and door interaction, including `is_hero_close_to_npc`, `find_first_npc_at_x`, and `find_first_npc_at_x_after_current` (`asm/town.asm:1515-1571`, `asm/town.asm:2256-2295`, `asm/town.asm:377-442`). | Contradicted by assembly | Replace later with assembly-equivalent behavior |
 | Former Y-sorted dynamic sprite draw list | Removed from `src/town/town_scene.h` and `src/town/town_scene.cpp` | Assembly renders town columns with `0xFD` markers, `sprite_descriptor_table_scanner`, and sprite compositing; it does not build a global Y-sorted sprite list (`asm/gtmcga.asm:79-156`, `asm/gtmcga.asm:553-855`, `asm/town.asm:1384-1492`). | Contradicted by assembly | Removed |
-| Current town frame order | `src/town/town_scene.cpp:1054-1080` | Assembly frame order is `update_npcs`, `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, then `render_town_tiles_28_columns` (`asm/town.asm:1242-1283`, `asm/town.asm:1384-1492`, `asm/gtmcga.asm:79-156`). | Provisional | Column foundation started; exact frame/update order remains incomplete |
+| Current town frame order | `src/town/town_scene.cpp:1054-1080` | Assembly frame order is `update_npcs`, `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, then `render_town_tiles_28_columns` (`asm/town.asm:1242-1283`, `asm/town.asm:1384-1492`, `asm/gtmcga.asm:79-156`). The C++ draw path now places an `update_npcs`-shaped shell before view projection, but exact frame/update order remains incomplete. | Provisional | Column foundation started; exact frame/update order remains incomplete |
 
 Deliberately not implemented because evidence or local support is incomplete:
-- No movement or collision rewrite. The current free X/Y movement, fixed speed, single-point collision probe, blocked-tile IDs, proximity radius, and camera follow remain isolated and documented.
-- No full NPC AI reconstruction. The assembly AI routines were inspected, but the current C++ does not yet maintain live NPC structs with `n_ai_type`, `n_flags`, patrol boundaries, and per-frame phase updates.
+- No movement or collision rewrite. The current free X/Y movement, fixed speed, single-point collision probe, blocked-tile IDs, proximity radius, and camera follow remain isolated and documented, and the new `update_npcs` shell still performs no movement or collision work.
+- No full NPC AI reconstruction. The assembly AI routines were inspected, but the current C++ does not yet execute the confirmed `npc_ai_*` jump table or maintain live NPC state changes from it.
 - No byte-exact `viewport_buffer`, shadow-memory, or `blit_cache` implementation. The C++ renderer now dispatches by columns with explicit current-column and next-column SDL helpers, but it does not yet reproduce the original shadow-memory compositor.
 - No guessed descriptor format beyond fields already parsed from MDT and supported by `NPC STRUC`.
 - No GRP loading changes for `TMAN.GRP`, `MMAN.GRP`, `CMAN.GRP`, or `FMAN.GRP`.

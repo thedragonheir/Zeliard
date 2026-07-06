@@ -103,6 +103,7 @@ private:
     static void RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles);
     static std::vector<TownNpcRuntimeRecord> BuildTownNpcRuntimeRecords(const Mdt::TownMapInfo& TownMap,
         const TownHeadLevelTiles& HeadLevelTiles);
+    void UpdateTownNpcRuntimeRecordsShell(std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords) const;
     static std::vector<TownNpcRuntimeView> BuildTownNpcRuntimeViews(
         const std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords);
     static std::size_t GetTownNpcSpriteFrameIndex(std::uint8_t NpcFacing, std::uint8_t NpcAnimPhase);
