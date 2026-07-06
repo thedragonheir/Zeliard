@@ -74,9 +74,11 @@ private:
     bool TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
         const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews,
-        std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, TownColumnRenderStats& RenderStats) const;
+        std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, bool DrawDebugFallbackMarker,
+        TownColumnRenderStats& RenderStats) const;
     void DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
         const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, std::size_t ScrollOffsetPixels,
+        bool DrawDebugFallbackMarker,
         TownColumnRenderStats& RenderStats) const;
 
     static TownHeadLevelTiles SaveHeadLevelTilesInNpcs(const Mdt::TownMapInfo& TownMap);

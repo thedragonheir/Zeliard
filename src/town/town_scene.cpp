@@ -908,6 +908,7 @@ const TownScene::TownNpcRuntimeView* TownScene::FindFirstTownNpcRuntimeViewForCo
 
 void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
     const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, std::size_t ScrollOffsetPixels,
+    bool DrawDebugFallbackMarker,
     TownColumnRenderStats& RenderStats) const
 {
     const TownNpcRuntimeView* RuntimeView = FindFirstTownNpcRuntimeViewForColumn(TownNpcRuntimeViews, MapColumn);
@@ -925,13 +926,18 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
             if (!HasSpriteFrame)
             {
                 ++RenderStats.NpcSpriteMissCount;
-                Mdt::TownEntityMarker FallbackMarker{};
-                FallbackMarker.Kind = Mdt::TownEntityKind::Npc;
-                FallbackMarker.X = RuntimeView->X;
-                FallbackMarker.Y = TownHeadLevelRow;
-                FallbackMarker.NpcSpriteSelector = RuntimeView->Facing;
-                FallbackMarker.NpcAnimationPhase = RuntimeView->AnimPhase;
-                DrawTownEntityMarker(Renderer, FallbackMarker, ScrollOffsetPixels);
+                if (DrawDebugFallbackMarker)
+                {
+                    // Keep this hidden outside the debug overlay because the assembly does not confirm
+                    // a fallback marker for missing NPC sprite frames.
+                    Mdt::TownEntityMarker FallbackMarker{};
+                    FallbackMarker.Kind = Mdt::TownEntityKind::Npc;
+                    FallbackMarker.X = RuntimeView->X;
+                    FallbackMarker.Y = TownHeadLevelRow;
+                    FallbackMarker.NpcSpriteSelector = RuntimeView->Facing;
+                    FallbackMarker.NpcAnimationPhase = RuntimeView->AnimPhase;
+                    DrawTownEntityMarker(Renderer, FallbackMarker, ScrollOffsetPixels);
+                }
             }
             else
             {
@@ -950,7 +956,8 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
 
 void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
     const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews,
-    std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, TownColumnRenderStats& RenderStats) const
+    std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, bool DrawDebugFallbackMarker,
+    TownColumnRenderStats& RenderStats) const
 {
     const Grp::PatternTile& FallbackTile = GetFallbackPatternTile();
     const bool ColumnHasHeadLevelMarker = MapColumn < HeadLevelTiles.Tiles.size()
@@ -1016,7 +1023,8 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
 
     if (ColumnHasHeadLevelMarker || PreviousColumnHasHeadLevelMarker)
     {
-        DispatchTownSpecialTile(Renderer, MapColumn, TownNpcRuntimeViews, ScrollOffsetPixels, RenderStats);
+        DispatchTownSpecialTile(Renderer, MapColumn, TownNpcRuntimeViews, ScrollOffsetPixels,
+            DrawDebugFallbackMarker, RenderStats);
     }
 
     if (ActorFrameLoaded && ActorFrameVisible)
@@ -1110,7 +1118,7 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
         const std::size_t MapColumn = FirstColumn + Column;
         const float TileX = static_cast<float>(Column * TileSize) - static_cast<float>(ColumnPixelOffset);
         RenderTownColumn(Renderer, MapColumn, TileX, HeadLevelTiles, TownNpcRuntimeViews, ClampedScrollOffset,
-            TownEntityMarkersEnabled, RenderStats);
+            TownEntityMarkersEnabled, DebugOverlayEnabled, RenderStats);
     }
 
     RestoreHeadLevelTilesFromNpcs(HeadLevelTiles);
