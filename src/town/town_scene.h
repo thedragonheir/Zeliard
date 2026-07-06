@@ -84,12 +84,16 @@ private:
     static std::vector<TownNpcRuntimeView> BuildTownNpcRuntimeViews(const Mdt::TownMapInfo& TownMap,
         const TownHeadLevelTiles& HeadLevelTiles);
     static std::size_t GetTownNpcSpriteFrameIndex(std::uint8_t NpcFacing, std::uint8_t NpcAnimPhase);
-    static bool IsTownNpcRuntimeViewSpriteColumnSlice(const TownNpcRuntimeView& RuntimeView, std::size_t MapColumn);
+    static std::uint8_t GetTownNpcRuntimeViewSpriteColumnMatch(const TownNpcRuntimeView& RuntimeView,
+        std::size_t MapColumn);
     static const TownNpcRuntimeView* FindFirstTownNpcRuntimeViewForColumn(
         const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, std::size_t MapColumn);
     static const TownNpcRuntimeView* FindFirstTownNpcRuntimeViewForColumnAfterCurrent(
         const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, const TownNpcRuntimeView* CurrentRuntimeView,
         std::size_t MapColumn);
+    void DrawTownNpcRuntimeViewColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeView& RuntimeView,
+        const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapColumn, std::size_t ScrollOffsetPixels,
+        TownColumnRenderStats& RenderStats) const;
 
     static constexpr std::size_t TownMapActorInitialMapPixelX = 160;
     static constexpr std::size_t TownMapActorInitialMapPixelY = 40;
