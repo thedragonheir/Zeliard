@@ -24,7 +24,8 @@ enum class TownMapActorFacingDirection
 class TownScene
 {
 public:
-    TownScene(const std::filesystem::path& SpriteGrpPath, const Mdt::TownMapInfo& TownMap,
+    TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std::filesystem::path& TownNpcSpriteGrpPath,
+        const Mdt::TownMapInfo& TownMap,
         const Grp::PatternBank& PatternBank, const Main64Palette& Palette);
 
     void Update(const bool* KeyboardState);
@@ -41,13 +42,14 @@ public:
 private:
     bool UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex);
     bool TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const;
-    std::size_t DrawTownNpcSprites(SDL_Renderer* Renderer, std::size_t ScrollOffsetPixels) const;
+    std::size_t DrawTownNpcSprites(SDL_Renderer* Renderer, std::size_t ScrollOffsetPixels, std::size_t& NpcSpriteMissCount) const;
 
     static constexpr std::size_t TownMapActorInitialMapPixelX = 160;
     static constexpr std::size_t TownMapActorInitialMapPixelY = 40;
     static constexpr std::size_t TownNpcSpriteFrameCount = 40;
 
-    const std::filesystem::path SpriteGrpPath;
+    const std::filesystem::path ActorSpriteGrpPath;
+    const std::filesystem::path TownNpcSpriteGrpPath;
     const Mdt::TownMapInfo& TownMap;
     const Grp::PatternBank& PatternBank;
     const Main64Palette& Palette;
@@ -61,6 +63,8 @@ private:
     std::size_t ScrollOffsetPixels = 0;
 
     bool ActorFrameLoaded = false;
+    bool ActorFrameVisible = false;
+    bool ActorFrameWarningPrinted = false;
     bool ActorCollisionBlocked = false;
     bool CameraFollowEnabled = true;
     bool BlockedTileOverlayEnabled = false;
@@ -68,6 +72,7 @@ private:
     mutable bool FallbackWarningPrinted = false;
     mutable std::array<Grp::NpcSpriteFrame, TownNpcSpriteFrameCount> TownNpcSpriteFrames{};
     mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameLoaded{};
+    mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameVisible{};
     mutable bool TownNpcSpriteFrameWarningPrinted = false;
     Grp::NpcSpriteFrame ActorFrame;
 };

@@ -22,6 +22,20 @@ constexpr std::size_t NpcFrameHeight = NpcTilesDown * NpcTileHeight;
 constexpr std::size_t NpcIndexTableBytes = 256;
 constexpr std::size_t NpcIndexBytes = NpcFrameCount * NpcTilesPerFrame;
 constexpr std::size_t NpcTileBytes = 48;
+constexpr std::size_t TownHeroFrameCount = 10;
+
+constexpr std::array<std::uint8_t, TownHeroFrameCount * NpcTilesPerFrame> TownHeroFrameTileIndices{
+    0x00, 0x02, 0x04, 0x01, 0x03, 0x05,
+    0x06, 0x08, 0x0A, 0x07, 0x09, 0x0B,
+    0x00, 0x0C, 0x0E, 0x01, 0x0D, 0x0F,
+    0x06, 0x10, 0x12, 0x07, 0x11, 0x13,
+    0x14, 0x16, 0x18, 0x15, 0x17, 0x19,
+    0x1A, 0x1C, 0x1E, 0x1B, 0x1D, 0x1F,
+    0x20, 0x22, 0x24, 0x21, 0x23, 0x25,
+    0x1A, 0x26, 0x28, 0x1B, 0x27, 0x29,
+    0x20, 0x2A, 0x2C, 0x21, 0x2B, 0x2D,
+    0x14, 0x16, 0x18, 0x15, 0x17, 0x19
+};
 
 std::uint16_t ReadBigEndianWord(const std::vector<std::uint8_t>& Data, std::size_t Offset)
 {
@@ -75,7 +89,7 @@ bool DecodeNpcTile(const std::vector<std::uint8_t>& Unpacked, std::size_t TileOf
         const std::size_t RowOffset = TileOffset + RowIndex * 6;
         if (RowOffset + 6 > Unpacked.size())
         {
-            ErrorMessage = "mman.grp tile data is truncated";
+            ErrorMessage = "sprite tile data is truncated";
             return false;
         }
 
@@ -137,6 +151,53 @@ bool DecodeNpcFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t TileB
                     Output[(DestinationY + Row) * NpcFrameWidth + (DestinationX + Column)] = Pixel;
                     MinimumPaletteIndex = std::min(MinimumPaletteIndex, Pixel);
                     MaximumPaletteIndex = std::max(MaximumPaletteIndex, Pixel);
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+bool DecodeTownHeroFrame(const std::vector<std::uint8_t>& Unpacked, std::size_t FrameIndex, std::array<std::uint8_t, NpcFrameWidth * NpcFrameHeight>& Output, std::string& ErrorMessage)
+{
+    Output.fill(0);
+
+    const std::size_t TileCount = Unpacked.size() / NpcTileBytes;
+    if (TileCount == 0)
+    {
+        ErrorMessage = "tman.grp tile bank does not contain any complete 8x8 tiles";
+        return false;
+    }
+
+    const std::size_t FrameIndexOffset = FrameIndex * NpcTilesPerFrame;
+    for (std::size_t TileColumn = 0; TileColumn < NpcTilesAcross; ++TileColumn)
+    {
+        for (std::size_t TileRow = 0; TileRow < NpcTilesDown; ++TileRow)
+        {
+            const std::size_t SourceIndexOffset = FrameIndexOffset + TileColumn * NpcTilesDown + TileRow;
+            const std::size_t TileIndex = static_cast<std::size_t>(TownHeroFrameTileIndices[SourceIndexOffset]);
+            if (TileIndex >= TileCount)
+            {
+                ErrorMessage = "tman.grp frame " + std::to_string(FrameIndex) + " references tile index "
+                    + std::to_string(TileIndex) + " outside the tile bank";
+                return false;
+            }
+
+            std::array<std::uint8_t, NpcTileWidth * NpcTileHeight> TilePixels{};
+            const std::size_t TileOffset = TileIndex * NpcTileBytes;
+            if (!DecodeNpcTile(Unpacked, TileOffset, TilePixels, ErrorMessage))
+            {
+                return false;
+            }
+
+            const std::size_t DestinationX = TileColumn * NpcTileWidth;
+            const std::size_t DestinationY = TileRow * NpcTileHeight;
+            for (std::size_t Row = 0; Row < NpcTileHeight; ++Row)
+            {
+                for (std::size_t Column = 0; Column < NpcTileWidth; ++Column)
+                {
+                    Output[(DestinationY + Row) * NpcFrameWidth + (DestinationX + Column)] = TilePixels[Row * NpcTileWidth + Column];
                 }
             }
         }
@@ -235,6 +296,29 @@ bool LoadNpcSpriteFrame(const std::filesystem::path& Path, std::size_t FrameInde
     std::uint8_t MinimumPaletteIndex = 255;
     std::uint8_t MaximumPaletteIndex = 0;
     if (!DecodeNpcFrame(Unpacked, TileBankOffset, TileCount, FrameIndex, Output.Pixels, MinimumPaletteIndex, MaximumPaletteIndex, ErrorMessage))
+    {
+        return false;
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+
+bool LoadTownHeroSpriteFrame(const std::filesystem::path& Path, std::size_t FrameIndex, NpcSpriteFrame& Output, std::string& ErrorMessage)
+{
+    if (FrameIndex >= TownHeroFrameCount)
+    {
+        ErrorMessage = "tman.grp frame index " + std::to_string(FrameIndex) + " is outside the 10-frame sheet";
+        return false;
+    }
+
+    std::vector<std::uint8_t> Unpacked;
+    if (!UnpackFile(Path, Unpacked, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (!DecodeTownHeroFrame(Unpacked, FrameIndex, Output.Pixels, ErrorMessage))
     {
         return false;
     }

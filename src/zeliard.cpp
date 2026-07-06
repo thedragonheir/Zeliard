@@ -367,7 +367,37 @@ bool LoadNpcSpriteFrameForView(const std::filesystem::path& GrpPath, std::size_t
     return Grp::LoadNpcSpriteFrame(GrpPath, FrameIndex, SpriteFrame, ErrorMessage);
 }
 
-bool LoadTownMap(Mdt::TownMapInfo& TownMap)
+std::filesystem::path GetTownNpcSpriteGrpPath(const std::vector<std::uint8_t>& FileBytes)
+{
+    constexpr std::uint16_t TownDescriptorAddress = 0xC000;
+    constexpr std::size_t TownNpcBankSelectorOffset = 1;
+    const std::string NpcGrpName = [&FileBytes]() -> std::string
+    {
+        if (FileBytes.size() < 2)
+        {
+            return "mman.grp";
+        }
+
+        const std::uint16_t DescriptorPointer = static_cast<std::uint16_t>(
+            FileBytes[0] | (static_cast<std::uint16_t>(FileBytes[1]) << 8));
+        if (DescriptorPointer < TownDescriptorAddress)
+        {
+            return "mman.grp";
+        }
+
+        const std::size_t DescriptorOffset = static_cast<std::size_t>(DescriptorPointer - TownDescriptorAddress);
+        if (DescriptorOffset + TownNpcBankSelectorOffset >= FileBytes.size())
+        {
+            return "mman.grp";
+        }
+
+        return FileBytes[DescriptorOffset + TownNpcBankSelectorOffset] != 0 ? "cman.grp" : "mman.grp";
+    }();
+
+    return ProjectRoot / "game" / "0" / NpcGrpName;
+}
+
+bool LoadTownMap(Mdt::TownMapInfo& TownMap, std::filesystem::path& TownNpcSpriteGrpPath)
 {
     const std::filesystem::path MdtPath = ProjectRoot / "tools" / "cmap.mdt";
     std::vector<std::uint8_t> FileBytes;
@@ -389,6 +419,7 @@ bool LoadTownMap(Mdt::TownMapInfo& TownMap)
               << ", height " << MapInfo.Height << ", cells " << MapInfo.CellCount
               << ", tile indices " << static_cast<int>(MapInfo.MinimumTileIndex) << ".."
               << static_cast<int>(MapInfo.MaximumTileIndex) << "." << std::endl;
+    TownNpcSpriteGrpPath = GetTownNpcSpriteGrpPath(FileBytes);
     TownMap = std::move(MapInfo);
     return true;
 }
@@ -615,10 +646,15 @@ int main()
     }
 
     Mdt::TownMapInfo TownMap;
-    const bool TownMapLoaded = LoadTownMap(TownMap);
+    std::filesystem::path TownNpcSpriteGrpPath = ProjectRoot / "game" / "0" / "mman.grp";
+    const bool TownMapLoaded = LoadTownMap(TownMap, TownNpcSpriteGrpPath);
     if (!TownMapLoaded)
     {
         std::cerr << "cmap.mdt parse validation failed; continuing anyway." << '\n';
+    }
+    else
+    {
+        std::cout << "cmap.mdt town NPC sprite group selected: " << TownNpcSpriteGrpPath.filename().string() << '\n';
     }
 
     Grp::PatternBank PatternBank;
@@ -631,18 +667,19 @@ int main()
         std::cerr << "mman.grp sprite validation failed; continuing anyway." << '\n';
     }
 
-    const std::filesystem::path SpriteGrpPath = ProjectRoot / "tools" / "grpviewer" / "mman.grp";
+    const std::filesystem::path SpriteViewGrpPath = ProjectRoot / "tools" / "grpviewer" / "mman.grp";
+    const std::filesystem::path TownActorSpriteGrpPath = ProjectRoot / "game" / "0" / "tman.grp";
     Grp::NpcSpriteFrame CurrentSpriteFrame;
     std::size_t CurrentSpriteFrameIndex = 0;
     std::string SpriteFrameLoadErrorMessage;
-    const bool SpriteFrameLoaded = LoadNpcSpriteFrameForView(SpriteGrpPath, CurrentSpriteFrameIndex, CurrentSpriteFrame, SpriteFrameLoadErrorMessage);
+    const bool SpriteFrameLoaded = LoadNpcSpriteFrameForView(SpriteViewGrpPath, CurrentSpriteFrameIndex, CurrentSpriteFrame, SpriteFrameLoadErrorMessage);
     if (!SpriteFrameLoaded)
     {
         std::cerr << "mman.grp sprite frame 0 load failed: " << SpriteFrameLoadErrorMessage << '\n';
     }
     else
     {
-        std::cout << "mman.grp sprite frame 0 loaded: source " << SpriteGrpPath.string()
+        std::cout << "mman.grp sprite frame 0 loaded: source " << SpriteViewGrpPath.string()
                   << ", frame " << Grp::NpcSpriteFrame::FrameWidth << "x"
                   << Grp::NpcSpriteFrame::FrameHeight << "." << '\n';
     }
@@ -658,7 +695,7 @@ int main()
         std::cout << "cpat.grp palette loaded from tools/grpviewer/v15/PALETTE.json main_64." << '\n';
     }
 
-    TownScene TownMapScene(SpriteGrpPath, TownMap, PatternBank, Palette);
+    TownScene TownMapScene(TownActorSpriteGrpPath, TownNpcSpriteGrpPath, TownMap, PatternBank, Palette);
 
     const bool CpatViewAvailable = PatternBankLoaded && PaletteLoaded;
     const bool TownMapViewAvailable = TownMapLoaded && PatternBankLoaded && PaletteLoaded;
@@ -857,7 +894,7 @@ int main()
 
                         Grp::NpcSpriteFrame RequestedSpriteFrame;
                         std::string RequestedSpriteFrameErrorMessage;
-                        if (LoadNpcSpriteFrameForView(SpriteGrpPath, RequestedSpriteFrameIndex, RequestedSpriteFrame, RequestedSpriteFrameErrorMessage))
+                        if (LoadNpcSpriteFrameForView(SpriteViewGrpPath, RequestedSpriteFrameIndex, RequestedSpriteFrame, RequestedSpriteFrameErrorMessage))
                         {
                             CurrentSpriteFrameIndex = RequestedSpriteFrameIndex;
                             CurrentSpriteFrame = std::move(RequestedSpriteFrame);
