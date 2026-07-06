@@ -42,18 +42,11 @@ public:
     bool IsTownEntityMarkersEnabled() const noexcept;
 
 private:
-    struct TownSavedHeadLevelTile
-    {
-        std::size_t Column = 0;
-        std::uint8_t TileIndex = 0;
-    };
-
     struct TownHeadLevelTiles
     {
         std::vector<std::uint8_t> Tiles;
         std::vector<std::uint8_t> OriginalTiles;
         std::vector<bool> HasOriginalTile;
-        std::vector<TownSavedHeadLevelTile> SavedTiles;
     };
 
     struct TownColumnRenderStats
@@ -73,27 +66,15 @@ private:
     struct TownNpcRuntimeRecord
     {
         std::uint16_t X = 0;
-        std::uint8_t Facing = 0;
         std::uint8_t HeadTile = 0;
-        std::uint8_t AnimPhase = 0;
-        std::uint8_t AiType = 0;
-        std::uint8_t Flags = 0;
-        std::uint8_t Id = 0;
-    };
-
-    struct TownNpcRuntimeView
-    {
-        TownNpcRuntimeView() = default;
-        explicit TownNpcRuntimeView(const TownNpcRuntimeRecord& RuntimeRecord)
-            : X(RuntimeRecord.X), HeadTile(RuntimeRecord.HeadTile), Facing(RuntimeRecord.Facing),
-              AnimPhase(RuntimeRecord.AnimPhase)
-        {
-        }
-
-        std::uint16_t X = 0;
-        std::uint8_t HeadTile = 0;
+        // Keep this separate from SpriteSelector so future AI can flip facing
+        // without disturbing the sprite-family byte.
         std::uint8_t Facing = 0;
-        std::uint8_t AnimPhase = 0;
+        std::uint8_t SpriteSelector = 0;
+        std::uint8_t AnimationPhase = 0;
+        std::uint8_t NpcAiType = 0;
+        std::uint8_t NpcFlags = 0;
+        std::uint8_t NpcId = 0;
     };
 
     bool UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex);
@@ -105,35 +86,32 @@ private:
     void SyncTownHeroRuntimeProjection() noexcept;
     void UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
-        const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews,
+        const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeRecord>& TownNpcArray,
         std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, bool DrawDebugFallbackMarker,
         TownColumnRenderStats& RenderStats) const;
     void DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
-        const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, std::size_t ScrollOffsetPixels,
+        const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t ScrollOffsetPixels,
         bool DrawDebugFallbackMarker,
         TownColumnRenderStats& RenderStats) const;
 
-    static TownHeadLevelTiles SaveHeadLevelTilesInNpcs(const Mdt::TownMapInfo& TownMap);
-    static void RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles);
-    static std::vector<TownNpcRuntimeRecord> BuildTownNpcRuntimeRecords(const Mdt::TownMapInfo& TownMap,
-        const TownHeadLevelTiles& HeadLevelTiles);
-    void UpdateTownNpcRuntimeRecordsShell(std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords) const;
-    static std::vector<TownNpcRuntimeView> BuildTownNpcRuntimeViews(
-        const std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords);
-    static std::size_t GetTownNpcSpriteFrameIndex(std::uint8_t NpcFacing, std::uint8_t NpcAnimPhase);
-    static std::uint8_t GetTownNpcRuntimeViewSpriteColumnMatch(const TownNpcRuntimeView& RuntimeView,
+    TownHeadLevelTiles SaveHeadLevelTilesInNpcs() const;
+    void RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles) const;
+    static std::vector<TownNpcRuntimeRecord> BuildTownNpcRuntimeRecords(const Mdt::TownMapInfo& TownMap);
+    void UpdateTownNpcRuntimeRecordsShell() const;
+    static std::size_t GetTownNpcSpriteFrameIndex(std::uint8_t SpriteSelector, std::uint8_t AnimationPhase);
+    static std::uint8_t GetTownNpcRuntimeRecordSpriteColumnMatch(const TownNpcRuntimeRecord& RuntimeRecord,
         std::size_t MapColumn);
-    static const TownNpcRuntimeView* FindFirstTownNpcRuntimeViewForColumn(
-        const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, std::size_t MapColumn);
-    static const TownNpcRuntimeView* FindFirstTownNpcRuntimeViewForColumnAfterCurrent(
-        const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, const TownNpcRuntimeView* CurrentRuntimeView,
+    static const TownNpcRuntimeRecord* FindFirstTownNpcRuntimeRecordForColumn(
+        const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t MapColumn);
+    static const TownNpcRuntimeRecord* FindFirstTownNpcRuntimeRecordForColumnAfterCurrent(
+        const std::vector<TownNpcRuntimeRecord>& TownNpcArray, const TownNpcRuntimeRecord* CurrentRuntimeRecord,
         std::size_t MapColumn);
-    void DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeView& RuntimeView,
+    void DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeRecord& RuntimeRecord,
         const Grp::NpcSpriteFrame& SpriteFrame, std::size_t ScrollOffsetPixels,
         TownColumnRenderStats& RenderStats) const;
-    void DrawTownNpcRuntimeViewNextColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeView& RuntimeView,
+    void DrawTownNpcRuntimeViewNextColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeRecord& RuntimeRecord,
         const Grp::NpcSpriteFrame& SpriteFrame, std::size_t ScrollOffsetPixels) const;
-    void DrawTownNpcRuntimeViewColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeView& RuntimeView,
+    void DrawTownNpcRuntimeViewColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeRecord& RuntimeRecord,
         const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapColumn, std::size_t ScrollOffsetPixels) const;
 
     static constexpr std::size_t TownMapActorInitialMapPixelX = 160;
@@ -170,5 +148,6 @@ private:
     mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameLoaded{};
     mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameVisible{};
     mutable bool TownNpcSpriteFrameWarningPrinted = false;
+    mutable std::vector<TownNpcRuntimeRecord> TownNpcArray;
     Grp::NpcSpriteFrame ActorFrame;
 };

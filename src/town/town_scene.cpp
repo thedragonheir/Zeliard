@@ -92,13 +92,13 @@ std::size_t GetTownMapActorFrameIndex(TownMapActorFacingDirection FacingDirectio
     return FrameStartIndex + FramePhase;
 }
 
-std::size_t GetTownNpcSpriteFrameIndexFromFields(std::uint8_t NpcFacing, std::uint8_t NpcAnimPhase)
+std::size_t GetTownNpcSpriteFrameIndexFromFields(std::uint8_t SpriteSelector, std::uint8_t AnimationPhase)
 {
-    const std::size_t SpriteFamily = static_cast<std::size_t>(NpcFacing & 0x0F);
-    const std::size_t FacingOffset = (NpcFacing & 0x80) == 0 ? 4 : 0;
-    const std::size_t AnimationPhase = static_cast<std::size_t>(NpcAnimPhase & 3);
+    const std::size_t SpriteFamily = static_cast<std::size_t>(SpriteSelector & 0x0F);
+    const std::size_t FacingOffset = (SpriteSelector & 0x80) == 0 ? 4 : 0;
+    const std::size_t FramePhase = static_cast<std::size_t>(AnimationPhase & 3);
 
-    return (SpriteFamily * TownNpcSpriteFramesPerBlock) + FacingOffset + AnimationPhase;
+    return (SpriteFamily * TownNpcSpriteFramesPerBlock) + FacingOffset + FramePhase;
 }
 
 constexpr std::uint8_t NpcAiTypeBobInPlace = 4;
@@ -690,15 +690,15 @@ bool MoveTownMapActorPosition(const Mdt::TownMapInfo& TownMap, std::size_t& Acto
 }
 }
 
-std::size_t TownScene::GetTownNpcSpriteFrameIndex(std::uint8_t NpcFacing, std::uint8_t NpcAnimPhase)
+std::size_t TownScene::GetTownNpcSpriteFrameIndex(std::uint8_t SpriteSelector, std::uint8_t AnimationPhase)
 {
-    return GetTownNpcSpriteFrameIndexFromFields(NpcFacing, NpcAnimPhase);
+    return GetTownNpcSpriteFrameIndexFromFields(SpriteSelector, AnimationPhase);
 }
 
-std::uint8_t TownScene::GetTownNpcRuntimeViewSpriteColumnMatch(const TownNpcRuntimeView& RuntimeView,
+std::uint8_t TownScene::GetTownNpcRuntimeRecordSpriteColumnMatch(const TownNpcRuntimeRecord& RuntimeRecord,
     std::size_t MapColumn)
 {
-    const std::size_t NpcColumn = static_cast<std::size_t>(RuntimeView.X);
+    const std::size_t NpcColumn = static_cast<std::size_t>(RuntimeRecord.X);
     if (MapColumn == NpcColumn)
     {
         // Mirror sprite_x_coordinate_lookup: 2 means the current column, 1 means the next column.
@@ -750,31 +750,31 @@ bool TownScene::TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcS
     return true;
 }
 
-void TownScene::DrawTownNpcRuntimeViewColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeView& RuntimeView,
+void TownScene::DrawTownNpcRuntimeViewColumnSliceOnTownMap(SDL_Renderer* Renderer, const TownNpcRuntimeRecord& RuntimeRecord,
     const Grp::NpcSpriteFrame& SpriteFrame, std::size_t MapColumn, std::size_t ScrollOffsetPixels) const
 {
     DrawNpcSpriteFrameColumnSliceOnTownMap(Renderer, SpriteFrame, Palette,
-        static_cast<std::size_t>(RuntimeView.X) * TownMapTileSize,
+        static_cast<std::size_t>(RuntimeRecord.X) * TownMapTileSize,
         TownHeadLevelRow * TownMapTileSize, ScrollOffsetPixels, MapColumn);
 }
 
 void TownScene::DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap(SDL_Renderer* Renderer,
-    const TownNpcRuntimeView& RuntimeView, const Grp::NpcSpriteFrame& SpriteFrame, std::size_t ScrollOffsetPixels,
+    const TownNpcRuntimeRecord& RuntimeRecord, const Grp::NpcSpriteFrame& SpriteFrame, std::size_t ScrollOffsetPixels,
     TownColumnRenderStats& RenderStats) const
 {
-    DrawTownNpcRuntimeViewColumnSliceOnTownMap(Renderer, RuntimeView, SpriteFrame,
-        static_cast<std::size_t>(RuntimeView.X), ScrollOffsetPixels);
+    DrawTownNpcRuntimeViewColumnSliceOnTownMap(Renderer, RuntimeRecord, SpriteFrame,
+        static_cast<std::size_t>(RuntimeRecord.X), ScrollOffsetPixels);
     ++RenderStats.RenderedNpcSpriteCount;
 }
 
 void TownScene::DrawTownNpcRuntimeViewNextColumnSliceOnTownMap(SDL_Renderer* Renderer,
-    const TownNpcRuntimeView& RuntimeView, const Grp::NpcSpriteFrame& SpriteFrame, std::size_t ScrollOffsetPixels) const
+    const TownNpcRuntimeRecord& RuntimeRecord, const Grp::NpcSpriteFrame& SpriteFrame, std::size_t ScrollOffsetPixels) const
 {
-    DrawTownNpcRuntimeViewColumnSliceOnTownMap(Renderer, RuntimeView, SpriteFrame,
-        static_cast<std::size_t>(RuntimeView.X) + 1, ScrollOffsetPixels);
+    DrawTownNpcRuntimeViewColumnSliceOnTownMap(Renderer, RuntimeRecord, SpriteFrame,
+        static_cast<std::size_t>(RuntimeRecord.X) + 1, ScrollOffsetPixels);
 }
 
-TownScene::TownHeadLevelTiles TownScene::SaveHeadLevelTilesInNpcs(const Mdt::TownMapInfo& TownMap)
+TownScene::TownHeadLevelTiles TownScene::SaveHeadLevelTilesInNpcs() const
 {
     TownHeadLevelTiles HeadLevelTiles;
     HeadLevelTiles.Tiles.assign(TownMap.Width, 0);
@@ -788,29 +788,21 @@ TownScene::TownHeadLevelTiles TownScene::SaveHeadLevelTilesInNpcs(const Mdt::Tow
         {
             HeadLevelTiles.Tiles[Column] = TileIndex;
             HeadLevelTiles.OriginalTiles[Column] = TileIndex;
+            HeadLevelTiles.HasOriginalTile[Column] = true;
         }
     }
 
-    for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
+    // Keep the saved head tile in the live NPC record so the restore path can
+    // put the row back together later without a separate sidecar view.
+    for (TownNpcRuntimeRecord& TownNpcRuntimeRecord : TownNpcArray)
     {
-        if (EntityMarker.Kind != Mdt::TownEntityKind::Npc)
-        {
-            continue;
-        }
-
-        const std::size_t Column = static_cast<std::size_t>(EntityMarker.X);
+        const std::size_t Column = static_cast<std::size_t>(TownNpcRuntimeRecord.X);
         if (Column >= HeadLevelTiles.Tiles.size())
         {
             continue;
         }
 
-        HeadLevelTiles.SavedTiles.push_back(TownSavedHeadLevelTile{Column, HeadLevelTiles.Tiles[Column]});
-        if (!HeadLevelTiles.HasOriginalTile[Column])
-        {
-            HeadLevelTiles.OriginalTiles[Column] = HeadLevelTiles.Tiles[Column];
-            HeadLevelTiles.HasOriginalTile[Column] = true;
-        }
-
+        TownNpcRuntimeRecord.HeadTile = HeadLevelTiles.Tiles[Column];
         HeadLevelTiles.Tiles[Column] = TownHeadLevelNpcMarkerTile;
     }
 
@@ -950,21 +942,21 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
     SyncTownHeroRuntimeProjection();
 }
 
-void TownScene::RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles)
+void TownScene::RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles) const
 {
-    for (const TownSavedHeadLevelTile& SavedTile : HeadLevelTiles.SavedTiles)
+    for (const TownNpcRuntimeRecord& TownNpcRuntimeRecord : TownNpcArray)
     {
-        if (SavedTile.TileIndex == TownHeadLevelNpcMarkerTile || SavedTile.Column >= HeadLevelTiles.Tiles.size())
+        const std::size_t Column = static_cast<std::size_t>(TownNpcRuntimeRecord.X);
+        if (TownNpcRuntimeRecord.HeadTile == TownHeadLevelNpcMarkerTile || Column >= HeadLevelTiles.Tiles.size())
         {
             continue;
         }
 
-        HeadLevelTiles.Tiles[SavedTile.Column] = SavedTile.TileIndex;
+        HeadLevelTiles.Tiles[Column] = TownNpcRuntimeRecord.HeadTile;
     }
 }
 
-std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecords(const Mdt::TownMapInfo& TownMap,
-    const TownHeadLevelTiles& HeadLevelTiles)
+std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecords(const Mdt::TownMapInfo& TownMap)
 {
     // Mirror the confirmed NPC STRUC bytes here. The C++ path still uses
     // vectors instead of a synthetic 0xFFFF terminator, so the live mirror is
@@ -972,7 +964,6 @@ std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecor
     std::vector<TownNpcRuntimeRecord> TownNpcRuntimeRecords;
     TownNpcRuntimeRecords.reserve(CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Npc));
 
-    std::size_t SavedTileIndex = 0;
     for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
     {
         if (EntityMarker.Kind != Mdt::TownEntityKind::Npc)
@@ -981,31 +972,22 @@ std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecor
         }
 
         const std::size_t Column = static_cast<std::size_t>(EntityMarker.X);
-        if (Column >= HeadLevelTiles.Tiles.size())
+        if (Column >= TownMap.Width)
         {
             continue;
         }
 
         std::uint8_t HeadTile = 0;
-        if (SavedTileIndex < HeadLevelTiles.SavedTiles.size()
-            && HeadLevelTiles.SavedTiles[SavedTileIndex].Column == Column)
+        if (!TryGetTownMapTileIndexAtCell(TownMap, Column, TownHeadLevelRow, HeadTile))
         {
-            HeadTile = HeadLevelTiles.SavedTiles[SavedTileIndex].TileIndex;
-            ++SavedTileIndex;
-        }
-        else if (Column < HeadLevelTiles.OriginalTiles.size() && HeadLevelTiles.HasOriginalTile[Column])
-        {
-            HeadTile = HeadLevelTiles.OriginalTiles[Column];
-        }
-        else
-        {
-            HeadTile = HeadLevelTiles.Tiles[Column];
+            continue;
         }
 
         TownNpcRuntimeRecords.push_back(TownNpcRuntimeRecord{
             EntityMarker.X,
-            EntityMarker.NpcSpriteSelector,
             HeadTile,
+            static_cast<std::uint8_t>((EntityMarker.NpcSpriteSelector & 0x80) != 0 ? 1 : 0),
+            EntityMarker.NpcSpriteSelector,
             EntityMarker.NpcAnimationPhase,
             EntityMarker.NpcAiType,
             EntityMarker.NpcFlags,
@@ -1016,25 +998,25 @@ std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecor
     return TownNpcRuntimeRecords;
 }
 
-void TownScene::UpdateTownNpcRuntimeRecordsShell(std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords) const
+void TownScene::UpdateTownNpcRuntimeRecordsShell() const
 {
     // Match the confirmed bob-in-place phase step and leave every other AI path neutral.
     const auto UpdateTownNpcBobInPlace = [](TownNpcRuntimeRecord& RuntimeRecord)
     {
-        std::uint8_t AnimPhase = static_cast<std::uint8_t>(RuntimeRecord.AnimPhase + 0x10);
-        RuntimeRecord.AnimPhase = AnimPhase;
+        std::uint8_t AnimPhase = static_cast<std::uint8_t>(RuntimeRecord.AnimationPhase + 0x10);
+        RuntimeRecord.AnimationPhase = AnimPhase;
 
         if ((AnimPhase & 0x30) != 0)
         {
             return;
         }
 
-        RuntimeRecord.AnimPhase = static_cast<std::uint8_t>((AnimPhase + 1) & 1);
+        RuntimeRecord.AnimationPhase = static_cast<std::uint8_t>((AnimPhase + 1) & 1);
     };
 
-    for (TownNpcRuntimeRecord& TownNpcRuntimeRecord : TownNpcRuntimeRecords)
+    for (TownNpcRuntimeRecord& TownNpcRuntimeRecord : TownNpcArray)
     {
-        switch (TownNpcRuntimeRecord.AiType)
+        switch (TownNpcRuntimeRecord.NpcAiType)
         {
         case NpcAiTypeBobInPlace:
             UpdateTownNpcBobInPlace(TownNpcRuntimeRecord);
@@ -1046,50 +1028,36 @@ void TownScene::UpdateTownNpcRuntimeRecordsShell(std::vector<TownNpcRuntimeRecor
     }
 }
 
-std::vector<TownScene::TownNpcRuntimeView> TownScene::BuildTownNpcRuntimeViews(
-    const std::vector<TownNpcRuntimeRecord>& TownNpcRuntimeRecords)
+const TownScene::TownNpcRuntimeRecord* TownScene::FindFirstTownNpcRuntimeRecordForColumn(
+    const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t MapColumn)
 {
-    std::vector<TownNpcRuntimeView> TownNpcRuntimeViews;
-    TownNpcRuntimeViews.reserve(TownNpcRuntimeRecords.size());
-
-    for (const TownNpcRuntimeRecord& RuntimeRecord : TownNpcRuntimeRecords)
+    for (const TownNpcRuntimeRecord& RuntimeRecord : TownNpcArray)
     {
-        TownNpcRuntimeViews.emplace_back(RuntimeRecord);
-    }
-
-    return TownNpcRuntimeViews;
-}
-
-const TownScene::TownNpcRuntimeView* TownScene::FindFirstTownNpcRuntimeViewForColumn(
-    const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, std::size_t MapColumn)
-{
-    for (const TownNpcRuntimeView& RuntimeView : TownNpcRuntimeViews)
-    {
-        if (GetTownNpcRuntimeViewSpriteColumnMatch(RuntimeView, MapColumn) != 0)
+        if (GetTownNpcRuntimeRecordSpriteColumnMatch(RuntimeRecord, MapColumn) != 0)
         {
-            return &RuntimeView;
+            return &RuntimeRecord;
         }
     }
 
     return nullptr;
 }
 
-const TownScene::TownNpcRuntimeView* TownScene::FindFirstTownNpcRuntimeViewForColumnAfterCurrent(
-    const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, const TownNpcRuntimeView* CurrentRuntimeView,
+const TownScene::TownNpcRuntimeRecord* TownScene::FindFirstTownNpcRuntimeRecordForColumnAfterCurrent(
+    const std::vector<TownNpcRuntimeRecord>& TownNpcArray, const TownNpcRuntimeRecord* CurrentRuntimeRecord,
     std::size_t MapColumn)
 {
-    bool CurrentRuntimeViewFound = false;
-    for (const TownNpcRuntimeView& RuntimeView : TownNpcRuntimeViews)
+    bool CurrentRuntimeRecordFound = false;
+    for (const TownNpcRuntimeRecord& RuntimeRecord : TownNpcArray)
     {
-        if (!CurrentRuntimeViewFound)
+        if (!CurrentRuntimeRecordFound)
         {
-            CurrentRuntimeViewFound = &RuntimeView == CurrentRuntimeView;
+            CurrentRuntimeRecordFound = &RuntimeRecord == CurrentRuntimeRecord;
             continue;
         }
 
-        if (GetTownNpcRuntimeViewSpriteColumnMatch(RuntimeView, MapColumn) != 0)
+        if (GetTownNpcRuntimeRecordSpriteColumnMatch(RuntimeRecord, MapColumn) != 0)
         {
-            return &RuntimeView;
+            return &RuntimeRecord;
         }
     }
 
@@ -1097,16 +1065,17 @@ const TownScene::TownNpcRuntimeView* TownScene::FindFirstTownNpcRuntimeViewForCo
 }
 
 void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
-    const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews, std::size_t ScrollOffsetPixels,
+    const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t ScrollOffsetPixels,
     bool DrawDebugFallbackMarker,
     TownColumnRenderStats& RenderStats) const
 {
-    const TownNpcRuntimeView* RuntimeView = FindFirstTownNpcRuntimeViewForColumn(TownNpcRuntimeViews, MapColumn);
-    while (RuntimeView != nullptr)
+    const TownNpcRuntimeRecord* RuntimeRecord = FindFirstTownNpcRuntimeRecordForColumn(TownNpcArray, MapColumn);
+    while (RuntimeRecord != nullptr)
     {
-        const std::uint8_t ColumnMatch = GetTownNpcRuntimeViewSpriteColumnMatch(*RuntimeView, MapColumn);
-        const std::size_t SpriteFamily = static_cast<std::size_t>(RuntimeView->Facing & 0x0F);
-        const std::size_t FrameIndex = TownScene::GetTownNpcSpriteFrameIndex(RuntimeView->Facing, RuntimeView->AnimPhase);
+        const std::uint8_t ColumnMatch = GetTownNpcRuntimeRecordSpriteColumnMatch(*RuntimeRecord, MapColumn);
+        const std::size_t SpriteFamily = static_cast<std::size_t>(RuntimeRecord->SpriteSelector & 0x0F);
+        const std::size_t FrameIndex = TownScene::GetTownNpcSpriteFrameIndex(RuntimeRecord->SpriteSelector,
+            RuntimeRecord->AnimationPhase);
         const Grp::NpcSpriteFrame* SpriteFrame = nullptr;
 
         const bool HasSpriteFrame = IsConfirmedTownNpcSpriteFamily(SpriteFamily) && TryGetTownNpcSpriteFrame(FrameIndex, SpriteFrame);
@@ -1122,30 +1091,30 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
                     // a fallback marker for missing NPC sprite frames.
                     Mdt::TownEntityMarker FallbackMarker{};
                     FallbackMarker.Kind = Mdt::TownEntityKind::Npc;
-                    FallbackMarker.X = RuntimeView->X;
+                    FallbackMarker.X = RuntimeRecord->X;
                     FallbackMarker.Y = TownHeadLevelRow;
-                    FallbackMarker.NpcSpriteSelector = RuntimeView->Facing;
-                    FallbackMarker.NpcAnimationPhase = RuntimeView->AnimPhase;
+                    FallbackMarker.NpcSpriteSelector = RuntimeRecord->SpriteSelector;
+                    FallbackMarker.NpcAnimationPhase = RuntimeRecord->AnimationPhase;
                     DrawTownEntityMarker(Renderer, FallbackMarker, ScrollOffsetPixels);
                 }
             }
             else
             {
-                DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap(Renderer, *RuntimeView, *SpriteFrame,
+                DrawTownNpcRuntimeViewCurrentColumnSliceOnTownMap(Renderer, *RuntimeRecord, *SpriteFrame,
                     ScrollOffsetPixels, RenderStats);
             }
         }
         else if (ColumnMatch == 1 && HasSpriteFrame)
         {
-            DrawTownNpcRuntimeViewNextColumnSliceOnTownMap(Renderer, *RuntimeView, *SpriteFrame, ScrollOffsetPixels);
+            DrawTownNpcRuntimeViewNextColumnSliceOnTownMap(Renderer, *RuntimeRecord, *SpriteFrame, ScrollOffsetPixels);
         }
 
-        RuntimeView = FindFirstTownNpcRuntimeViewForColumnAfterCurrent(TownNpcRuntimeViews, RuntimeView, MapColumn);
+        RuntimeRecord = FindFirstTownNpcRuntimeRecordForColumnAfterCurrent(TownNpcArray, RuntimeRecord, MapColumn);
     }
 }
 
 void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
-    const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeView>& TownNpcRuntimeViews,
+    const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeRecord>& TownNpcArray,
     std::size_t ScrollOffsetPixels, bool DrawDebugEntityMarkers, bool DrawDebugFallbackMarker,
     TownColumnRenderStats& RenderStats) const
 {
@@ -1213,7 +1182,7 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
 
     if (ColumnHasHeadLevelMarker || PreviousColumnHasHeadLevelMarker)
     {
-        DispatchTownSpecialTile(Renderer, MapColumn, TownNpcRuntimeViews, ScrollOffsetPixels,
+        DispatchTownSpecialTile(Renderer, MapColumn, TownNpcArray, ScrollOffsetPixels,
             DrawDebugFallbackMarker, RenderStats);
     }
 
@@ -1229,6 +1198,7 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     const Grp::PatternBank& PatternBank, const Main64Palette& Palette)
     : ActorSpriteGrpPath(ActorSpriteGrpPath), TownNpcSpriteGrpPath(TownNpcSpriteGrpPath), TownMap(TownMap), PatternBank(PatternBank), Palette(Palette)
 {
+    TownNpcArray = BuildTownNpcRuntimeRecords(TownMap);
     ActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(ActorFrameIndex);
     CameraFollowEnabled = false;
@@ -1257,17 +1227,15 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     const std::size_t ColumnPixelOffset = ClampedScrollOffset % TileSize;
     const std::size_t ColumnsAvailable = TownMap.Width > FirstColumn ? TownMap.Width - FirstColumn : 0;
     const std::size_t ColumnsToRender = std::min<std::size_t>(ColumnsAvailable, VisibleColumns + (ColumnPixelOffset != 0 ? 1 : 0));
-    TownHeadLevelTiles HeadLevelTiles = SaveHeadLevelTilesInNpcs(TownMap);
-    std::vector<TownNpcRuntimeRecord> TownNpcRuntimeRecords = BuildTownNpcRuntimeRecords(TownMap, HeadLevelTiles);
-    UpdateTownNpcRuntimeRecordsShell(TownNpcRuntimeRecords);
-    const std::vector<TownNpcRuntimeView> TownNpcRuntimeViews = BuildTownNpcRuntimeViews(TownNpcRuntimeRecords);
+    TownHeadLevelTiles HeadLevelTiles = SaveHeadLevelTilesInNpcs();
+    UpdateTownNpcRuntimeRecordsShell();
     TownColumnRenderStats RenderStats{};
 
     for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
     {
         const std::size_t MapColumn = FirstColumn + Column;
         const float TileX = static_cast<float>(Column * TileSize) - static_cast<float>(ColumnPixelOffset);
-        RenderTownColumn(Renderer, MapColumn, TileX, HeadLevelTiles, TownNpcRuntimeViews, ClampedScrollOffset,
+        RenderTownColumn(Renderer, MapColumn, TileX, HeadLevelTiles, TownNpcArray, ClampedScrollOffset,
             TownEntityMarkersEnabled, DebugOverlayEnabled, RenderStats);
     }
 
