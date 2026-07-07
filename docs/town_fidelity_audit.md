@@ -1,9 +1,12 @@
-# Town Fidelity Audit
+﻿# Town Fidelity Audit
 
 Scope: keep the town hero movement anchored to the assembly-backed horizontal state and avoid reintroducing the provisional free 2D actor path.
 
 ## Assembly Inspected
 - `asm/common.inc`: `hero_x_in_viewport`, `proximity_map_left_col_x`, `facing_direction`, `hero_animation_phase`
+- `asm/game.asm`: `DrawDecorationsAroundCanvas` callsite, `render_tears_collected`, `tears_order_coords`, equipment render calls after MOLE
+- `asm/gmmcga.asm`: `Render_Icon_16x13`, `byte_2A61`, `byte_2B31`
+- `asm/mole.asm`: `DrawDecorationsAroundCanvas`, `mode4_mcga`, `Unpack2bppTo4bit_MCGA`, `DrawTitleFrame`
 - `asm/town.asm`: `town_entry_common`, `game_loop_with_frame_wait`, `update_npcs_and_render`, left/right movement handlers, `handle_edge_screen_transition`, `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, `town_up_pressed`, `is_hero_close_to_npc`, `find_non_passable_npc_at_x_pos`
 - `asm/stick.asm`: `timer_ISR_int8_chained`, `Int_61_handler`, `frame_timer`, `speed_const`, `____right_left_down_up`
 - `asm/gtmcga.asm`: `hero_column_shadow_blitter_guard`, `render_town_tiles_28_columns`, `special_tile_dispatcher`, `sprite_descriptor_table_scanner`, `sprite_compositor_dispatcher`
@@ -41,7 +44,17 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - The YMPD outdoor mountain layer is now decoded from `mountains0` at `0x05E7` and `mountains1` at `0x1459` into `88 x 56` byte planes, then drawn behind the town tiles at `x = 48`, `y = 14` with a `224 x 88` rendered footprint. The mountain RLE repeat byte is unsigned, so `0xFF` means 255 repeats.
 - The original YMPD mountain pass is a one-shot VRAM background render at `A000:(48,14)`; it does not move with `proximity_map_left_col_x` and it is not redrawn by the town frame loop.
 - The floor strip now scrolls horizontally in 8px steps when `proximity_map_left_col_x` changes, while staying anchored at `x = 48`, `y = 142`; the remaining CKPD scenic behavior above the town viewport is still provisional.
+- The MOLE Tears placeholder top bar still renders from the raw assembly labels `title_logo_data` and `title_demo_text_data` as a `224 x 13` band at `x = 48`, `y = 0`; the proven source spans are `0x04AE..0x073C` and `0x073D..0x08CC`.
+- `mode4_mcga` seeds its unpack helper from the low byte of `cx` for each source byte, so the top bar starts with `bl = 0x0D` and the helper carries that state through the four pixel extractions before the caller restores the next byte seed.
+- The full top Tears bar is not MOLE-only: after `DrawDecorationsAroundCanvas` returns, `game.asm` calls `render_tears_collected`, and this is the only inspected post-MOLE startup call that overlaps `y = 0..13`.
+- `render_tears_collected` uses `Tears_of_Esmesanti_count` as the loop count, returns when it is zero, and draws the first `count` entries from `tears_order_coords`: `x = 60, 244, 84, 220, 108, 196, 132, 172, 152`, all at `y = 0`.
+- `gmmcga.asm` `Render_Icon_16x13` is a transparent masked copy, not an OR blend: `0x80` pixels skip the write and all other pixels overwrite VRAM. The first eight Tears use icon `AL = 0`; the ninth center Tear uses icon `AL = 1`.
+- No separate center ornament overlay was found after MOLE. The static empty placeholders and center background are MOLE base art; the only center-changing post-MOLE draw is the ninth collected Tear.
+- The current C++ town scene does not have a proven source for `Tears_of_Esmesanti_count`, so the collected overlay should remain unwired until real save/global state exists rather than forcing a fake filled bar.
 - The town frame now also renders the MOLE decorative side panels from `mole.bin`: the left panel sits at `x = 0`, `y = 0`, the right panel sits at `x = 272`, `y = 0`, and the central `x = 48` town viewport stays unchanged.
+- `Tears_of_Esmesanti_count` is the global save/global-state byte at `0A0h` (`common.inc:250`, `docs/global_memory_map_and_data_structures.md:68`). It is only written in `rokademo.asm` (intro/demo/test path: `inc` then clamp to `9` at `rokademo.asm:32..36`), and only read (never written) by `game.asm` `render_tears_collected` (`game.asm:317`, `game.asm:323`). It is not town-local state.
+- The collected Tears overlay path is proven: `game.asm` `render_tears_collected` (`game.asm:316..345`, called at `game.asm:148`) loops `Tears_of_Esmesanti_count` times over `tears_order_coords` (`game.asm:348..356`), each `dw` encoding `BH*256+BL` -> screen `x = BH*4`, `y = BL` (all `y = 0`). Icons: `gmmcga.asm` `Render_Icon_16x13` (`gmmcga.asm:1722..1763`) reads `off_2A5D[AL]` -> `byte_2A61` (`AL=0`, small blue, `gmmcga.asm:1768`) or `byte_2B31` (`AL=1`, large red, `gmmcga.asm:1785`), `16 x 13`, `0x80` transparent.
+- The C++ town scene has no read of a global `0A0h` Tear-count equivalent, so the overlay is unwired. Do not synthesize it: read the real global state and never hardcode `9`.
 ## Collision And Scrolling
 - The remaining collision work is deferred.
 - The NPC blocker path now matches the assembly's X-column scan and only treats `n_flags` bit 6 as non-passable.

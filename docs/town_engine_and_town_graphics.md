@@ -1,4 +1,4 @@
-# Town engine and town graphics documentation
+﻿# Town engine and town graphics documentation
 
 ## Scope
 
@@ -299,6 +299,80 @@ Each source plane decodes to `12 x 200` bytes, and the MCGA unpack path combines
 The MOLE MCGA unpack table is the exact one from `Unpack2bppTo4bit_MCGA`:
 
 `0,1,5,3,8,9,0D,0B,28,29,2D,2B,18,19,1D,1B`
+
+## Full top Tears bar render order
+
+`DrawDecorationsAroundCanvas` first decodes the MOLE Tears placeholder top bar from the raw assembly labels `title_logo_data` and `title_demo_text_data`, then calls `DecompressToVRAM` with `bp = 0x960`, `bx = 0x0C00`, and `cx = 0x380D`. In the MCGA path that means:
+
+- `x = BH * 4 = 48`
+- `y = BL = 0`
+- source bytes per row = `CH = 56`
+- row count = `CL = 13`
+
+The proven source spans in `game/0/mole.bin` are:
+
+- `title_logo_data`: `0x04AE..0x073C`
+- `title_demo_text_data`: `0x073D..0x08CC`
+
+The full `title_logo_data` stream decodes to `1202` bytes, while `title_demo_text_data` decodes to `728` bytes. The MCGA unpack path consumes the first `728` decoded bytes from each plane, starting at offset `0` in both decoded buffers, and combines them into a `224 x 13` pixel strip. The strip renders at `x = 48`, `y = 0`, between the two side panels. The central town viewport still stays anchored at `x = 48`.
+
+`mode4_mcga` seeds the unpack helper from the low byte of `cx` for each source byte (`bl = 0x0D` for the top bar), and the helper keeps that `bl` state across the four pixel extractions for the byte before the caller restores the next source-byte seed.
+
+The complete startup render order is:
+
+1. `mole.asm` `DrawDecorationsAroundCanvas` draws the center top base strip at `x = 48`, `y = 0`, size `224 x 13`.
+2. The same MOLE routine draws the left and right side panels at `x = 0` and `x = 272`. These touch `y = 0..199`, but they do not modify the center top strip.
+3. The same MOLE routine later draws the bottom/status art at `x = 48`, `y = 158`, size `224 x 42`, then `DrawTitleFrame` writes small frame rows around `y = 47`. Neither overlaps `y = 0..13`.
+4. After the far call returns, `game.asm` immediately calls `render_tears_collected`. This is the only post-MOLE call in the inspected startup path that writes into the center top bar.
+5. The following equipment calls render into the bottom HUD: sword at `bx = 0x18AB`, shield at `bx = 0x3EA4`, and magic at `bx = 0x37A4`; their `BL` values place them below the top bar.
+
+`render_tears_collected` returns without drawing when `Tears_of_Esmesanti_count == 0`. Otherwise it loops through the first `count` entries in `tears_order_coords`, passes each coordinate in `BX`, and calls `Render_Icon_16x13`. The first eight collected tears use `AL = 0`; the ninth uses `AL = 1`.
+`render_tears_collected` returns without drawing when `Tears_of_Esmesanti_count == 0`. Otherwise it loops through the first `count` entries in `tears_order_coords`, passes each coordinate in `BX`, and calls `Render_Icon_16x13`. The first eight collected tears use `AL = 0`; the ninth uses `AL = 1`.
+
+| Field | Proof |
+|---:|---|
+| `Tears_of_Esmesanti_count` address | `common.inc:250` defines it as `equ 0a0h`; `docs/global_memory_map_and_data_structures.md:68` lists `00A0h` as the global "Tear count" byte. |
+| State class | Global save/global-state byte, not town-local and not hero-local. |
+| Written where | Only `rokademo.asm` writes it: `inc byte ptr ds:Tears_of_Esmesanti_count` then clamps to `9` (`rokademo.asm:32..36`). That routine is the intro/demo/test path, confirming the byte is seeded by global/demo state rather than town state. |
+| Read where | `game.asm` `render_tears_collected` tests and loads it (`game.asm:317`, `game.asm:323`) but never writes it; `rokademo.asm` also reads it at `:99` and `:285`. |
+| C++ source today | `src/town/town_scene.cpp` has no read of any `0A0h` equivalent; only the MOLE base strip is drawn. The proven global-state byte is not yet wired into C++. |
+
+| Order | `tears_order_coords` | Screen position |
+|---:|---:|---|
+| 0 | `0x0F00` | `x = 60`, `y = 0` |
+| 1 | `0x3D00` | `x = 244`, `y = 0` |
+| 2 | `0x1500` | `x = 84`, `y = 0` |
+| 3 | `0x3700` | `x = 220`, `y = 0` |
+| 4 | `0x1B00` | `x = 108`, `y = 0` |
+| 5 | `0x3100` | `x = 196`, `y = 0` |
+| 6 | `0x2100` | `x = 132`, `y = 0` |
+| 7 | `0x2B00` | `x = 172`, `y = 0` |
+| 8 | `0x2600` | `x = 152`, `y = 0` |
+
+`Render_Icon_16x13` computes `x = BH * 4` and `y = BL`, then copies a `16 x 13` glyph into VRAM. Pixel value `0x80` is transparent; every other value, including `0`, overwrites the existing MOLE pixel. This path is a masked copy, not an OR blend.
+`Render_Icon_16x13` computes `x = BH * 4` and `y = BL`, then copies a `16 x 13` glyph into VRAM. Pixel value `0x80` is transparent; every other value, including `0`, overwrites the existing MOLE pixel. This path is a masked copy, not an OR blend.
+
+The icon glyph bytes come from the `gmmcga.asm` table `off_2A5D` (`gmmcga.asm:1766`): `off_2A5D[0] -> byte_2A61` (icon `AL = 0`, small blue Tear, `gmmcga.asm:1768`) and `off_2A5D[1] -> byte_2B31` (icon `AL = 1`, large red Tear, `gmmcga.asm:1785`). Each glyph is `16 x 13` bytes; `0x80` is the transparent skip value (`gmmcga.asm:1750`).
+
+The proven split is:
+
+- MOLE base frame: the center `224 x 13` strip plus the side panels.
+- Empty Tears placeholders and any static center background: part of the MOLE base strip.
+- Collected/filled Tears overlay: `game.asm` `render_tears_collected` plus `gmmcga.asm` `Render_Icon_16x13`.
+- Center icon overlay: no separate routine was found. The only center-changing post-MOLE draw is the ninth collected Tear at `x = 152`, `y = 0` using icon `AL = 1`.
+
+The current C++ town scene has no proven source for the original `Tears_of_Esmesanti_count` byte yet, so the collected overlay should not be synthesized or forced to nine. Until real save/global state is wired, the C++ top bar can only honestly draw the MOLE base strip.
+The current C++ town scene has no proven source for the original `Tears_of_Esmesanti_count` byte yet, so the collected overlay should not be synthesized or forced to nine. Until real save/global state is wired, the C++ top bar can only honestly draw the MOLE base strip.
+
+## Collected Tears overlay path (proven)
+
+- Driver: `game.asm` `render_tears_collected` (`game.asm:316..345`), called once right after `DrawDecorationsAroundCanvas` returns (`game.asm:148`).
+- Loop count: `cl = Tears_of_Esmesanti_count`; returns immediately when the byte is `0`.
+- Coordinate table: `tears_order_coords` (`game.asm:348..356`), nine `dw` words. Each word encodes `BH` in the high byte and `BL` in the low byte; `Render_Icon_16x13` maps `BH -> x * 4` and `BL -> y`.
+  - `0x0F00 -> x=60`, `0x3D00 -> x=244`, `0x1500 -> x=84`, `0x3700 -> x=220`, `0x1B00 -> x=108`, `0x3100 -> x=196`, `0x2100 -> x=132`, `0x2B00 -> x=172`, `0x2600 -> x=152`; all `y = 0`.
+- Icon selection: for loop index `dx < 8` `AL = 0` (small blue), for `dx == 8` `AL = 1` (large red) (`game.asm:333..336`).
+- Pixel copy: `gmmcga.asm` `Render_Icon_16x13` (`gmmcga.asm:1722..1763`); `0x80` skips, all other bytes overwrite VRAM.
+- C++ status: not yet implemented. The overlay must read the real global `0A0h` Tear count; do not hardcode `9` or synthesize collected Tears.
 
 ## Town pattern loading
 
