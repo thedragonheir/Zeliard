@@ -37,6 +37,7 @@ public:
 
     void Update(const bool* KeyboardState);
     void Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled) const;
+    void ResetTownNpcLogicTimer() noexcept;
 
     void ToggleBlockedTileOverlay() noexcept;
     void ToggleTownEntityMarkers() noexcept;
@@ -183,6 +184,7 @@ private:
     std::size_t ActorMapPixelY = TownMapActorInitialMapPixelY;
     std::size_t ScrollOffsetPixels = 0;
     std::size_t TownMovementFrameCountdown = 0;
+    std::uint64_t TownNpcLogicLastUpdateTicks = 0;
 
     bool ActorFrameLoaded = false;
     bool ActorFrameVisible = false;
@@ -194,6 +196,7 @@ private:
     bool TownBackgroundStripLoaded = false;
     bool TownBackgroundStripUsesCkpd = false;
     bool TownMoleDecorationPanelsLoaded = false;
+    bool TownNpcLogicTimerPrimed = false;
     std::size_t TownBackgroundStripScrollOffsetPixels = 0;
     mutable bool FallbackWarningPrinted = false;
     mutable std::array<Grp::NpcSpriteFrame, TownNpcSpriteFrameCount> TownNpcSpriteFrames{};

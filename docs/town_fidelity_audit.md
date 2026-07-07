@@ -7,10 +7,15 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - `asm/game.asm`: `DrawDecorationsAroundCanvas` callsite, `render_tears_collected`, `tears_order_coords`, equipment render calls after MOLE
 - `asm/gmmcga.asm`: `Render_Icon_16x13`, `byte_2A61`, `byte_2B31`
 - `asm/mole.asm`: `DrawDecorationsAroundCanvas`, `mode4_mcga`, `Unpack2bppTo4bit_MCGA`, `DrawTitleFrame`
-- `asm/town.asm`: `town_entry_common`, `game_loop_with_frame_wait`, `update_npcs_and_render`, left/right movement handlers, `handle_edge_screen_transition`, `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, `town_up_pressed`, `is_hero_close_to_npc`, `find_non_passable_npc_at_x_pos`
+- `asm/town.asm`: `town_entry_common`, `game_loop_with_frame_wait`, `update_npcs_and_render`, left/right movement handlers, `handle_edge_screen_transition`, `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, `town_up_pressed`, `is_hero_close_to_npc`, `find_non_passable_npc_at_x_pos`, `npc_ai_look_at_hero_and_bob`, `npc_ai_bob_in_place`
 - `asm/stick.asm`: `timer_ISR_int8_chained`, `Int_61_handler`, `frame_timer`, `speed_const`, `____right_left_down_up`
-- `asm/gtmcga.asm`: `hero_column_shadow_blitter_guard`, `render_town_tiles_28_columns`, `special_tile_dispatcher`, `sprite_descriptor_table_scanner`, `sprite_compositor_dispatcher`
+- `asm/gtmcga.asm`: `hero_column_shadow_blitter_guard`, `render_town_tiles_28_columns`, `special_tile_dispatcher`, `sprite_descriptor_table_scanner`, `sprite_compositor_dispatcher`, `get_sprite_vram_address`
 - `asm/town.inc`: `NPC STRUC`, `town_tiles`, `town_head_level_tiles`, `viewport_buffer`
+
+Town NPC AI type `0` now matches `npc_ai_look_at_hero_and_bob`: it faces Duke using `hero_x_in_viewport + 4 + proximity_map_left_col_x`, then runs the bob-in-place phase step that `get_sprite_vram_address` consumes through `n_facing` bit 7 and `n_anim_phase` low 2 bits.
+Town NPC AI type `3` now mirrors `npc_ai_face_hero`: it uses the same hero absolute X comparison, flips `n_facing` bit 7 only, and leaves bobbing alone.
+The parsed `tools/cmap.mdt` town data confirms NPC ID `2` uses AI type `3` with `X = 84`, `NpcSpriteSelector = 0x80`, `NpcAnimationPhase = 0x01`, `NpcFlags = 0x00`, and `NpcId = 2` (the checked-in `game/0/cmap.mdt` copy matches this record).
+NPC runtime animation now advances from `TownScene::Update` instead of `Draw`, so rendering stays read-only. The previous logic-tick placement was still too fast because native `Update` is not the DOS `frame_timer` cadence; the town NPC gate now mirrors the assembly-proven standard town interval from PIT reload `0x13B1` and `speed_const = 5`.
 
 ## Canonical Horizontal Model
 - `TownHeroRuntimeState.HeroXInViewport` maps to `hero_x_in_viewport`.
@@ -93,3 +98,4 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - The lower strip scroll is now implemented as the proven 8px cyclic floor-band shift; what remains provisional is the rest of the scenic background driver and any byte-exact VRAM copy ordering outside that strip.
 - The provisional free 2D town-movement helpers were removed from `town_scene.cpp`; the remaining town movement stays on the confirmed horizontal hero state.
 - The DOS town loop still does not expose a proven held-input repeat cadence in a way that maps cleanly to one exact C++ frame delay, so the new movement cooldown is a small provisional throttle rather than a claimed perfect match.
+- The current town NPC timing gate uses the standard DOS town wait threshold of `speed_const * 4 = 20` PIT ticks. With PIT input `1193182 Hz` and reload `0x13B1 = 5041`, the interval is `20.0 / (1193182.0 / 5041.0) ≈ 0.08449 s` per NPC logic update, so the visible bob phase changes about every `0.338 s` at standard speed. Speed controls are still not implemented in the native town view.

@@ -1049,6 +1049,7 @@ int main()
                         if (ActiveViewMode != ViewMode::TownMap)
                         {
                             ActiveViewMode = ViewMode::TownMap;
+                            TownMapScene.ResetTownNpcLogicTimer();
                             PrintActiveViewMode(ActiveViewMode);
                         }
                     }

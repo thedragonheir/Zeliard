@@ -29,6 +29,13 @@ constexpr std::size_t TownHeroViewportRightThreshold = 16;
 constexpr std::size_t TownHeroProximityMapWidthColumns = 36;
 constexpr std::size_t TownEntityProximityRadiusPixels = 20;
 constexpr std::size_t TownMapActorAnimationPhaseCount = 4;
+constexpr double TownDosPitInputHz = 1193182.0;
+constexpr std::uint16_t TownDosPitReloadValue = 0x13B1;
+constexpr std::size_t TownDosStandardSpeedConst = 5;
+constexpr std::size_t TownDosTownWaitThresholdTicks = TownDosStandardSpeedConst * 4;
+constexpr double TownDosNpcLogicIntervalSeconds = static_cast<double>(TownDosTownWaitThresholdTicks)
+    * static_cast<double>(TownDosPitReloadValue) / TownDosPitInputHz;
+constexpr double TownDosNpcLogicIntervalMilliseconds = TownDosNpcLogicIntervalSeconds * 1000.0;
 constexpr std::size_t TownHeroLeftFacingFrameStart = 0;
 constexpr std::size_t TownHeroRightFacingFrameStart = 5;
 constexpr std::size_t TownNpcSpriteFramesPerBlock = 8;
@@ -916,6 +923,8 @@ std::size_t GetTownNpcSpriteFrameIndexFromFields(std::uint8_t SpriteSelector, st
     return (SpriteFamily * TownNpcSpriteFramesPerBlock) + FacingOffset + FramePhase;
 }
 
+constexpr std::uint8_t NpcAiTypeLookAtHeroAndBob = 0;
+constexpr std::uint8_t NpcAiTypeFaceHero = 3;
 constexpr std::uint8_t NpcAiTypeBobInPlace = 4;
 
 std::size_t GetTownNpcSpriteFrameIndex(const Mdt::TownEntityMarker& EntityMarker)
@@ -1542,6 +1551,12 @@ void TownScene::SyncTownHeroRuntimeProjection() noexcept
     ActorCollisionBlocked = false;
 }
 
+void TownScene::ResetTownNpcLogicTimer() noexcept
+{
+    TownNpcLogicLastUpdateTicks = 0;
+    TownNpcLogicTimerPrimed = false;
+}
+
 void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
 {
     if (KeyboardState == nullptr)
@@ -1711,7 +1726,21 @@ std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecor
 
 void TownScene::UpdateTownNpcRuntimeRecordsShell() const
 {
-    // Match the confirmed bob-in-place phase step and leave every other AI path neutral.
+    // Match the confirmed AI 0 facing rule and bob-in-place phase step, keep AI 3 facing-only,
+    // then leave other AI paths neutral.
+    const auto UpdateTownNpcFacingTowardHero = [](TownNpcRuntimeRecord& RuntimeRecord, std::size_t HeroAbsoluteX)
+    {
+        if (HeroAbsoluteX < RuntimeRecord.X)
+        {
+            RuntimeRecord.Facing = 1;
+            RuntimeRecord.SpriteSelector |= 0x80;
+            return;
+        }
+
+        RuntimeRecord.Facing = 0;
+        RuntimeRecord.SpriteSelector &= 0x7F;
+    };
+
     const auto UpdateTownNpcBobInPlace = [](TownNpcRuntimeRecord& RuntimeRecord)
     {
         std::uint8_t AnimPhase = static_cast<std::uint8_t>(RuntimeRecord.AnimationPhase + 0x10);
@@ -1725,10 +1754,21 @@ void TownScene::UpdateTownNpcRuntimeRecordsShell() const
         RuntimeRecord.AnimationPhase = static_cast<std::uint8_t>((AnimPhase + 1) & 1);
     };
 
+    const std::size_t HeroAbsoluteX = TownHeroState.HeroXInViewport + 4 + TownHeroState.ProximityMapLeftColumnX;
+
     for (TownNpcRuntimeRecord& TownNpcRuntimeRecord : TownNpcArray)
     {
         switch (TownNpcRuntimeRecord.NpcAiType)
         {
+        case NpcAiTypeLookAtHeroAndBob:
+            UpdateTownNpcFacingTowardHero(TownNpcRuntimeRecord, HeroAbsoluteX);
+            UpdateTownNpcBobInPlace(TownNpcRuntimeRecord);
+            break;
+
+        case NpcAiTypeFaceHero:
+            UpdateTownNpcFacingTowardHero(TownNpcRuntimeRecord, HeroAbsoluteX);
+            break;
+
         case NpcAiTypeBobInPlace:
             UpdateTownNpcBobInPlace(TownNpcRuntimeRecord);
             break;
@@ -1964,6 +2004,7 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     ActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(ActorFrameIndex);
     SyncTownHeroRuntimeProjection();
+    ResetTownNpcLogicTimer();
 }
 
 void TownScene::Update(const bool* KeyboardState)
@@ -1971,6 +2012,20 @@ void TownScene::Update(const bool* KeyboardState)
     if (KeyboardState == nullptr)
     {
         return;
+    }
+
+    const std::uint64_t CurrentTicks = SDL_GetTicks();
+    if (!TownNpcLogicTimerPrimed)
+    {
+        // Run the first town NPC step immediately, then mirror the DOS timer cadence from there.
+        UpdateTownNpcRuntimeRecordsShell();
+        TownNpcLogicTimerPrimed = true;
+        TownNpcLogicLastUpdateTicks = CurrentTicks;
+    }
+    else if (static_cast<double>(CurrentTicks - TownNpcLogicLastUpdateTicks) >= TownDosNpcLogicIntervalMilliseconds)
+    {
+        UpdateTownNpcRuntimeRecordsShell();
+        TownNpcLogicLastUpdateTicks = CurrentTicks;
     }
 
     UpdateTownHeroRuntimeState(KeyboardState);
@@ -1989,7 +2044,6 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     const std::size_t ColumnsAvailable = TownMap.Width > FirstColumn ? TownMap.Width - FirstColumn : 0;
     const std::size_t ColumnsToRender = std::min<std::size_t>(ColumnsAvailable, VisibleColumns + (ColumnPixelOffset != 0 ? 1 : 0));
     TownHeadLevelTiles HeadLevelTiles = SaveHeadLevelTilesInNpcs();
-    UpdateTownNpcRuntimeRecordsShell();
     TownColumnRenderStats RenderStats{};
     TownNpcSpriteShadowBuffer ShadowBuffer;
     ShadowBuffer.Reserve(TownNpcArray.size() * 2);
