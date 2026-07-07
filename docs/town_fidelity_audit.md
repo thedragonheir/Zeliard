@@ -39,6 +39,7 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - Town tiles now render in the original MCGA town viewport at `x = 48`, `y = 14 + 8 * 8 = 78`, with row `0` starting there and the row-5 NPC/hero band landing at `y = 118`.
 - The NPC sprite compositor was feeding a screen-space row-5 Y into a helper that already adds the viewport origin, so the fix keeps NPC slices viewport-relative and lets the shared draw helper apply the origin once.
 - The YMPD outdoor mountain layer is now decoded from `mountains0` at `0x05E7` and `mountains1` at `0x1459` into `88 x 56` byte planes, then drawn behind the town tiles at `x = 48`, `y = 14` with a `224 x 88` rendered footprint. The mountain RLE repeat byte is unsigned, so `0xFF` means 255 repeats.
+- The original YMPD mountain pass is a one-shot VRAM background render at `A000:(48,14)`; it does not move with `proximity_map_left_col_x` and it is not redrawn by the town frame loop.
 - The floor strip now scrolls horizontally in 8px steps when `proximity_map_left_col_x` changes, while staying anchored at `x = 48`, `y = 142`; the remaining CKPD scenic behavior above the town viewport is still provisional.
 ## Collision And Scrolling
 - The remaining collision work is deferred.
@@ -70,6 +71,7 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 
 ## Notes
 - `game_loop_with_frame_wait` still matches the assembly order: `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, then `render_town_tiles_28_columns`.
+- The background driver runs before that town-frame pass, so the mountain layer sits behind the tile band and sprite overlays; the lower floor strip is only updated by the separate 8px panning helpers.
 - `hero_column_shadow_blitter_guard` and the compositor routines remain rendering-only and were inspected only to confirm they are not part of the movement rewrite.
 - `special_tile_dispatcher` only opens the NPC compositor when the row-5 tile is `0xFD`; the intermediate C++ path should treat that marker as opening a two-column special compositor area, then scan `npc_array_addr` by X and keep the current-column / next-column split through `two_sprite_shadow_compositor` and `single_sprite_shadow_compositor`.
 - The intermediate SDL renderer must also defer or filter staged special-compositor slices so future-column slices are not overwritten by the later background pass.

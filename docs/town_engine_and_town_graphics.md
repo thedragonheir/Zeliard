@@ -265,8 +265,9 @@ The floor routines are called only when `proximity_map_left_col_x` advances or r
 - `town.asm` loads `YMPD.BIN` when `town_has_middle_layer` bit 0 is clear.
 - `sub_3300` expands `mountains0` from `ympd.bin` offset `0x05E7` to `seg1:0000` and `mountains1` from offset `0x1459` to `seg1:1340h`, decoding each stream to exactly 4928 bytes into an 88 x 56 plane buffer before `render_mountains` combines the two planes into the final `224 x 88` MCGA layer.
 - The mountain RLE stream uses `0x06, value, count`, and `count` is an unsigned 8-bit repeat byte, so `0xFF` means 255 repeats.
-- The mountain layer is rendered at logical MCGA coordinates `x = 48`, `y = 14` and spans `224 x 88` pixels; that is the rendered footprint, not the decoded plane size.
+- The mountain layer is rendered once by the background driver during town setup. `load_town_background` loads `ympd.bin`, `call_background_code` runs `sub_3300`, and `mode4_mcga` writes the final `224 x 88` mountain footprint directly to VRAM at `viewport_top_left_vram_offset` (`A000:(48,14)`), which is a final screen position rather than a viewport-relative one.
 - Each source byte pair from the two mountain planes produces 4 MCGA pixels through the `sub_34F9` bit-combine logic.
+- The mountain layer stays static during town panning. The town frame loop later draws the tile band and sprite overlays on top of it, while the floor strip is handled by the separate scroll helpers.
 
 ## Lower strip path
 
