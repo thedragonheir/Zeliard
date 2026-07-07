@@ -37,14 +37,6 @@ constexpr std::size_t TownHeroRightEdgeMaximumVisibleX = TownHeroRightEdgeTransi
 constexpr std::size_t TownHeroProximityMapWidthColumns = 36;
 constexpr std::size_t TownEntityProximityRadiusPixels = 20;
 constexpr std::size_t TownMapActorAnimationPhaseCount = 4;
-constexpr double TownDosPitInputHz = 1193182.0;
-constexpr std::uint16_t TownDosPitReloadValue = 0x13B1;
-constexpr std::size_t TownDosStandardSpeedConst = 5;
-constexpr std::size_t TownDosTownWaitThresholdTicks = TownDosStandardSpeedConst * 4;
-constexpr double TownDosNpcLogicIntervalSeconds = static_cast<double>(TownDosTownWaitThresholdTicks)
-    * static_cast<double>(TownDosPitReloadValue) / TownDosPitInputHz;
-constexpr double TownDosNpcLogicIntervalMilliseconds = TownDosNpcLogicIntervalSeconds * 1000.0;
-constexpr double TownDosTownLoopIntervalMilliseconds = TownDosNpcLogicIntervalMilliseconds;
 constexpr std::size_t TownHeroLeftFacingFrameStart = 0;
 constexpr std::size_t TownHeroRightFacingFrameStart = 5;
 constexpr std::size_t TownNpcSpriteFramesPerBlock = 8;
@@ -1849,14 +1841,6 @@ void TownScene::SyncTownHeroRuntimeProjection() noexcept
     ActorCollisionBlocked = false;
 }
 
-void TownScene::ResetTownNpcLogicTimer() noexcept
-{
-    TownNpcLogicLastUpdateTicks = 0;
-    TownNpcLogicTimerPrimed = false;
-    TownPatternAnimationLastUpdateTicks = 0;
-    TownPatternAnimationTimerPrimed = false;
-}
-
 void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
 {
     if (KeyboardState == nullptr)
@@ -1868,7 +1852,6 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
     const bool LeftPressed = KeyboardState[SDL_SCANCODE_LEFT] && !KeyboardState[SDL_SCANCODE_RIGHT];
     const bool RightPressed = KeyboardState[SDL_SCANCODE_RIGHT] && !KeyboardState[SDL_SCANCODE_LEFT];
     const std::size_t MaximumProximityMapLeftColumn = GetTownMapMaximumProximityMapLeftColumn(TownMap);
-    bool HeroMoved = false;
 
     if (LeftPressed)
     {
@@ -1881,19 +1864,8 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
     else
     {
         TownHeroState.HeroAnimationPhase |= 1;
-        TownMovementFrameCountdown = 0;
         SyncTownHeroRuntimeProjection();
         return;
-    }
-
-    if (TownMovementFrameCountdown > 0)
-    {
-        --TownMovementFrameCountdown;
-        if (TownMovementFrameCountdown > 0)
-        {
-            SyncTownHeroRuntimeProjection();
-            return;
-        }
     }
 
     if (LeftPressed)
@@ -1919,7 +1891,6 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
             TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
             TownHeroState.FacingDirection |= 1;
             --TownHeroState.HeroXInViewport;
-            HeroMoved = true;
         }
         else if (TownHeroState.ProximityMapLeftColumnX > 0)
         {
@@ -1929,19 +1900,12 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
             // The assembly scrolls the floor band in 8px steps when the
             // viewport pans, so keep the strip phase aligned to that step.
             AdvanceTownBackgroundStripScrollOffset(8);
-            HeroMoved = true;
         }
         else if (TownHeroState.HeroXInViewport > 0)
         {
             TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
             TownHeroState.FacingDirection |= 1;
             --TownHeroState.HeroXInViewport;
-            HeroMoved = true;
-        }
-
-        if (HeroMoved)
-        {
-            TownMovementFrameCountdown = TownMovementFrameDelay;
         }
     }
     else if (RightPressed)
@@ -1967,7 +1931,6 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
             TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
             TownHeroState.FacingDirection &= 0xFE;
             ++TownHeroState.HeroXInViewport;
-            HeroMoved = true;
         }
         else if (TownHeroState.ProximityMapLeftColumnX < MaximumProximityMapLeftColumn)
         {
@@ -1977,14 +1940,12 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
             // Matching the left scroll call keeps the strip moving with the
             // town view instead of drifting independently.
             AdvanceTownBackgroundStripScrollOffset(-8);
-            HeroMoved = true;
         }
         else if (TownHeroState.HeroXInViewport < TownHeroRightEdgeMaximumVisibleX)
         {
             TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
             TownHeroState.FacingDirection &= 0xFE;
             ++TownHeroState.HeroXInViewport;
-            HeroMoved = true;
         }
         else
         {
@@ -1993,11 +1954,6 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
             SyncTownHeroRuntimeProjection();
             ActorCollisionBlocked = true;
             return;
-        }
-
-        if (HeroMoved)
-        {
-            TownMovementFrameCountdown = TownMovementFrameDelay;
         }
     }
 
@@ -2388,7 +2344,6 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     ActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(ActorFrameIndex);
     SyncTownHeroRuntimeProjection();
-    ResetTownNpcLogicTimer();
 }
 
 void TownScene::Update(const bool* KeyboardState)
@@ -2398,31 +2353,8 @@ void TownScene::Update(const bool* KeyboardState)
         return;
     }
 
-    const std::uint64_t CurrentTicks = SDL_GetTicks();
-    if (!TownNpcLogicTimerPrimed)
-    {
-        // Run the first town NPC step immediately, then mirror the DOS timer cadence from there.
-        UpdateTownNpcRuntimeRecordsShell();
-        TownNpcLogicTimerPrimed = true;
-        TownNpcLogicLastUpdateTicks = CurrentTicks;
-    }
-    else if (static_cast<double>(CurrentTicks - TownNpcLogicLastUpdateTicks) >= TownDosNpcLogicIntervalMilliseconds)
-    {
-        UpdateTownNpcRuntimeRecordsShell();
-        TownNpcLogicLastUpdateTicks = CurrentTicks;
-    }
-
-    if (!TownPatternAnimationTimerPrimed)
-    {
-        TownPatternAnimationTimerPrimed = true;
-        TownPatternAnimationLastUpdateTicks = CurrentTicks;
-    }
-    else if (static_cast<double>(CurrentTicks - TownPatternAnimationLastUpdateTicks) >= TownDosTownLoopIntervalMilliseconds)
-    {
-        AdvanceTownPatternAnimations(TownRuntimeCells, TownMap, PatternBank);
-        TownPatternAnimationLastUpdateTicks = CurrentTicks;
-    }
-
+    UpdateTownNpcRuntimeRecordsShell();
+    AdvanceTownPatternAnimations(TownRuntimeCells, TownMap, PatternBank);
     UpdateTownHeroRuntimeState(KeyboardState);
     const std::size_t DesiredTownMapActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, true, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(DesiredTownMapActorFrameIndex);

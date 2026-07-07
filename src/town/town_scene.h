@@ -44,6 +44,8 @@ public:
     static constexpr std::size_t TownTearsOverlayMaxCollectedCount = Hud::TearsOverlayMaximumCount;
     static constexpr std::size_t TownTearsOverlaySmallIconFileOffset = 0x0A61;
     static constexpr std::size_t TownTearsOverlayLargeIconFileOffset = 0x0B31;
+    // 20 PIT ticks at reload 0x13B1 and 1193182 Hz.
+    static constexpr std::uint64_t TownDosTownLoopIntervalNanoseconds = 84'496'749;
 
     TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std::filesystem::path& TownNpcSpriteGrpPath,
         const Mdt::TownMapInfo& TownMap,
@@ -51,7 +53,6 @@ public:
 
     void Update(const bool* KeyboardState);
     void Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled) const;
-    void ResetTownNpcLogicTimer() noexcept;
 
     void ToggleBlockedTileOverlay() noexcept;
     void ToggleTownEntityMarkers() noexcept;
@@ -182,8 +183,6 @@ private:
 
     static constexpr std::size_t TownMapActorInitialMapPixelX = 160;
     static constexpr std::size_t TownMapActorInitialMapPixelY = 40;
-    // Provisional until DOSBox confirms the exact held-input cadence.
-    static constexpr std::size_t TownMovementFrameDelay = 4;
     static constexpr std::size_t TownNpcSpriteFrameCount = 40;
 
     const std::filesystem::path ActorSpriteGrpPath;
@@ -200,9 +199,6 @@ private:
     std::size_t ActorMapPixelX = TownMapActorInitialMapPixelX;
     std::size_t ActorMapPixelY = TownMapActorInitialMapPixelY;
     std::size_t ScrollOffsetPixels = 0;
-    std::size_t TownMovementFrameCountdown = 0;
-    std::uint64_t TownNpcLogicLastUpdateTicks = 0;
-    std::uint64_t TownPatternAnimationLastUpdateTicks = 0;
 
     bool ActorFrameLoaded = false;
     bool ActorFrameVisible = false;
@@ -218,8 +214,6 @@ private:
     bool TownMoleTopTearsBaseLoaded = false;
     bool TownMoleBottomStatusBaseLoaded = false;
     bool TownTearsOverlayIconsLoaded = false;
-    bool TownNpcLogicTimerPrimed = false;
-    bool TownPatternAnimationTimerPrimed = false;
     std::size_t TownBackgroundStripScrollOffsetPixels = 0;
     mutable std::vector<std::uint8_t> TownRuntimeCells;
     mutable bool FallbackWarningPrinted = false;

@@ -24,6 +24,7 @@ namespace
 {
 const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
 constexpr std::uint64_t SpriteAnimationFrameDelayMs = 160;
+constexpr std::size_t TownMapMaxCatchUpSteps = 4;
 
 enum class SpriteBankKind
 {
@@ -944,6 +945,9 @@ int main()
     bool DebugOverlayEnabled = true;
     bool SpriteAnimationEnabled = false;
     std::uint64_t LastSpriteAnimationTick = 0;
+    ViewMode LastTownViewMode = ActiveViewMode;
+    std::uint64_t TownMapTimingLastTicksNs = 0;
+    std::uint64_t TownMapTimingAccumulatorNs = 0;
 
     if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
     {
@@ -1059,7 +1063,6 @@ int main()
                         if (ActiveViewMode != ViewMode::TownMap)
                         {
                             ActiveViewMode = ViewMode::TownMap;
-                            TownMapScene.ResetTownNpcLogicTimer();
                             PrintActiveViewMode(ActiveViewMode);
                         }
                     }
@@ -1166,12 +1169,54 @@ int main()
             }
         }
 
+        const std::uint64_t CurrentTicksNs = SDL_GetTicksNS();
+        if (ActiveViewMode != LastTownViewMode)
+        {
+            if (ActiveViewMode == ViewMode::TownMap)
+            {
+                TownMapTimingLastTicksNs = CurrentTicksNs;
+                TownMapTimingAccumulatorNs = TownScene::TownDosTownLoopIntervalNanoseconds;
+            }
+            else if (LastTownViewMode == ViewMode::TownMap)
+            {
+                TownMapTimingLastTicksNs = 0;
+                TownMapTimingAccumulatorNs = 0;
+            }
+
+            LastTownViewMode = ActiveViewMode;
+        }
+
         if (ActiveViewMode == ViewMode::TownMap)
         {
             if (TownMapViewAvailable)
             {
                 const bool* KeyboardState = SDL_GetKeyboardState(nullptr);
-                TownMapScene.Update(KeyboardState);
+                if (TownMapTimingLastTicksNs == 0)
+                {
+                    TownMapTimingLastTicksNs = CurrentTicksNs;
+                    TownMapTimingAccumulatorNs = TownScene::TownDosTownLoopIntervalNanoseconds;
+                }
+                else
+                {
+                    TownMapTimingAccumulatorNs += CurrentTicksNs - TownMapTimingLastTicksNs;
+                    TownMapTimingLastTicksNs = CurrentTicksNs;
+                }
+
+                // Advance town gameplay on the DOS cadence while still redrawing every frame.
+                std::size_t TownMapUpdatesThisFrame = 0;
+                while (TownMapTimingAccumulatorNs >= TownScene::TownDosTownLoopIntervalNanoseconds
+                    && TownMapUpdatesThisFrame < TownMapMaxCatchUpSteps)
+                {
+                    TownMapScene.Update(KeyboardState);
+                    TownMapTimingAccumulatorNs -= TownScene::TownDosTownLoopIntervalNanoseconds;
+                    ++TownMapUpdatesThisFrame;
+                }
+
+                if (TownMapUpdatesThisFrame == TownMapMaxCatchUpSteps
+                    && TownMapTimingAccumulatorNs >= TownScene::TownDosTownLoopIntervalNanoseconds)
+                {
+                    TownMapTimingAccumulatorNs = 0;
+                }
             }
         }
         else if (ActiveViewMode == ViewMode::Sprite && SpriteAnimationEnabled)
@@ -1252,7 +1297,7 @@ int main()
         }
 
         SDL_RenderPresent(Renderer);
-        SDL_Delay(16);
+        SDL_Delay(1);
     }
 
     SDL_DestroyRenderer(Renderer);
