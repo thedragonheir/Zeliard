@@ -218,6 +218,8 @@ Transparency is mask-driven only, so palette index 0 still renders as black when
 
 `render_town_tiles_28_columns` only routes rows 0, 1, and 2 through `tile_render_and_animate`. Rows 3, 4, 6, and 7 use `background_tile_render_with_blit_cache`, and row 5 uses `special_tile_dispatcher`.
 
+That same row split also controls transparency in the native port: town pattern masks are only applied for the top 3 rows, matching the `tile_render_and_animate` path in `gtmcga.asm`. Lower rows draw solid, so palette index `0` still renders as black when the source tile contains it.
+
 `tile_render_and_animate` checks `tile_anim_count_table`. If a tile has no animation count, it falls back to `background_tile_render_with_blit_cache`. If it is animated, it renders with the per-row transparency mask and then uses `tile_animation_replacement_table` to replace the tile id for the next phase.
 
 The replacement table is a counted or terminated list of `(old_tile, new_tile)` pairs.
@@ -373,7 +375,6 @@ The complete startup render order is:
 5. The following equipment calls render into the bottom HUD contents: sword at `bx = 0x18AB`, shield at `bx = 0x3EA4`, and magic at `bx = 0x37A4`; their `BL` values place them below the top bar and they are separate from the MOLE bottom/status base art.
 
 `render_tears_collected` returns without drawing when `Tears_of_Esmesanti_count == 0`. Otherwise it loops through the first `count` entries in `tears_order_coords`, passes each coordinate in `BX`, and calls `Render_Icon_16x13`. The first eight collected tears use `AL = 0`; the ninth uses `AL = 1`.
-`render_tears_collected` returns without drawing when `Tears_of_Esmesanti_count == 0`. Otherwise it loops through the first `count` entries in `tears_order_coords`, passes each coordinate in `BX`, and calls `Render_Icon_16x13`. The first eight collected tears use `AL = 0`; the ninth uses `AL = 1`.
 
 | Field | Proof |
 |---:|---|
@@ -381,7 +382,7 @@ The complete startup render order is:
 | State class | Global save/global-state byte, not town-local and not hero-local. |
 | Written where | Only `rokademo.asm` writes it: `inc byte ptr ds:Tears_of_Esmesanti_count` then clamps to `9` (`rokademo.asm:32..36`). That routine is the intro/demo/test path, confirming the byte is seeded by global/demo state rather than town state. |
 | Read where | `game.asm` `render_tears_collected` tests and loads it (`game.asm:317`, `game.asm:323`) but never writes it; `rokademo.asm` also reads it at `:99` and `:285`. |
-| C++ source today | `src/town/town_scene.cpp` has no read of any `0A0h` equivalent; only the MOLE base strip is drawn. The proven global-state byte is not yet wired into C++. |
+| C++ source today | `src/town/town_scene.cpp` reads the project-owned `TearsOfEsmesantiCount` byte. It defaults to `0`, the overlay clamps to `9`, and the optional debug-only override can display all nine collected Tears for visual testing without changing gameplay state. |
 
 | Order | `tears_order_coords` | Screen position |
 |---:|---:|---|
@@ -395,22 +396,25 @@ The complete startup render order is:
 | 7 | `0x2B00` | `x = 172`, `y = 0` |
 | 8 | `0x2600` | `x = 152`, `y = 0` |
 
-`Render_Icon_16x13` computes `x = BH * 4` and `y = BL`, then copies a `16 x 13` glyph into VRAM. Pixel value `0x80` is transparent; every other value, including `0`, overwrites the existing MOLE pixel. This path is a masked copy, not an OR blend.
+The MOLE top art should be described as Tears placeholders. Keep the raw labels (`title_logo_data`, `title_demo_text_data`) as source-label mappings only.
+
+Do not synthesize collected Tears or force a fake filled bar in normal runtime. If `TearsOfEsmesantiCount` stays `0`, the overlay stays hidden.
+
 `Render_Icon_16x13` computes `x = BH * 4` and `y = BL`, then copies a `16 x 13` glyph into VRAM. Pixel value `0x80` is transparent; every other value, including `0`, overwrites the existing MOLE pixel. This path is a masked copy, not an OR blend.
 
-The icon glyph bytes come from the `gmmcga.asm` table `off_2A5D` (`gmmcga.asm:1766`): `off_2A5D[0] -> byte_2A61` (icon `AL = 0`, small blue Tear, `gmmcga.asm:1768`) and `off_2A5D[1] -> byte_2B31` (icon `AL = 1`, large red Tear, `gmmcga.asm:1785`). Each glyph is `16 x 13` bytes; `0x80` is the transparent skip value (`gmmcga.asm:1750`).
+The icon glyph bytes come from the `gmmcga.asm` table `off_2A5D` (`gmmcga.asm:1766`), which lives at file offset `0x0A5D` in `game/gmmcga.bin`: `off_2A5D[0]` points to `byte_2A61` at `0x0A61` (icon `AL = 0`, small blue Tear, `gmmcga.asm:1768`) and `off_2A5D[1]` points to `byte_2B31` at `0x0B31` (icon `AL = 1`, large red Tear, `gmmcga.asm:1785`). Each glyph is `16 x 13` bytes; `0x80` is the transparent skip value (`gmmcga.asm:1750`).
 
 The proven split is:
 
 - MOLE base frame: the center `224 x 13` strip plus the side panels.
+- MOLE top part: Tears placeholders.
 - MOLE bottom/status base panel: the base art behind the lower HUD, rendered as a `224 x 42` strip at `x = 48`, `y = 158`.
 - Empty Tears placeholders and any static center background: part of the MOLE base strip.
 - Collected/filled Tears overlay: `game.asm` `render_tears_collected` plus `gmmcga.asm` `Render_Icon_16x13`.
 - Bottom HUD contents: `game.asm` and `gmmcga.asm` draw the equipment icons, numbers, and status overlays on top of the MOLE base panel.
 - Center icon overlay: no separate routine was found. The only center-changing post-MOLE draw is the ninth collected Tear at `x = 152`, `y = 0` using icon `AL = 1`.
 
-The current C++ town scene has no proven source for the original `Tears_of_Esmesanti_count` byte yet, so the collected overlay should not be synthesized or forced to nine. Until real save/global state is wired, the C++ top bar can only honestly draw the MOLE base strip.
-The current C++ town scene has no proven source for the original `Tears_of_Esmesanti_count` byte yet, so the collected overlay should not be synthesized or forced to nine. Until real save/global state is wired, the C++ top bar can only honestly draw the MOLE base strip.
+The current C++ town scene now draws the collected Tears overlay from the real `TearsOfEsmesantiCount` value. The optional debug-only override can show all nine collected Tears for visual testing, but normal runtime must never fake the gameplay state.
 
 ## Collected Tears overlay path (proven)
 
@@ -420,7 +424,7 @@ The current C++ town scene has no proven source for the original `Tears_of_Esmes
   - `0x0F00 -> x=60`, `0x3D00 -> x=244`, `0x1500 -> x=84`, `0x3700 -> x=220`, `0x1B00 -> x=108`, `0x3100 -> x=196`, `0x2100 -> x=132`, `0x2B00 -> x=172`, `0x2600 -> x=152`; all `y = 0`.
 - Icon selection: for loop index `dx < 8` `AL = 0` (small blue), for `dx == 8` `AL = 1` (large red) (`game.asm:333..336`).
 - Pixel copy: `gmmcga.asm` `Render_Icon_16x13` (`gmmcga.asm:1722..1763`); `0x80` skips, all other bytes overwrite VRAM.
-- C++ status: not yet implemented. The overlay must read the real global `0A0h` Tear count; do not hardcode `9` or synthesize collected Tears.
+- C++ status: implemented in `src/town/town_scene.cpp` from the real `TearsOfEsmesantiCount` value. Keep the debug-only override off by default and never synthesize collected Tears in normal runtime.
 
 ## Town pattern loading
 

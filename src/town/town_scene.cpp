@@ -1240,11 +1240,12 @@ const Grp::PatternTile& GetFallbackPatternTile()
     return FallbackTile;
 }
 
-void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const Main64Palette& Palette, float TileX, float TileY, float PixelSize)
+void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const Main64Palette& Palette,
+    float TileX, float TileY, float PixelSize, bool UseTransparencyMask)
 {
     for (std::size_t Row = 0; Row < 8; ++Row)
     {
-        const std::uint8_t TransparencyMaskRow = Tile.TransparencyMaskRows[Row];
+        const std::uint8_t TransparencyMaskRow = UseTransparencyMask ? Tile.TransparencyMaskRows[Row] : 0;
         for (std::size_t Column = 0; Column < 8; ++Column)
         {
             if ((TransparencyMaskRow & static_cast<std::uint8_t>(0x80 >> Column)) != 0)
@@ -2274,9 +2275,10 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
             Tile = &FallbackTile;
         }
 
+        const bool UseTransparencyMask = Row < 3;
         DrawPatternTile(Renderer, *Tile, Palette,
             static_cast<float>(TownMapViewportLeftPixelX) + ScreenTileX,
-            static_cast<float>(TownMapViewportTopPixelY + Row * TownMapTileSize), 1.0f);
+            static_cast<float>(TownMapViewportTopPixelY + Row * TownMapTileSize), 1.0f, UseTransparencyMask);
 
         if (BlockedTileOverlayEnabled && IsTownMapBlockedTileIndex(TileIndex))
         {
