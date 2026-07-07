@@ -317,6 +317,35 @@ The MOLE MCGA unpack table is the exact one from `Unpack2bppTo4bit_MCGA`:
 
 `0,1,5,3,8,9,0D,0B,28,29,2D,2B,18,19,1D,1B`
 
+## MOLE bottom/status base panel
+
+`DrawDecorationsAroundCanvas` then renders the lower MOLE base art from `title_screen_final_data` with `rle_marker_high = 0x50` and `rle_flag = 0xFF`. The source span in `game/0/mole.bin` is `0x2799..0x2926`, which consumes `397` bytes and decodes to `2352` bytes before the MCGA unpack pass combines it with the zero-filled second plane.
+
+The exact assembly path is:
+
+- `mov ds:rle_flag, 0FFh`
+- `mov ds:rle_marker_high, 50h`
+- `mov si, offset title_screen_final_data`
+- `mov di, buf1`
+- `call DecompressRLE`
+- `mov di, buf2`
+- `mov cx, 4B0h`
+- `xor ax, ax`
+- `rep stosw`
+- `mov bp, 960h`
+- `mov bx, 0C9Eh`
+- `mov cx, 382Ah`
+- `call DecompressToVRAM`
+
+In MCGA terms that means:
+
+- `x = BH * 4 = 48`
+- `y = BL = 158`
+- source bytes per row = `CH = 56`
+- row count = `CL = 42`
+
+The lower base panel is therefore `224 x 42` pixels at `x = 48`, `y = 158`. It is MOLE base art only; the later HUD contents are drawn separately by `game.asm` and `gmmcga.asm`.
+
 ## Full top Tears bar render order
 
 `DrawDecorationsAroundCanvas` first decodes the MOLE Tears placeholder top bar from the raw assembly labels `title_logo_data` and `title_demo_text_data`, then calls `DecompressToVRAM` with `bp = 0x960`, `bx = 0x0C00`, and `cx = 0x380D`. In the MCGA path that means:
@@ -339,9 +368,9 @@ The complete startup render order is:
 
 1. `mole.asm` `DrawDecorationsAroundCanvas` draws the center top base strip at `x = 48`, `y = 0`, size `224 x 13`.
 2. The same MOLE routine draws the left and right side panels at `x = 0` and `x = 272`. These touch `y = 0..199`, but they do not modify the center top strip.
-3. The same MOLE routine later draws the bottom/status art at `x = 48`, `y = 158`, size `224 x 42`, then `DrawTitleFrame` writes small frame rows around `y = 47`. Neither overlaps `y = 0..13`.
+3. The same MOLE routine later draws the bottom/status base art at `x = 48`, `y = 158`, size `224 x 42`, then `DrawTitleFrame` writes small frame rows around `y = 47`. Neither overlaps `y = 0..13`.
 4. After the far call returns, `game.asm` immediately calls `render_tears_collected`. This is the only post-MOLE call in the inspected startup path that writes into the center top bar.
-5. The following equipment calls render into the bottom HUD: sword at `bx = 0x18AB`, shield at `bx = 0x3EA4`, and magic at `bx = 0x37A4`; their `BL` values place them below the top bar.
+5. The following equipment calls render into the bottom HUD contents: sword at `bx = 0x18AB`, shield at `bx = 0x3EA4`, and magic at `bx = 0x37A4`; their `BL` values place them below the top bar and they are separate from the MOLE bottom/status base art.
 
 `render_tears_collected` returns without drawing when `Tears_of_Esmesanti_count == 0`. Otherwise it loops through the first `count` entries in `tears_order_coords`, passes each coordinate in `BX`, and calls `Render_Icon_16x13`. The first eight collected tears use `AL = 0`; the ninth uses `AL = 1`.
 `render_tears_collected` returns without drawing when `Tears_of_Esmesanti_count == 0`. Otherwise it loops through the first `count` entries in `tears_order_coords`, passes each coordinate in `BX`, and calls `Render_Icon_16x13`. The first eight collected tears use `AL = 0`; the ninth uses `AL = 1`.
@@ -374,8 +403,10 @@ The icon glyph bytes come from the `gmmcga.asm` table `off_2A5D` (`gmmcga.asm:17
 The proven split is:
 
 - MOLE base frame: the center `224 x 13` strip plus the side panels.
+- MOLE bottom/status base panel: the base art behind the lower HUD, rendered as a `224 x 42` strip at `x = 48`, `y = 158`.
 - Empty Tears placeholders and any static center background: part of the MOLE base strip.
 - Collected/filled Tears overlay: `game.asm` `render_tears_collected` plus `gmmcga.asm` `Render_Icon_16x13`.
+- Bottom HUD contents: `game.asm` and `gmmcga.asm` draw the equipment icons, numbers, and status overlays on top of the MOLE base panel.
 - Center icon overlay: no separate routine was found. The only center-changing post-MOLE draw is the ninth collected Tear at `x = 152`, `y = 0` using icon `AL = 1`.
 
 The current C++ town scene has no proven source for the original `Tears_of_Esmesanti_count` byte yet, so the collected overlay should not be synthesized or forced to nine. Until real save/global state is wired, the C++ top bar can only honestly draw the MOLE base strip.

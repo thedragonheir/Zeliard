@@ -30,6 +30,8 @@ public:
     static constexpr std::size_t TownBackgroundMountainHeight = 88;
     static constexpr std::size_t TownMoleDecorationPanelWidth = 48;
     static constexpr std::size_t TownMoleDecorationPanelHeight = 200;
+    static constexpr std::size_t TownMoleBottomStatusBaseWidth = 224;
+    static constexpr std::size_t TownMoleBottomStatusBaseHeight = 42;
 
     TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std::filesystem::path& TownNpcSpriteGrpPath,
         const Mdt::TownMapInfo& TownMap,
@@ -197,6 +199,7 @@ private:
     bool TownBackgroundStripLoaded = false;
     bool TownBackgroundStripUsesCkpd = false;
     bool TownMoleDecorationPanelsLoaded = false;
+    bool TownMoleBottomStatusBaseLoaded = false;
     bool TownNpcLogicTimerPrimed = false;
     bool TownPatternAnimationTimerPrimed = false;
     std::size_t TownBackgroundStripScrollOffsetPixels = 0;
@@ -211,5 +214,6 @@ private:
     std::array<std::uint8_t, 224 * 16> TownBackgroundStripPixels{};
     std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight> TownMoleLeftDecorationPanelPixels{};
     std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight> TownMoleRightDecorationPanelPixels{};
+    std::array<std::uint8_t, TownMoleBottomStatusBaseWidth * TownMoleBottomStatusBaseHeight> TownMoleBottomStatusBasePixels{};
     Grp::NpcSpriteFrame ActorFrame;
 };
