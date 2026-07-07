@@ -34,6 +34,7 @@ FetchContent_MakeAvailable(SDL3)
 
 add_executable(Zeliard
   src/zeliard.cpp
+  src/hud/hud_tears_overlay.cpp
   src/town/town_scene.cpp
   src/mdt/mdt_map.cpp
   src/grp/grp_font.cpp

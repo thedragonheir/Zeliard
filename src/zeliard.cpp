@@ -627,6 +627,11 @@ void PrintTownMapEntityMarkerState(bool EntityMarkersEnabled)
     std::cout << "town map object markers " << (EntityMarkersEnabled ? "on" : "off") << '\n';
 }
 
+void PrintTownTearsOverlayDebugOverrideState(bool DebugOverrideEnabled)
+{
+    std::cout << "town tears overlay debug override " << (DebugOverrideEnabled ? "on" : "off") << '\n';
+}
+
 void DrawFontGlyphGrid(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup)
 {
     constexpr int Columns = 16;
@@ -1026,6 +1031,11 @@ int main()
                 {
                     TownMapScene.ToggleTownEntityMarkers();
                     PrintTownMapEntityMarkerState(TownMapScene.IsTownEntityMarkersEnabled());
+                }
+                else if (Event.key.key == SDLK_Y && ActiveViewMode == ViewMode::TownMap)
+                {
+                    TownMapScene.ToggleTearsOverlayDebugOverride();
+                    PrintTownTearsOverlayDebugOverrideState(TownMapScene.IsTearsOverlayDebugOverrideEnabled());
                 }
                 else if (Event.key.key == SDLK_C)
                 {

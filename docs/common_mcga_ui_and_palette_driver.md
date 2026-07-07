@@ -139,6 +139,15 @@ The module renders several fixed-size icon classes:
 
 These are used by `select.asm` and by HUD restore/render flows in `game.asm`.
 
+## Collected Tear icons
+
+`Render_Icon_16x13` is also the renderer for the collected Tears overlay. Its source table is `off_2A5D` in `gmmcga.asm`, which sits at file offset `0x0A5D` in `game/gmmcga.bin`.
+
+- `off_2A5D[0]` points to `byte_2A61` at file offset `0x0A61` for the small blue Tear icon.
+- `off_2A5D[1]` points to `byte_2B31` at file offset `0x0B31` for the large red Tear icon.
+- Each icon is `16 x 13` bytes.
+- `0x80` is transparent and all other bytes overwrite the framebuffer.
+
 ## 3-plane graphics reassembly
 
 `Reassemble_3_Planes_To_Packed_Bitmap` is one of the most important helper routines. It converts planar graphics into packed bitmap/tile data.
