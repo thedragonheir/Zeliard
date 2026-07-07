@@ -43,7 +43,7 @@ NPC runtime animation now advances from `TownScene::Update` instead of `Draw`, s
 ## Rendering Projection
 - Visible hero X is derived from `TownHeroState` and projected into `ActorMapPixelX`.
 - Visible hero Y stays fixed at `TownMapActorInitialMapPixelY` for now, and the renderer adds the proven town viewport origin when drawing.
-- `ScrollOffsetPixels` now follows the canonical horizontal state by projecting `ProximityMapLeftColumnX` into the scroll offset.
+- `ScrollOffsetPixels` now follows the canonical horizontal state by projecting `ProximityMapLeftColumnX + 4` into the scroll offset, matching the assembly-visible town column instead of the hidden proximity column.
 - Town tiles now render in the original MCGA town viewport at `x = 48`, `y = 14 + 8 * 8 = 78`, with row `0` starting there and the row-5 NPC/hero band landing at `y = 118`.
 - The NPC sprite compositor was feeding a screen-space row-5 Y into a helper that already adds the viewport origin, so the fix keeps NPC slices viewport-relative and lets the shared draw helper apply the origin once.
 - The YMPD outdoor mountain layer is now decoded from `mountains0` at `0x05E7` and `mountains1` at `0x1459` into `88 x 56` byte planes, then drawn behind the town tiles at `x = 48`, `y = 14` with a `224 x 88` rendered footprint. The mountain RLE repeat byte is unsigned, so `0xFF` means 255 repeats.
@@ -63,11 +63,12 @@ NPC runtime animation now advances from `TownScene::Update` instead of `Draw`, s
 - The C++ town scene has no read of a global `0A0h` Tear-count equivalent, so the overlay is unwired. Do not synthesize it: read the real global state and never hardcode `9`.
 ## Collision And Scrolling
 - The remaining collision work is deferred.
+- Horizontal town movement now mirrors the assembly tile-ahead gate on row `7` before any move or scroll: left probes `ProximityMapLeftColumnX + HeroXInViewport + 3`, right probes `ProximityMapLeftColumnX + HeroXInViewport + 6`, and both still rely on `IsTownMapBlockedTileIndex` for the current native blocked-tile list.
 - The NPC blocker path now matches the assembly's X-column scan and only treats `n_flags` bit 6 as non-passable.
 - `ActorCollisionBlocked` is retained only as a debug/provisional field and is cleared by the projection sync.
-- Edge scrolling is implemented narrowly from the confirmed left/right town thresholds by advancing `ProximityMapLeftColumnX` when the viewport needs to pan.
+- Edge scrolling is implemented narrowly from the confirmed left/right town thresholds by advancing `ProximityMapLeftColumnX` when the viewport needs to pan; once the map cannot scroll right any further, the native path keeps Duke walking in-viewport up to the provisional clamp instead of freezing at the scroll edge.
 - The projection clamps scroll to the current map bounds, so the visible hero stays tied to the canonical horizontal state.
-- The exact edge-transition wrap at the far left/right map boundary is still provisional in C++; the right-edge sentinel now matches the assembly (`hero_x_in_viewport = 28`), but the destination loader path is intentionally out of scope here.
+- The exact edge-transition wrap at the far left/right map boundary is still provisional in C++; `hero_x_in_viewport + 1 == 28` is the DOS right-edge transition check, `hero_x_in_viewport = 27` belongs to that transition path, and the native path currently clamps before that sentinel.
 
 ## Removed From Normal Town Mode
 - The free 4-way pixel movement path no longer drives normal town updates.

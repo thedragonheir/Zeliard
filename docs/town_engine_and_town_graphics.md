@@ -64,7 +64,7 @@ The frame wait is handled by `game_loop_with_frame_wait`, which also runs global
 
 The tile map starts at `town_tiles = 0C017h`. The source comment shows one town map as `0xD7 * 8` bytes, meaning 215 columns by 8 tile rows.
 
-The viewport renderer displays only 28 columns at a time. The engine tracks a larger proximity window and uses `proximity_start_tiles` to point at the left column currently being rendered.
+The viewport renderer displays only 28 columns at a time. The engine tracks a larger proximity window and uses `proximity_start_tiles` to point at the left column currently being rendered. In the MCGA path, `render_town_tiles_28_columns` then adds `0x20` bytes, which is 4 tile columns, so the visible viewport begins at `proximity_start_tiles + 0x20` instead of the proximity window's left edge.
 
 ## Town NPC structure
 
@@ -119,6 +119,16 @@ Relevant routines:
 | `find_non_passable_npc_at_x_pos` | Searches the NPC array for a blocking NPC at a target X. |
 | left/right edge handlers | Scroll or transition when the hero reaches viewport edges. |
 | `handle_edge_screen_transition` | Loads adjacent town data when crossing town boundary. |
+
+The DOS movement handlers probe row `7` before changing any horizontal state:
+
+- left checks `ProximityMapLeftColumnX + HeroXInViewport + 3`
+- right checks `ProximityMapLeftColumnX + HeroXInViewport + 6`
+
+Both checks feed `check_tile_in_special_list`, so a tile found in the special list blocks movement before the hero can advance or scroll.
+When the viewport is already at the maximum right scroll column, the DOS path falls back to incrementing `hero_x_in_viewport` instead of scrolling further.
+The right-edge transition check is `hero_x_in_viewport + 1 == 28`, so `hero_x_in_viewport = 27` belongs to the transition path.
+Until native transitions exist, the C++ port should clamp before that sentinel and keep Duke on the last safe visible column.
 
 The passability list comes from `seg1:special_tile_list_ptr`, part of the active pattern/tile group.
 
@@ -185,6 +195,7 @@ This avoids redrawing unchanged tiles and is essential for speed on 286-era hard
 ## Proven town viewport coordinates
 
 - `render_town_tiles_28_columns` draws the 28-column town tile layer at logical MCGA coordinates `x = 48`, `y = 14 + 8 * 8 = 78`.
+- `render_town_tiles_28_columns` seeds `si` from `proximity_start_tiles` and then adds `0x20`, so the visible town columns start 4 tile columns after the proximity map's left column.
 - Town tile row `0` starts at that viewport origin. Row `7` ends at `y = 141`, so the full town tile band spans `78..141`.
 - The shared NPC and hero sprite band sits on row `5`, which maps to `y = 14 + 13 * 8 = 118` in the same screen space.
 - `current_column_screen_addr` starts from `48 + 78 * 320` and advances 8 pixels per column.

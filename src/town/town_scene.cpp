@@ -24,8 +24,13 @@ constexpr std::size_t TownMapVisibleColumns = 28;
 constexpr std::size_t TownMapViewportWidth = TownMapVisibleColumns * TownMapTileSize;
 constexpr std::size_t TownMapViewportLeftPixelX = 48;
 constexpr std::size_t TownMapViewportTopPixelY = 14 + 8 * TownMapTileSize;
+// The visible viewport starts 4 columns into the proximity window.
+constexpr std::size_t TownVisibleViewportColumnOffset = 4;
+constexpr std::size_t TownMovementTileAheadRow = 7;
 constexpr std::size_t TownHeroViewportLeftThreshold = 10;
 constexpr std::size_t TownHeroViewportRightThreshold = 16;
+constexpr std::size_t TownHeroRightEdgeTransitionSentinel = 27;
+constexpr std::size_t TownHeroRightEdgeMaximumVisibleX = TownHeroRightEdgeTransitionSentinel - 1;
 constexpr std::size_t TownHeroProximityMapWidthColumns = 36;
 constexpr std::size_t TownEntityProximityRadiusPixels = 20;
 constexpr std::size_t TownMapActorAnimationPhaseCount = 4;
@@ -1341,6 +1346,21 @@ bool TryGetTownMapTileIndexAtPixel(const Mdt::TownMapInfo& TownMap, std::size_t 
     return TryGetTownMapTileIndexAtCell(TownMap, Column, Row, TileIndex);
 }
 
+bool IsTownHeroBlockedByTownTile(const Mdt::TownMapInfo& TownMap, std::size_t ProximityMapLeftColumnX,
+    std::size_t HeroXInViewport, bool MovingLeft)
+{
+    // Match loc_6781 and loc_67F4: probe row 7 one tile ahead of Duke before
+    // any horizontal move or scroll can happen.
+    const std::size_t TileAheadColumn = ProximityMapLeftColumnX + HeroXInViewport + (MovingLeft ? 3 : 6);
+    std::uint8_t TileIndex = 0;
+    if (!TryGetTownMapTileIndexAtCell(TownMap, TileAheadColumn, TownMovementTileAheadRow, TileIndex))
+    {
+        return true;
+    }
+
+    return IsTownMapBlockedTileIndex(TileIndex);
+}
+
 const char* GetTownMapCollisionStatusName(bool ActorCollisionBlocked)
 {
     return ActorCollisionBlocked ? "COL BLOCK" : "COL OK";
@@ -1551,7 +1571,7 @@ TownScene::TownHeadLevelTiles TownScene::SaveHeadLevelTilesInNpcs() const
 std::size_t TownScene::GetTownHeroAbsoluteX() const noexcept
 {
     return static_cast<std::size_t>(TownHeroState.ProximityMapLeftColumnX)
-        + static_cast<std::size_t>(TownHeroState.HeroXInViewport) + 4;
+        + static_cast<std::size_t>(TownHeroState.HeroXInViewport) + TownVisibleViewportColumnOffset;
 }
 
 std::size_t TownScene::GetTownHeroMapPixelX() const noexcept
@@ -1567,9 +1587,10 @@ std::size_t TownScene::GetTownHeroMapPixelY() const noexcept
 
 std::size_t TownScene::GetTownHeroScrollOffsetPixels() const noexcept
 {
-    const std::size_t ProximityMapScrollOffsetPixels = static_cast<std::size_t>(TownHeroState.ProximityMapLeftColumnX)
-        * TownMapTileSize;
-    return std::min<std::size_t>(ProximityMapScrollOffsetPixels, GetTownMapMaximumScrollOffset(TownMap));
+    const std::size_t VisibleViewportLeftColumn = static_cast<std::size_t>(TownHeroState.ProximityMapLeftColumnX)
+        + TownVisibleViewportColumnOffset;
+    const std::size_t VisibleViewportScrollOffsetPixels = VisibleViewportLeftColumn * TownMapTileSize;
+    return std::min<std::size_t>(VisibleViewportScrollOffsetPixels, GetTownMapMaximumScrollOffset(TownMap));
 }
 
 void TownScene::AdvanceTownBackgroundStripScrollOffset(std::ptrdiff_t PixelDelta) noexcept
@@ -1646,24 +1667,43 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
 
     if (LeftPressed)
     {
-        const std::size_t TargetX = GetTownHeroAbsoluteX() - 1;
-        const bool BlockedByNpc = FindNonPassableTownNpcAtXPos(TownNpcArray, TargetX) != nullptr;
-
-        if (!BlockedByNpc && TownHeroState.HeroXInViewport > TownHeroViewportLeftThreshold)
+        if (IsTownHeroBlockedByTownTile(TownMap, TownHeroState.ProximityMapLeftColumnX,
+                TownHeroState.HeroXInViewport, true))
         {
+            SyncTownHeroRuntimeProjection();
+            ActorCollisionBlocked = true;
+            return;
+        }
+
+        const std::size_t TargetX = GetTownHeroAbsoluteX() - 1;
+        if (FindNonPassableTownNpcAtXPos(TownNpcArray, TargetX) != nullptr)
+        {
+            SyncTownHeroRuntimeProjection();
+            ActorCollisionBlocked = true;
+            return;
+        }
+
+        if (TownHeroState.HeroXInViewport > TownHeroViewportLeftThreshold)
+        {
+            TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
+            TownHeroState.FacingDirection |= 1;
             --TownHeroState.HeroXInViewport;
             HeroMoved = true;
         }
-        else if (!BlockedByNpc && TownHeroState.ProximityMapLeftColumnX > 0)
+        else if (TownHeroState.ProximityMapLeftColumnX > 0)
         {
+            TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
+            TownHeroState.FacingDirection |= 1;
             --TownHeroState.ProximityMapLeftColumnX;
             // The assembly scrolls the floor band in 8px steps when the
             // viewport pans, so keep the strip phase aligned to that step.
             AdvanceTownBackgroundStripScrollOffset(8);
             HeroMoved = true;
         }
-        else if (!BlockedByNpc && TownHeroState.HeroXInViewport > 0)
+        else if (TownHeroState.HeroXInViewport > 0)
         {
+            TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
+            TownHeroState.FacingDirection |= 1;
             --TownHeroState.HeroXInViewport;
             HeroMoved = true;
         }
@@ -1675,42 +1715,59 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
     }
     else if (RightPressed)
     {
-        const std::size_t TargetX = GetTownHeroAbsoluteX() + 1;
-        const bool BlockedByNpc = FindNonPassableTownNpcAtXPos(TownNpcArray, TargetX) != nullptr;
-
-        if (!BlockedByNpc && TownHeroState.HeroXInViewport < TownHeroViewportRightThreshold)
+        if (IsTownHeroBlockedByTownTile(TownMap, TownHeroState.ProximityMapLeftColumnX,
+                TownHeroState.HeroXInViewport, false))
         {
+            SyncTownHeroRuntimeProjection();
+            ActorCollisionBlocked = true;
+            return;
+        }
+
+        const std::size_t TargetX = GetTownHeroAbsoluteX() + 1;
+        if (FindNonPassableTownNpcAtXPos(TownNpcArray, TargetX) != nullptr)
+        {
+            SyncTownHeroRuntimeProjection();
+            ActorCollisionBlocked = true;
+            return;
+        }
+
+        if (TownHeroState.HeroXInViewport < TownHeroViewportRightThreshold)
+        {
+            TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
+            TownHeroState.FacingDirection &= 0xFE;
             ++TownHeroState.HeroXInViewport;
             HeroMoved = true;
         }
-        else if (!BlockedByNpc && TownHeroState.ProximityMapLeftColumnX < MaximumProximityMapLeftColumn)
+        else if (TownHeroState.ProximityMapLeftColumnX < MaximumProximityMapLeftColumn)
         {
+            TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
+            TownHeroState.FacingDirection &= 0xFE;
             ++TownHeroState.ProximityMapLeftColumnX;
             // Matching the left scroll call keeps the strip moving with the
             // town view instead of drifting independently.
             AdvanceTownBackgroundStripScrollOffset(-8);
             HeroMoved = true;
         }
-        else if (!BlockedByNpc && TownHeroState.HeroXInViewport < 28)
+        else if (TownHeroState.HeroXInViewport < TownHeroRightEdgeMaximumVisibleX)
         {
-            // Match the DOS off-screen sentinel; the map handoff itself is still provisional.
+            TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
+            TownHeroState.FacingDirection &= 0xFE;
             ++TownHeroState.HeroXInViewport;
             HeroMoved = true;
+        }
+        else
+        {
+            // The DOS path would hand off through hero_x_in_viewport == 27 here.
+            // Keep Duke on the last safe visible column until native transitions exist.
+            SyncTownHeroRuntimeProjection();
+            ActorCollisionBlocked = true;
+            return;
         }
 
         if (HeroMoved)
         {
             TownMovementFrameCountdown = TownMovementFrameDelay;
         }
-    }
-
-    if (HeroMoved)
-    {
-        TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
-    }
-    else
-    {
-        TownMovementFrameCountdown = 0;
     }
 
     SyncTownHeroRuntimeProjection();
@@ -1802,7 +1859,8 @@ void TownScene::UpdateTownNpcRuntimeRecordsShell() const
         RuntimeRecord.AnimationPhase = static_cast<std::uint8_t>((AnimPhase + 1) & 1);
     };
 
-    const std::size_t HeroAbsoluteX = TownHeroState.HeroXInViewport + 4 + TownHeroState.ProximityMapLeftColumnX;
+    const std::size_t HeroAbsoluteX = TownHeroState.HeroXInViewport + TownVisibleViewportColumnOffset
+        + TownHeroState.ProximityMapLeftColumnX;
 
     for (TownNpcRuntimeRecord& TownNpcRuntimeRecord : TownNpcArray)
     {
