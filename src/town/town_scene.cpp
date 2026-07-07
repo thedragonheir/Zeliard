@@ -1,6 +1,7 @@
 #include "town_scene.h"
 
 #include <algorithm>
+#include <bitset>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
@@ -41,7 +42,16 @@ constexpr std::size_t TownBackgroundStripHeight = 16;
 constexpr std::size_t TownBackgroundStripLeftWidth = TownBackgroundStripWidth / 2;
 constexpr std::size_t TownBackgroundStripLeftX = 48;
 constexpr std::size_t TownBackgroundStripLeftY = 14 + 16 * 8;
+constexpr std::size_t YmpdMountainPlaneByteWidth = 56;
+constexpr std::size_t YmpdMountainPlaneHeight = 88;
+constexpr std::size_t YmpdMountainPlaneDecodedByteCount = YmpdMountainPlaneByteWidth * YmpdMountainPlaneHeight;
+constexpr std::size_t TownBackgroundMountainLeftX = 48;
+constexpr std::size_t TownBackgroundMountainTopY = 14;
 constexpr std::size_t TownSpriteBandPixelY = TownHeadLevelRow * TownMapTileSize;
+constexpr std::size_t YmpdMountain0Offset = 0x5E7;
+constexpr std::size_t YmpdMountain0Length = 0xE72;
+constexpr std::size_t YmpdMountain1Offset = 0x1459;
+constexpr std::size_t YmpdMountain1Length = 0xE45;
 constexpr std::size_t YmpdGroundOffset = 0x229E;
 constexpr std::size_t YmpdGroundLength = 0x153;
 constexpr std::size_t YmpdGround1Offset = 0x23F1;
@@ -77,6 +87,13 @@ bool ReadWholeFile(const std::filesystem::path& Path, std::vector<std::uint8_t>&
 
     ErrorMessage.clear();
     return true;
+}
+
+std::string FormatHexOffset(std::size_t Offset)
+{
+    std::ostringstream Output;
+    Output << "0x" << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << Offset;
+    return Output.str();
 }
 
 bool DecodeYmpdExtract28Bytes(const std::vector<std::uint8_t>& FileBytes, std::size_t& SourceOffset,
@@ -132,6 +149,57 @@ bool DecodeYmpdGroundStream(const std::vector<std::uint8_t>& FileBytes, std::siz
         std::copy(Block.begin(), Block.end(), Output.begin() + static_cast<std::ptrdiff_t>(BlockIndex * Block.size()));
     }
 
+    ErrorMessage.clear();
+    return true;
+}
+
+bool DecodeYmpdMountainPlane(const std::vector<std::uint8_t>& FileBytes, std::size_t& SourceOffset,
+    std::size_t SourceLimit, std::array<std::uint8_t, YmpdMountainPlaneDecodedByteCount>& Output,
+    std::size_t& DecodedByteCount, std::string& ErrorMessage)
+{
+    std::size_t OutputIndex = 0;
+
+    while (OutputIndex < Output.size())
+    {
+        if (SourceOffset >= SourceLimit)
+        {
+            ErrorMessage = "YMPD mountain RLE stream ended before 88 x 56 bytes were decoded";
+            return false;
+        }
+
+        const std::uint8_t Token = FileBytes[SourceOffset++];
+        std::size_t RepeatCount = 1;
+        std::uint8_t Value = Token;
+
+        if (Token == 6)
+        {
+            if (SourceOffset + 1 >= SourceLimit)
+            {
+                ErrorMessage = "YMPD mountain RLE stream ended in a repeat token";
+                return false;
+            }
+
+            Value = FileBytes[SourceOffset++];
+            RepeatCount = static_cast<std::size_t>(FileBytes[SourceOffset++]);
+            if (RepeatCount == 0)
+            {
+                RepeatCount = 256;
+            }
+        }
+
+        for (std::size_t RepeatIndex = 0; RepeatIndex < RepeatCount; ++RepeatIndex)
+        {
+            if (OutputIndex >= Output.size())
+            {
+                ErrorMessage = "YMPD mountain RLE stream overran an 88 x 56 byte plane";
+                return false;
+            }
+
+            Output[OutputIndex++] = Value;
+        }
+    }
+
+    DecodedByteCount = OutputIndex;
     ErrorMessage.clear();
     return true;
 }
@@ -200,6 +268,32 @@ std::uint8_t DecodeCkpdPixel(std::uint8_t& Dl, std::uint8_t& Dh)
     return Pixel;
 }
 
+std::uint8_t DecodeYmpdMountainPixel(std::uint8_t& Dl, std::uint8_t& Dh)
+{
+    auto ShiftLeftWithCarry = [](std::uint8_t& Value) -> std::uint8_t
+    {
+        const std::uint8_t Carry = static_cast<std::uint8_t>((Value & 0x80) != 0 ? 1 : 0);
+        Value = static_cast<std::uint8_t>(Value << 1);
+        return Carry;
+    };
+
+    std::uint8_t Pixel = 0;
+
+    Pixel = static_cast<std::uint8_t>(Pixel + Pixel + ShiftLeftWithCarry(Dh));
+
+    Pixel = static_cast<std::uint8_t>(Pixel + Pixel);
+
+    Pixel = static_cast<std::uint8_t>(Pixel + Pixel + ShiftLeftWithCarry(Dl));
+
+    Pixel = static_cast<std::uint8_t>(Pixel + Pixel + ShiftLeftWithCarry(Dh));
+
+    Pixel = static_cast<std::uint8_t>(Pixel + Pixel);
+
+    Pixel = static_cast<std::uint8_t>(Pixel + Pixel + ShiftLeftWithCarry(Dl));
+
+    return Pixel;
+}
+
 void DecodeCkpdScanline(const std::uint8_t* SourceLeft, const std::uint8_t* SourceRight, std::uint8_t* DestinationLeftHalf)
 {
     for (std::size_t ByteIndex = 0; ByteIndex < TownBackgroundStripLeftWidth / 4; ++ByteIndex)
@@ -210,6 +304,23 @@ void DecodeCkpdScanline(const std::uint8_t* SourceLeft, const std::uint8_t* Sour
         for (std::size_t PixelGroupIndex = 0; PixelGroupIndex < 4; ++PixelGroupIndex)
         {
             DestinationLeftHalf[ByteIndex * 4 + PixelGroupIndex] = DecodeCkpdPixel(Dl, Dh);
+        }
+    }
+}
+
+void DecodeYmpdMountainScanline(const std::uint8_t* SourceLeft, const std::uint8_t* SourceRight,
+    std::uint8_t* DestinationRow)
+{
+    constexpr std::size_t MountainPixelsPerSourceByte = TownScene::TownBackgroundMountainWidth / YmpdMountainPlaneByteWidth;
+
+    for (std::size_t ByteIndex = 0; ByteIndex < YmpdMountainPlaneByteWidth; ++ByteIndex)
+    {
+        std::uint8_t Dl = SourceLeft[ByteIndex];
+        std::uint8_t Dh = SourceRight[ByteIndex];
+
+        for (std::size_t PixelGroupIndex = 0; PixelGroupIndex < 4; ++PixelGroupIndex)
+        {
+            DestinationRow[ByteIndex * MountainPixelsPerSourceByte + PixelGroupIndex] = DecodeYmpdMountainPixel(Dl, Dh);
         }
     }
 }
@@ -285,6 +396,94 @@ bool LoadTownBackgroundStripPixels(const std::filesystem::path& TownBackgroundBi
     return true;
 }
 
+bool LoadTownBackgroundMountainLayerPixels(const std::filesystem::path& TownBackgroundBinPath,
+    std::array<std::uint8_t, TownScene::TownBackgroundMountainWidth * TownScene::TownBackgroundMountainHeight>& Output, std::string& ErrorMessage)
+{
+    std::vector<std::uint8_t> FileBytes;
+    if (!ReadWholeFile(TownBackgroundBinPath, FileBytes, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (FileBytes.size() < YmpdMountain1Offset + YmpdMountain1Length)
+    {
+        ErrorMessage = TownBackgroundBinPath.filename().string() + " is too small to contain the YMPD mountain tables";
+        return false;
+    }
+
+    std::array<std::uint8_t, YmpdMountainPlaneDecodedByteCount> Mountain0{};
+    std::array<std::uint8_t, YmpdMountainPlaneDecodedByteCount> Mountain1{};
+    std::size_t Mountain0SourceOffset = YmpdMountain0Offset;
+    std::size_t Mountain1SourceOffset = YmpdMountain1Offset;
+    std::size_t Mountain0DecodedByteCount = 0;
+    std::size_t Mountain1DecodedByteCount = 0;
+    if (!DecodeYmpdMountainPlane(FileBytes, Mountain0SourceOffset, YmpdMountain0Offset + YmpdMountain0Length,
+            Mountain0, Mountain0DecodedByteCount, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (!DecodeYmpdMountainPlane(FileBytes, Mountain1SourceOffset, YmpdMountain1Offset + YmpdMountain1Length,
+            Mountain1, Mountain1DecodedByteCount, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (Mountain0DecodedByteCount != YmpdMountainPlaneDecodedByteCount || Mountain1DecodedByteCount != YmpdMountainPlaneDecodedByteCount)
+    {
+        ErrorMessage = TownBackgroundBinPath.filename().string() + " mountain streams did not decode to exactly "
+            + std::to_string(YmpdMountainPlaneDecodedByteCount) + " bytes";
+        return false;
+    }
+
+    std::cerr << TownBackgroundBinPath.filename().string() << " mountain streams: "
+        << "mountains0 " << FormatHexOffset(YmpdMountain0Offset) << " -> " << Mountain0DecodedByteCount
+        << " bytes ending at " << FormatHexOffset(Mountain0SourceOffset) << ", "
+        << "mountains1 " << FormatHexOffset(YmpdMountain1Offset) << " -> " << Mountain1DecodedByteCount
+        << " bytes ending at " << FormatHexOffset(Mountain1SourceOffset) << '\n';
+
+    for (std::size_t RowIndex = 0; RowIndex < YmpdMountainPlaneHeight; ++RowIndex)
+    {
+        std::uint8_t* DestinationRow = Output.data() + RowIndex * TownScene::TownBackgroundMountainWidth;
+        DecodeYmpdMountainScanline(Mountain0.data() + RowIndex * YmpdMountainPlaneByteWidth,
+            Mountain1.data() + RowIndex * YmpdMountainPlaneByteWidth, DestinationRow);
+    }
+
+    std::bitset<256> UniquePaletteIndices;
+    for (const std::uint8_t Pixel : Output)
+    {
+        UniquePaletteIndices.set(Pixel);
+    }
+
+    std::cerr << TownBackgroundBinPath.filename().string() << " mountain layer: "
+        << "decoded plane size 56 x 88 bytes, "
+        << "rendered mountain size 224 x 88 pixels, "
+        << "final mountain pixel count " << Output.size() << ", "
+        << "unique palette indices (" << UniquePaletteIndices.count() << "): ";
+
+    bool IsFirstPaletteIndex = true;
+    for (std::size_t PaletteIndex = 0; PaletteIndex < UniquePaletteIndices.size(); ++PaletteIndex)
+    {
+        if (!UniquePaletteIndices.test(PaletteIndex))
+        {
+            continue;
+        }
+
+        if (!IsFirstPaletteIndex)
+        {
+            std::cerr << ',';
+        }
+
+        std::cerr << PaletteIndex;
+        IsFirstPaletteIndex = false;
+    }
+
+    std::cerr << '\n';
+
+    ErrorMessage.clear();
+    return true;
+}
+
 void DrawTownBackgroundStrip(SDL_Renderer* Renderer,
     const std::array<std::uint8_t, TownBackgroundStripWidth * TownBackgroundStripHeight>& Pixels,
     const Main64Palette& Palette, std::size_t ScrollOffsetPixels)
@@ -310,6 +509,35 @@ void DrawTownBackgroundStrip(SDL_Renderer* Renderer,
             const SDL_FRect PixelRect{
                 static_cast<float>(TownBackgroundStripLeftX + Column),
                 static_cast<float>(TownBackgroundStripLeftY + Row),
+                1.0f,
+                1.0f
+            };
+            SDL_RenderFillRect(Renderer, &PixelRect);
+        }
+    }
+}
+
+void DrawTownBackgroundMountainLayer(SDL_Renderer* Renderer,
+    const std::array<std::uint8_t, TownScene::TownBackgroundMountainWidth * TownScene::TownBackgroundMountainHeight>& Pixels,
+    const Main64Palette& Palette)
+{
+    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
+    for (std::size_t Row = 0; Row < TownScene::TownBackgroundMountainHeight; ++Row)
+    {
+        for (std::size_t Column = 0; Column < TownScene::TownBackgroundMountainWidth; ++Column)
+        {
+            const std::uint8_t PaletteIndex = Pixels[Row * TownScene::TownBackgroundMountainWidth + Column];
+            if (PaletteIndex >= Palette.size())
+            {
+                continue;
+            }
+
+            const SDL_Color& Color = Palette[PaletteIndex];
+            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+
+            const SDL_FRect PixelRect{
+                static_cast<float>(TownBackgroundMountainLeftX + Column),
+                static_cast<float>(TownBackgroundMountainTopY + Row),
                 1.0f,
                 1.0f
             };
@@ -1394,6 +1622,18 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     TownBackgroundStripUsesCkpd = TownMap.HasMiddleLayer;
     const std::filesystem::path TownBackgroundBinPath = ActorSpriteGrpPath.parent_path()
         / (TownBackgroundStripUsesCkpd ? "ckpd.bin" : "ympd.bin");
+    if (!TownBackgroundStripUsesCkpd)
+    {
+        std::string TownBackgroundMountainLayerErrorMessage;
+        TownBackgroundMountainLayerLoaded = LoadTownBackgroundMountainLayerPixels(TownBackgroundBinPath,
+            TownBackgroundMountainLayerPixels, TownBackgroundMountainLayerErrorMessage);
+        if (!TownBackgroundMountainLayerLoaded)
+        {
+            std::cerr << TownBackgroundBinPath.filename().string() << " mountain layer load failed: "
+                << TownBackgroundMountainLayerErrorMessage << '\n';
+        }
+    }
+
     std::string TownBackgroundStripErrorMessage;
     TownBackgroundStripLoaded = LoadTownBackgroundStripPixels(TownBackgroundBinPath, TownBackgroundStripUsesCkpd,
         TownBackgroundStripPixels, TownBackgroundStripErrorMessage);
@@ -1434,6 +1674,11 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     TownColumnRenderStats RenderStats{};
     TownNpcSpriteShadowBuffer ShadowBuffer;
     ShadowBuffer.Reserve(TownNpcArray.size() * 2);
+
+    if (TownBackgroundMountainLayerLoaded)
+    {
+        DrawTownBackgroundMountainLayer(Renderer, TownBackgroundMountainLayerPixels, Palette);
+    }
 
     for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
     {

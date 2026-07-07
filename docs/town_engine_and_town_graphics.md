@@ -260,6 +260,14 @@ Four routines scroll decorative parts of the town scene:
 Right scroll uses `std` so copy operations proceed backward and avoid overwriting source pixels before they are copied.
 The floor routines are called only when `proximity_map_left_col_x` advances or retreats during horizontal town panning; `hero_x_in_viewport` only decides whether the hero moves within the viewport or the viewport itself scrolls.
 
+## Mountain layer path
+
+- `town.asm` loads `YMPD.BIN` when `town_has_middle_layer` bit 0 is clear.
+- `sub_3300` expands `mountains0` from `ympd.bin` offset `0x05E7` to `seg1:0000` and `mountains1` from offset `0x1459` to `seg1:1340h`, decoding each stream to exactly 4928 bytes into an 88 x 56 plane buffer before `render_mountains` combines the two planes into the final `224 x 88` MCGA layer.
+- The mountain RLE stream uses `0x06, value, count`, and `count` is an unsigned 8-bit repeat byte, so `0xFF` means 255 repeats.
+- The mountain layer is rendered at logical MCGA coordinates `x = 48`, `y = 14` and spans `224 x 88` pixels; that is the rendered footprint, not the decoded plane size.
+- Each source byte pair from the two mountain planes produces 4 MCGA pixels through the `sub_34F9` bit-combine logic.
+
 ## Lower strip path
 
 The current town scene now also mirrors the floor strip from the background driver instead of leaving the lower area black.

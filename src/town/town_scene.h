@@ -26,6 +26,9 @@ enum class TownMapActorFacingDirection
 class TownScene
 {
 public:
+    static constexpr std::size_t TownBackgroundMountainWidth = 224;
+    static constexpr std::size_t TownBackgroundMountainHeight = 88;
+
     TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std::filesystem::path& TownNpcSpriteGrpPath,
         const Mdt::TownMapInfo& TownMap,
         const Grp::PatternBank& PatternBank, const Main64Palette& Palette);
@@ -185,6 +188,7 @@ private:
     bool ActorCollisionBlocked = false;
     bool BlockedTileOverlayEnabled = false;
     bool TownEntityMarkersEnabled = false;
+    bool TownBackgroundMountainLayerLoaded = false;
     bool TownBackgroundStripLoaded = false;
     bool TownBackgroundStripUsesCkpd = false;
     std::size_t TownBackgroundStripScrollOffsetPixels = 0;
@@ -194,6 +198,7 @@ private:
     mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameVisible{};
     mutable bool TownNpcSpriteFrameWarningPrinted = false;
     mutable std::vector<TownNpcRuntimeRecord> TownNpcArray;
+    std::array<std::uint8_t, TownBackgroundMountainWidth * TownBackgroundMountainHeight> TownBackgroundMountainLayerPixels{};
     std::array<std::uint8_t, 224 * 16> TownBackgroundStripPixels{};
     Grp::NpcSpriteFrame ActorFrame;
 };
