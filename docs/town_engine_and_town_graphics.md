@@ -280,6 +280,26 @@ The current town scene now also mirrors the floor strip from the background driv
 - The decoded strip stays at that fixed screen position, but its pixels are sampled with a cyclic 8-pixel horizontal phase that advances only when the viewport pans one town column, matching `scroll_floor_right_8px` and `scroll_floor_left_8px`.
 - No separate background-driver offset was found in the inspected assembly; the proven driver behavior is the in-place 8px scroll step, not a new scenic background system.
 
+## MOLE side panels
+
+`mole.bin` is loaded at `seg3:0` and `DrawDecorationsAroundCanvas` selects the MCGA path with `al = 4`. For the town frame we now use only the two decorative side-panel passes:
+
+- left panel: `title_border1_data` + `title_border2_data`
+- right panel: `title_frame1_data` + `title_frame2_data`
+
+The confirmed source spans in `game/0/mole.bin` are:
+
+- `title_border1_data`: `0x08CD..0x10DA`
+- `title_border2_data`: `0x10DB..0x1860`
+- `title_frame1_data`: `0x1861..0x2087`
+- `title_frame2_data`: `0x2088..0x2798`
+
+Each source plane decodes to `12 x 200` bytes, and the MCGA unpack path combines two planes into a `48 x 200` pixel panel. The left panel renders at `x = 0`, `y = 0`; the right panel renders at `x = 272`, `y = 0`. The center town viewport still stays anchored at `x = 48`.
+
+The MOLE MCGA unpack table is the exact one from `Unpack2bppTo4bit_MCGA`:
+
+`0,1,5,3,8,9,0D,0B,28,29,2D,2B,18,19,1D,1B`
+
 ## Town pattern loading
 
 `town.asm` loads pattern groups through:

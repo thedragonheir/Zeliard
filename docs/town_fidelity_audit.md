@@ -41,6 +41,7 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 - The YMPD outdoor mountain layer is now decoded from `mountains0` at `0x05E7` and `mountains1` at `0x1459` into `88 x 56` byte planes, then drawn behind the town tiles at `x = 48`, `y = 14` with a `224 x 88` rendered footprint. The mountain RLE repeat byte is unsigned, so `0xFF` means 255 repeats.
 - The original YMPD mountain pass is a one-shot VRAM background render at `A000:(48,14)`; it does not move with `proximity_map_left_col_x` and it is not redrawn by the town frame loop.
 - The floor strip now scrolls horizontally in 8px steps when `proximity_map_left_col_x` changes, while staying anchored at `x = 48`, `y = 142`; the remaining CKPD scenic behavior above the town viewport is still provisional.
+- The town frame now also renders the MOLE decorative side panels from `mole.bin`: the left panel sits at `x = 0`, `y = 0`, the right panel sits at `x = 272`, `y = 0`, and the central `x = 48` town viewport stays unchanged.
 ## Collision And Scrolling
 - The remaining collision work is deferred.
 - The NPC blocker path now matches the assembly's X-column scan and only treats `n_flags` bit 6 as non-passable.

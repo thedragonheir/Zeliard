@@ -42,6 +42,20 @@ constexpr std::size_t TownBackgroundStripHeight = 16;
 constexpr std::size_t TownBackgroundStripLeftWidth = TownBackgroundStripWidth / 2;
 constexpr std::size_t TownBackgroundStripLeftX = 48;
 constexpr std::size_t TownBackgroundStripLeftY = 14 + 16 * 8;
+constexpr std::size_t TownMoleDecorationPanelWidth = TownScene::TownMoleDecorationPanelWidth;
+constexpr std::size_t TownMoleDecorationPanelHeight = TownScene::TownMoleDecorationPanelHeight;
+constexpr std::size_t TownMoleDecorationPanelPlaneWidthBytes = TownMoleDecorationPanelWidth / 4;
+constexpr std::size_t TownMoleDecorationPanelDecodedByteCount = TownMoleDecorationPanelPlaneWidthBytes * TownMoleDecorationPanelHeight;
+constexpr std::size_t TownMoleDecorationPanelLeftX = 0;
+constexpr std::size_t TownMoleDecorationPanelRightX = 272;
+constexpr std::size_t TownMoleBorder1Offset = 0x8CD;
+constexpr std::size_t TownMoleBorder1Length = 0x80E;
+constexpr std::size_t TownMoleBorder2Offset = 0x10DB;
+constexpr std::size_t TownMoleBorder2Length = 0x786;
+constexpr std::size_t TownMoleFrame1Offset = 0x1861;
+constexpr std::size_t TownMoleFrame1Length = 0x827;
+constexpr std::size_t TownMoleFrame2Offset = 0x2088;
+constexpr std::size_t TownMoleFrame2Length = 0x711;
 constexpr std::size_t YmpdMountainPlaneByteWidth = 56;
 constexpr std::size_t YmpdMountainPlaneHeight = 88;
 constexpr std::size_t YmpdMountainPlaneDecodedByteCount = YmpdMountainPlaneByteWidth * YmpdMountainPlaneHeight;
@@ -60,6 +74,11 @@ constexpr std::size_t CkpdGroundOffset = 0x1C25;
 constexpr std::size_t CkpdGroundLength = 0x1C0;
 constexpr std::size_t CkpdGround1Offset = 0x1DE5;
 constexpr std::size_t CkpdGround1Length = 0x1C0;
+constexpr std::array<std::uint8_t, 16> TownMoleUnpackTable =
+{
+    0, 1, 5, 3, 8, 9, 0x0D, 0x0B,
+    0x28, 0x29, 0x2D, 0x2B, 0x18, 0x19, 0x1D, 0x1B
+};
 
 bool ReadWholeFile(const std::filesystem::path& Path, std::vector<std::uint8_t>& Output, std::string& ErrorMessage)
 {
@@ -200,6 +219,266 @@ bool DecodeYmpdMountainPlane(const std::vector<std::uint8_t>& FileBytes, std::si
     }
 
     DecodedByteCount = OutputIndex;
+    ErrorMessage.clear();
+    return true;
+}
+
+bool DecodeMoleRlePlane(const std::vector<std::uint8_t>& FileBytes, std::size_t& SourceOffset,
+    std::size_t SourceLimit, std::array<std::uint8_t, TownMoleDecorationPanelDecodedByteCount>& Output,
+    std::size_t& DecodedByteCount, std::string& ErrorMessage)
+{
+    std::size_t OutputIndex = 0;
+
+    while (true)
+    {
+        if (SourceOffset >= SourceLimit)
+        {
+            ErrorMessage = "MOLE RLE stream ended before the 48 x 200 panel was decoded";
+            return false;
+        }
+
+        const std::uint8_t Token = FileBytes[SourceOffset++];
+        if (Token == 0)
+        {
+            if (OutputIndex != Output.size())
+            {
+                ErrorMessage = "MOLE RLE stream terminated before the 48 x 200 panel was complete";
+                return false;
+            }
+
+            DecodedByteCount = OutputIndex;
+            ErrorMessage.clear();
+            return true;
+        }
+
+        const std::uint8_t HighNibble = static_cast<std::uint8_t>(Token & 0xF0);
+        std::size_t RepeatCount = 1;
+        std::uint8_t Value = Token;
+
+        if (HighNibble == 0x10)
+        {
+            RepeatCount = static_cast<std::size_t>(Token & 0x0F);
+            Value = 0xAA;
+        }
+        else if (HighNibble == 0x40)
+        {
+            RepeatCount = static_cast<std::size_t>(Token & 0x0F);
+            Value = 0x00;
+        }
+
+        if (RepeatCount == 0)
+        {
+            RepeatCount = 256;
+        }
+
+        for (std::size_t RepeatIndex = 0; RepeatIndex < RepeatCount; ++RepeatIndex)
+        {
+            if (OutputIndex >= Output.size())
+            {
+                ErrorMessage = "MOLE RLE stream overran a 48 x 200 panel plane";
+                return false;
+            }
+
+            Output[OutputIndex++] = Value;
+        }
+    }
+}
+
+std::uint8_t DecodeMoleMcgaPixel(std::uint8_t& Dl, std::uint8_t& Dh)
+{
+    auto ShiftLeftWithCarry = [](std::uint8_t& Value) -> std::uint8_t
+    {
+        const std::uint8_t Carry = static_cast<std::uint8_t>((Value & 0x80) != 0 ? 1 : 0);
+        Value = static_cast<std::uint8_t>(Value << 1);
+        return Carry;
+    };
+
+    std::uint8_t PixelIndex = 0;
+
+    PixelIndex = static_cast<std::uint8_t>(PixelIndex + PixelIndex + ShiftLeftWithCarry(Dh));
+    PixelIndex = static_cast<std::uint8_t>(PixelIndex + PixelIndex + ShiftLeftWithCarry(Dl));
+    PixelIndex = static_cast<std::uint8_t>(PixelIndex + PixelIndex + ShiftLeftWithCarry(Dh));
+    PixelIndex = static_cast<std::uint8_t>(PixelIndex + PixelIndex + ShiftLeftWithCarry(Dl));
+    PixelIndex = static_cast<std::uint8_t>(PixelIndex & 0x0F);
+    return TownMoleUnpackTable[PixelIndex];
+}
+
+void DecodeMoleMcgaScanline(const std::uint8_t* SourceLeft, const std::uint8_t* SourceRight, std::uint8_t* DestinationRow)
+{
+    for (std::size_t ByteIndex = 0; ByteIndex < TownMoleDecorationPanelPlaneWidthBytes; ++ByteIndex)
+    {
+        std::uint8_t Dl = SourceLeft[ByteIndex];
+        std::uint8_t Dh = SourceRight[ByteIndex];
+
+        for (std::size_t PixelGroupIndex = 0; PixelGroupIndex < 4; ++PixelGroupIndex)
+        {
+            DestinationRow[ByteIndex * 4 + PixelGroupIndex] = DecodeMoleMcgaPixel(Dl, Dh);
+        }
+    }
+}
+
+void DecodeMoleDecorationPanelPixels(const std::array<std::uint8_t, TownMoleDecorationPanelDecodedByteCount>& Plane0,
+    const std::array<std::uint8_t, TownMoleDecorationPanelDecodedByteCount>& Plane1,
+    std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight>& Output)
+{
+    for (std::size_t RowIndex = 0; RowIndex < TownMoleDecorationPanelHeight; ++RowIndex)
+    {
+        DecodeMoleMcgaScanline(Plane0.data() + RowIndex * TownMoleDecorationPanelPlaneWidthBytes,
+            Plane1.data() + RowIndex * TownMoleDecorationPanelPlaneWidthBytes,
+            Output.data() + RowIndex * TownMoleDecorationPanelWidth);
+    }
+}
+
+void LogMoleDecorationPanelPixels(const char* PanelName,
+    const std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight>& Pixels)
+{
+    std::bitset<256> UniquePaletteIndices;
+    for (const std::uint8_t Pixel : Pixels)
+    {
+        UniquePaletteIndices.set(Pixel);
+    }
+
+    std::cerr << "mole.bin " << PanelName << " panel: "
+        << "final panel dimensions " << TownMoleDecorationPanelWidth << " x " << TownMoleDecorationPanelHeight
+        << " pixels, unique palette indices (" << UniquePaletteIndices.count() << "): ";
+
+    bool IsFirstPaletteIndex = true;
+    for (std::size_t PaletteIndex = 0; PaletteIndex < UniquePaletteIndices.size(); ++PaletteIndex)
+    {
+        if (!UniquePaletteIndices.test(PaletteIndex))
+        {
+            continue;
+        }
+
+        if (!IsFirstPaletteIndex)
+        {
+            std::cerr << ',';
+        }
+
+        std::cerr << PaletteIndex;
+        IsFirstPaletteIndex = false;
+    }
+
+    std::cerr << '\n';
+}
+
+bool LoadTownMoleDecorationPanels(const std::filesystem::path& MoleBinPath,
+    std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight>& LeftPanelPixels,
+    std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight>& RightPanelPixels,
+    std::string& ErrorMessage)
+{
+    std::vector<std::uint8_t> FileBytes;
+    if (!ReadWholeFile(MoleBinPath, FileBytes, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (FileBytes.size() < TownMoleFrame2Offset + TownMoleFrame2Length)
+    {
+        ErrorMessage = MoleBinPath.filename().string() + " is too small to contain the MOLE decoration panels";
+        return false;
+    }
+
+    std::array<std::uint8_t, TownMoleDecorationPanelDecodedByteCount> LeftPlane0{};
+    std::array<std::uint8_t, TownMoleDecorationPanelDecodedByteCount> LeftPlane1{};
+    std::array<std::uint8_t, TownMoleDecorationPanelDecodedByteCount> RightPlane0{};
+    std::array<std::uint8_t, TownMoleDecorationPanelDecodedByteCount> RightPlane1{};
+    std::size_t LeftPlane0SourceOffset = TownMoleBorder1Offset;
+    std::size_t LeftPlane1SourceOffset = TownMoleBorder2Offset;
+    std::size_t RightPlane0SourceOffset = TownMoleFrame1Offset;
+    std::size_t RightPlane1SourceOffset = TownMoleFrame2Offset;
+    std::size_t LeftPlane0DecodedByteCount = 0;
+    std::size_t LeftPlane1DecodedByteCount = 0;
+    std::size_t RightPlane0DecodedByteCount = 0;
+    std::size_t RightPlane1DecodedByteCount = 0;
+
+    if (!DecodeMoleRlePlane(FileBytes, LeftPlane0SourceOffset, TownMoleBorder1Offset + TownMoleBorder1Length,
+            LeftPlane0, LeftPlane0DecodedByteCount, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (LeftPlane0SourceOffset != TownMoleBorder1Offset + TownMoleBorder1Length)
+    {
+        ErrorMessage = MoleBinPath.filename().string() + " title_border1_data ended at "
+            + FormatHexOffset(LeftPlane0SourceOffset) + " instead of "
+            + FormatHexOffset(TownMoleBorder1Offset + TownMoleBorder1Length);
+        return false;
+    }
+
+    if (!DecodeMoleRlePlane(FileBytes, LeftPlane1SourceOffset, TownMoleBorder2Offset + TownMoleBorder2Length,
+            LeftPlane1, LeftPlane1DecodedByteCount, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (LeftPlane1SourceOffset != TownMoleBorder2Offset + TownMoleBorder2Length)
+    {
+        ErrorMessage = MoleBinPath.filename().string() + " title_border2_data ended at "
+            + FormatHexOffset(LeftPlane1SourceOffset) + " instead of "
+            + FormatHexOffset(TownMoleBorder2Offset + TownMoleBorder2Length);
+        return false;
+    }
+
+    if (!DecodeMoleRlePlane(FileBytes, RightPlane0SourceOffset, TownMoleFrame1Offset + TownMoleFrame1Length,
+            RightPlane0, RightPlane0DecodedByteCount, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (RightPlane0SourceOffset != TownMoleFrame1Offset + TownMoleFrame1Length)
+    {
+        ErrorMessage = MoleBinPath.filename().string() + " title_frame1_data ended at "
+            + FormatHexOffset(RightPlane0SourceOffset) + " instead of "
+            + FormatHexOffset(TownMoleFrame1Offset + TownMoleFrame1Length);
+        return false;
+    }
+
+    if (!DecodeMoleRlePlane(FileBytes, RightPlane1SourceOffset, TownMoleFrame2Offset + TownMoleFrame2Length,
+            RightPlane1, RightPlane1DecodedByteCount, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (RightPlane1SourceOffset != TownMoleFrame2Offset + TownMoleFrame2Length)
+    {
+        ErrorMessage = MoleBinPath.filename().string() + " title_frame2_data ended at "
+            + FormatHexOffset(RightPlane1SourceOffset) + " instead of "
+            + FormatHexOffset(TownMoleFrame2Offset + TownMoleFrame2Length);
+        return false;
+    }
+
+    if (LeftPlane0DecodedByteCount != TownMoleDecorationPanelDecodedByteCount
+        || LeftPlane1DecodedByteCount != TownMoleDecorationPanelDecodedByteCount
+        || RightPlane0DecodedByteCount != TownMoleDecorationPanelDecodedByteCount
+        || RightPlane1DecodedByteCount != TownMoleDecorationPanelDecodedByteCount)
+    {
+        ErrorMessage = MoleBinPath.filename().string() + " MOLE panel streams did not decode to exactly "
+            + std::to_string(TownMoleDecorationPanelDecodedByteCount) + " bytes";
+        return false;
+    }
+
+    std::cerr << MoleBinPath.filename().string() << " left panel decoded plane sizes: "
+        << "title_border1 " << TownMoleDecorationPanelPlaneWidthBytes << " x " << TownMoleDecorationPanelHeight
+        << " bytes from " << FormatHexOffset(TownMoleBorder1Offset) << " to "
+        << FormatHexOffset(TownMoleBorder1Offset + TownMoleBorder1Length) << ", title_border2 "
+        << TownMoleDecorationPanelPlaneWidthBytes << " x " << TownMoleDecorationPanelHeight
+        << " bytes from " << FormatHexOffset(TownMoleBorder2Offset) << " to "
+        << FormatHexOffset(TownMoleBorder2Offset + TownMoleBorder2Length) << '\n';
+    std::cerr << MoleBinPath.filename().string() << " right panel decoded plane sizes: "
+        << "title_frame1 " << TownMoleDecorationPanelPlaneWidthBytes << " x " << TownMoleDecorationPanelHeight
+        << " bytes from " << FormatHexOffset(TownMoleFrame1Offset) << " to "
+        << FormatHexOffset(TownMoleFrame1Offset + TownMoleFrame1Length) << ", title_frame2 "
+        << TownMoleDecorationPanelPlaneWidthBytes << " x " << TownMoleDecorationPanelHeight
+        << " bytes from " << FormatHexOffset(TownMoleFrame2Offset) << " to "
+        << FormatHexOffset(TownMoleFrame2Offset + TownMoleFrame2Length) << '\n';
+
+    DecodeMoleDecorationPanelPixels(LeftPlane0, LeftPlane1, LeftPanelPixels);
+    DecodeMoleDecorationPanelPixels(RightPlane0, RightPlane1, RightPanelPixels);
+
+    LogMoleDecorationPanelPixels("left", LeftPanelPixels);
+    LogMoleDecorationPanelPixels("right", RightPanelPixels);
+
     ErrorMessage.clear();
     return true;
 }
@@ -538,6 +817,35 @@ void DrawTownBackgroundMountainLayer(SDL_Renderer* Renderer,
             const SDL_FRect PixelRect{
                 static_cast<float>(TownBackgroundMountainLeftX + Column),
                 static_cast<float>(TownBackgroundMountainTopY + Row),
+                1.0f,
+                1.0f
+            };
+            SDL_RenderFillRect(Renderer, &PixelRect);
+        }
+    }
+}
+
+void DrawTownMoleDecorationPanel(SDL_Renderer* Renderer,
+    const std::array<std::uint8_t, TownScene::TownMoleDecorationPanelWidth * TownScene::TownMoleDecorationPanelHeight>& Pixels,
+    const Main64Palette& Palette, std::size_t ScreenX, std::size_t ScreenY)
+{
+    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
+    for (std::size_t Row = 0; Row < TownScene::TownMoleDecorationPanelHeight; ++Row)
+    {
+        for (std::size_t Column = 0; Column < TownScene::TownMoleDecorationPanelWidth; ++Column)
+        {
+            const std::uint8_t PaletteIndex = Pixels[Row * TownScene::TownMoleDecorationPanelWidth + Column];
+            if (PaletteIndex >= Palette.size())
+            {
+                continue;
+            }
+
+            const SDL_Color& Color = Palette[PaletteIndex];
+            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+
+            const SDL_FRect PixelRect{
+                static_cast<float>(ScreenX + Column),
+                static_cast<float>(ScreenY + Row),
                 1.0f,
                 1.0f
             };
@@ -1642,6 +1950,17 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
         std::cerr << TownBackgroundBinPath.filename().string() << " lower strip load failed: "
             << TownBackgroundStripErrorMessage << '\n';
     }
+
+    const std::filesystem::path TownMoleBinPath = ActorSpriteGrpPath.parent_path() / "mole.bin";
+    std::string TownMoleDecorationPanelsErrorMessage;
+    TownMoleDecorationPanelsLoaded = LoadTownMoleDecorationPanels(TownMoleBinPath,
+        TownMoleLeftDecorationPanelPixels, TownMoleRightDecorationPanelPixels, TownMoleDecorationPanelsErrorMessage);
+    if (!TownMoleDecorationPanelsLoaded)
+    {
+        std::cerr << TownMoleBinPath.filename().string() << " decoration panel load failed: "
+            << TownMoleDecorationPanelsErrorMessage << '\n';
+    }
+
     ActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(ActorFrameIndex);
     SyncTownHeroRuntimeProjection();
@@ -1674,6 +1993,14 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     TownColumnRenderStats RenderStats{};
     TownNpcSpriteShadowBuffer ShadowBuffer;
     ShadowBuffer.Reserve(TownNpcArray.size() * 2);
+
+    if (TownMoleDecorationPanelsLoaded)
+    {
+        DrawTownMoleDecorationPanel(Renderer, TownMoleLeftDecorationPanelPixels, Palette,
+            TownMoleDecorationPanelLeftX, 0);
+        DrawTownMoleDecorationPanel(Renderer, TownMoleRightDecorationPanelPixels, Palette,
+            TownMoleDecorationPanelRightX, 0);
+    }
 
     if (TownBackgroundMountainLayerLoaded)
     {

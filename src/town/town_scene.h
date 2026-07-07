@@ -28,6 +28,8 @@ class TownScene
 public:
     static constexpr std::size_t TownBackgroundMountainWidth = 224;
     static constexpr std::size_t TownBackgroundMountainHeight = 88;
+    static constexpr std::size_t TownMoleDecorationPanelWidth = 48;
+    static constexpr std::size_t TownMoleDecorationPanelHeight = 200;
 
     TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std::filesystem::path& TownNpcSpriteGrpPath,
         const Mdt::TownMapInfo& TownMap,
@@ -191,6 +193,7 @@ private:
     bool TownBackgroundMountainLayerLoaded = false;
     bool TownBackgroundStripLoaded = false;
     bool TownBackgroundStripUsesCkpd = false;
+    bool TownMoleDecorationPanelsLoaded = false;
     std::size_t TownBackgroundStripScrollOffsetPixels = 0;
     mutable bool FallbackWarningPrinted = false;
     mutable std::array<Grp::NpcSpriteFrame, TownNpcSpriteFrameCount> TownNpcSpriteFrames{};
@@ -200,5 +203,7 @@ private:
     mutable std::vector<TownNpcRuntimeRecord> TownNpcArray;
     std::array<std::uint8_t, TownBackgroundMountainWidth * TownBackgroundMountainHeight> TownBackgroundMountainLayerPixels{};
     std::array<std::uint8_t, 224 * 16> TownBackgroundStripPixels{};
+    std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight> TownMoleLeftDecorationPanelPixels{};
+    std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight> TownMoleRightDecorationPanelPixels{};
     Grp::NpcSpriteFrame ActorFrame;
 };
