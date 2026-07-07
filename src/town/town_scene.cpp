@@ -13,6 +13,8 @@
 #include <utility>
 #include <vector>
 
+std::uint8_t TearsOfEsmesantiCount = 0;
+
 namespace Grp
 {
 bool LoadTownHeroSpriteFrame(const std::filesystem::path& Path, std::size_t FrameIndex, NpcSpriteFrame& Output, std::string& ErrorMessage);
@@ -62,6 +64,18 @@ constexpr std::size_t TownMoleDecorationPanelPlaneWidthBytes = TownMoleDecoratio
 constexpr std::size_t TownMoleDecorationPanelDecodedByteCount = TownMoleDecorationPanelPlaneWidthBytes * TownMoleDecorationPanelHeight;
 constexpr std::size_t TownMoleDecorationPanelLeftX = 0;
 constexpr std::size_t TownMoleDecorationPanelRightX = 272;
+constexpr std::size_t TownMoleTopTearsBaseWidth = TownScene::TownMoleTopTearsBaseWidth;
+constexpr std::size_t TownMoleTopTearsBaseHeight = TownScene::TownMoleTopTearsBaseHeight;
+constexpr std::size_t TownMoleTopTearsBasePlaneWidthBytes = TownMoleTopTearsBaseWidth / 4;
+constexpr std::size_t TownMoleTopTearsBaseDecodedByteCount = TownMoleTopTearsBasePlaneWidthBytes * TownMoleTopTearsBaseHeight;
+constexpr std::size_t TownMoleTopTearsBaseLeftX = 48;
+constexpr std::size_t TownMoleTopTearsBaseTopY = 0;
+constexpr std::size_t TownMoleTopLogoOffset = 0x04AE;
+constexpr std::size_t TownMoleTopLogoLength = 0x028F;
+constexpr std::size_t TownMoleTopLogoDecodedByteCount = TownMoleTopTearsBaseDecodedByteCount;
+constexpr std::size_t TownMoleTopDemoTextOffset = 0x073D;
+constexpr std::size_t TownMoleTopDemoTextLength = 0x0190;
+constexpr std::uint8_t TownMoleTopTearsBaseRleMarkerHigh = 0x90;
 constexpr std::size_t TownMoleBorder1Offset = 0x8CD;
 constexpr std::size_t TownMoleBorder1Length = 0x80E;
 constexpr std::size_t TownMoleBorder2Offset = 0x10DB;
@@ -82,6 +96,8 @@ constexpr std::size_t TownMoleBottomStatusBaseRleMarkerHigh = 0x50;
 constexpr std::size_t TownMoleBottomStatusBaseSecondPlaneFillWordCount = 0x4B0;
 constexpr std::size_t TownMoleBottomStatusBaseSecondPlaneFillByteCount =
     TownMoleBottomStatusBaseSecondPlaneFillWordCount * sizeof(std::uint16_t);
+constexpr std::size_t TownTearsOverlaySmallIconFileOffset = TownScene::TownTearsOverlaySmallIconFileOffset;
+constexpr std::size_t TownTearsOverlayLargeIconFileOffset = TownScene::TownTearsOverlayLargeIconFileOffset;
 constexpr std::size_t YmpdMountainPlaneByteWidth = 56;
 constexpr std::size_t YmpdMountainPlaneHeight = 88;
 constexpr std::size_t YmpdMountainPlaneDecodedByteCount = YmpdMountainPlaneByteWidth * YmpdMountainPlaneHeight;
@@ -398,6 +414,92 @@ void LogMolePanelPixels(const char* PanelName, std::size_t PanelWidthPixels, std
     }
 
     std::cerr << '\n';
+}
+
+bool LoadTownMoleTopTearsBasePanel(const std::filesystem::path& MoleBinPath,
+    std::array<std::uint8_t, TownMoleTopTearsBaseWidth * TownMoleTopTearsBaseHeight>& TopTearsBasePixels,
+    std::string& ErrorMessage)
+{
+    std::vector<std::uint8_t> FileBytes;
+    if (!ReadWholeFile(MoleBinPath, FileBytes, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (FileBytes.size() < TownMoleTopDemoTextOffset + TownMoleTopDemoTextLength)
+    {
+        ErrorMessage = MoleBinPath.filename().string() + " is too small to contain the MOLE top tears base panel";
+        return false;
+    }
+
+    std::array<std::uint8_t, TownMoleTopLogoDecodedByteCount> TopLogoDecodedBytes{};
+    std::array<std::uint8_t, TownMoleTopTearsBaseDecodedByteCount> TopDemoTextDecodedBytes{};
+    std::size_t TopLogoSourceOffset = TownMoleTopLogoOffset;
+    std::size_t TopDemoTextSourceOffset = TownMoleTopDemoTextOffset;
+    std::size_t TopLogoDecodedByteCount = 0;
+    std::size_t TopDemoTextDecodedByteCount = 0;
+
+    std::cerr << MoleBinPath.filename().string() << " top tears base panel: "
+        << "title_logo " << FormatHexOffset(TownMoleTopLogoOffset) << ".."
+        << FormatHexOffset(TownMoleTopLogoOffset + TownMoleTopLogoLength)
+        << ", title_demo_text " << FormatHexOffset(TownMoleTopDemoTextOffset) << ".."
+        << FormatHexOffset(TownMoleTopDemoTextOffset + TownMoleTopDemoTextLength)
+        << ", RLE marker high nibble " << FormatHexByte(TownMoleTopTearsBaseRleMarkerHigh)
+        << ", rle_flag state " << FormatHexByte(0x00) << '\n';
+
+    if (!DecodeMoleRlePlane(FileBytes, TopLogoSourceOffset,
+            TownMoleTopLogoOffset + TownMoleTopLogoLength, TopLogoDecodedBytes,
+            TopLogoDecodedByteCount, TownMoleTopTearsBaseRleMarkerHigh, false, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (TopLogoSourceOffset != TownMoleTopLogoOffset + TownMoleTopLogoLength)
+    {
+        ErrorMessage = MoleBinPath.filename().string() + " title_logo_data ended at "
+            + FormatHexOffset(TopLogoSourceOffset) + " instead of "
+            + FormatHexOffset(TownMoleTopLogoOffset + TownMoleTopLogoLength);
+        return false;
+    }
+
+    if (!DecodeMoleRlePlane(FileBytes, TopDemoTextSourceOffset,
+            TownMoleTopDemoTextOffset + TownMoleTopDemoTextLength, TopDemoTextDecodedBytes,
+            TopDemoTextDecodedByteCount, TownMoleTopTearsBaseRleMarkerHigh, false, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (TopDemoTextSourceOffset != TownMoleTopDemoTextOffset + TownMoleTopDemoTextLength)
+    {
+        ErrorMessage = MoleBinPath.filename().string() + " title_demo_text_data ended at "
+            + FormatHexOffset(TopDemoTextSourceOffset) + " instead of "
+            + FormatHexOffset(TownMoleTopDemoTextOffset + TownMoleTopDemoTextLength);
+        return false;
+    }
+
+    if (TopLogoDecodedByteCount != TownMoleTopLogoDecodedByteCount
+        || TopDemoTextDecodedByteCount != TownMoleTopTearsBaseDecodedByteCount)
+    {
+        ErrorMessage = MoleBinPath.filename().string() + " top tears base streams did not decode to the expected sizes";
+        return false;
+    }
+
+    DecodeMoleMcgaPanelPixels(TopLogoDecodedBytes.data(), TopDemoTextDecodedBytes.data(), TownMoleTopTearsBaseWidth,
+        TownMoleTopTearsBaseHeight, TownMoleTopTearsBasePlaneWidthBytes, TopTearsBasePixels.data());
+
+    std::cerr << MoleBinPath.filename().string() << " top tears base panel: "
+        << "title_logo decoded " << TopLogoDecodedByteCount << " bytes, "
+        << "title_demo_text decoded " << TopDemoTextDecodedByteCount << " bytes, "
+        << "rendered strip uses the first " << TownMoleTopTearsBaseDecodedByteCount << " bytes from each plane, "
+        << "final dimensions " << TownMoleTopTearsBaseWidth << " x " << TownMoleTopTearsBaseHeight
+        << " pixels, render position x = " << TownMoleTopTearsBaseLeftX
+        << ", y = " << TownMoleTopTearsBaseTopY << '\n';
+
+    LogMolePanelPixels("top tears base", TownMoleTopTearsBaseWidth, TownMoleTopTearsBaseHeight,
+        TopTearsBasePixels.data());
+
+    ErrorMessage.clear();
+    return true;
 }
 
 bool LoadTownMoleDecorationPanels(const std::filesystem::path& MoleBinPath,
@@ -960,6 +1062,39 @@ void DrawTownMolePanel(SDL_Renderer* Renderer, const std::uint8_t* Pixels, std::
             SDL_RenderFillRect(Renderer, &PixelRect);
         }
     }
+}
+
+bool LoadTownTearsCollectedOverlayIcons(const std::filesystem::path& GmmcgaBinPath,
+    Hud::TearsOverlayIconPixels& SmallBlueIconPixels,
+    Hud::TearsOverlayIconPixels& LargeRedIconPixels,
+    std::string& ErrorMessage)
+{
+    std::vector<std::uint8_t> FileBytes;
+    if (!ReadWholeFile(GmmcgaBinPath, FileBytes, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (FileBytes.size() < TownTearsOverlayLargeIconFileOffset + Hud::TearsOverlayIconByteCount)
+    {
+        ErrorMessage = GmmcgaBinPath.filename().string() + " is too small to contain the collected Tears icons";
+        return false;
+    }
+
+    std::copy_n(FileBytes.begin() + static_cast<std::ptrdiff_t>(TownTearsOverlaySmallIconFileOffset),
+        Hud::TearsOverlayIconByteCount, SmallBlueIconPixels.begin());
+    std::copy_n(FileBytes.begin() + static_cast<std::ptrdiff_t>(TownTearsOverlayLargeIconFileOffset),
+        Hud::TearsOverlayIconByteCount, LargeRedIconPixels.begin());
+
+    std::cerr << GmmcgaBinPath.filename().string() << " collected Tears icons: "
+        << "AL=0 source span " << FormatHexOffset(TownTearsOverlaySmallIconFileOffset) << ".."
+        << FormatHexOffset(TownTearsOverlaySmallIconFileOffset + Hud::TearsOverlayIconByteCount)
+        << ", AL=1 source span " << FormatHexOffset(TownTearsOverlayLargeIconFileOffset) << ".."
+        << FormatHexOffset(TownTearsOverlayLargeIconFileOffset + Hud::TearsOverlayIconByteCount)
+        << ", icon size " << Hud::TearsOverlayIconWidth << " x " << Hud::TearsOverlayIconHeight << '\n';
+
+    ErrorMessage.clear();
+    return true;
 }
 
 const char* GetTownMapActorFacingDirectionName(TownMapActorFacingDirection FacingDirection)
@@ -2211,6 +2346,15 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     }
 
     const std::filesystem::path TownMoleBinPath = ActorSpriteGrpPath.parent_path() / "mole.bin";
+    std::string TownMoleTopTearsBaseErrorMessage;
+    TownMoleTopTearsBaseLoaded = LoadTownMoleTopTearsBasePanel(TownMoleBinPath,
+        TownMoleTopTearsBasePixels, TownMoleTopTearsBaseErrorMessage);
+    if (!TownMoleTopTearsBaseLoaded)
+    {
+        std::cerr << TownMoleBinPath.filename().string() << " top tears base panel load failed: "
+            << TownMoleTopTearsBaseErrorMessage << '\n';
+    }
+
     std::string TownMoleDecorationPanelsErrorMessage;
     TownMoleDecorationPanelsLoaded = LoadTownMoleDecorationPanels(TownMoleBinPath,
         TownMoleLeftDecorationPanelPixels, TownMoleRightDecorationPanelPixels, TownMoleDecorationPanelsErrorMessage);
@@ -2227,6 +2371,16 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     {
         std::cerr << TownMoleBinPath.filename().string() << " bottom/status base panel load failed: "
             << TownMoleBottomStatusBaseErrorMessage << '\n';
+    }
+
+    const std::filesystem::path TownGmmcgaBinPath = ActorSpriteGrpPath.parent_path().parent_path() / "gmmcga.bin";
+    std::string TownTearsOverlayIconsErrorMessage;
+    TownTearsOverlayIconsLoaded = LoadTownTearsCollectedOverlayIcons(TownGmmcgaBinPath,
+        TownTearsOverlaySmallIconPixels, TownTearsOverlayLargeIconPixels, TownTearsOverlayIconsErrorMessage);
+    if (!TownTearsOverlayIconsLoaded)
+    {
+        std::cerr << TownGmmcgaBinPath.filename().string() << " collected Tears icon load failed: "
+            << TownTearsOverlayIconsErrorMessage << '\n';
     }
 
     ActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
@@ -2295,6 +2449,18 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
             TownMoleDecorationPanelHeight, Palette, TownMoleDecorationPanelRightX, 0);
     }
 
+    if (TownMoleTopTearsBaseLoaded)
+    {
+        DrawTownMolePanel(Renderer, TownMoleTopTearsBasePixels.data(), TownMoleTopTearsBaseWidth,
+            TownMoleTopTearsBaseHeight, Palette, TownMoleTopTearsBaseLeftX, TownMoleTopTearsBaseTopY);
+    }
+
+    if (TownTearsOverlayIconsLoaded)
+    {
+        Hud::DrawTearsOverlay(Renderer, Palette, TownTearsOverlaySmallIconPixels, TownTearsOverlayLargeIconPixels,
+            TearsOfEsmesantiCount, TownTearsOverlayDebugOverrideEnabled);
+    }
+
     if (TownBackgroundMountainLayerLoaded)
     {
         DrawTownBackgroundMountainLayer(Renderer, TownBackgroundMountainLayerPixels, Palette);
@@ -2321,6 +2487,11 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
             TownMoleBottomStatusBaseHeight, Palette, TownMoleBottomStatusBaseLeftX, TownMoleBottomStatusBaseTopY);
     }
 
+    const std::size_t CollectedTearsCount = TownTearsOverlayDebugOverrideEnabled
+        ? Hud::TearsOverlayMaximumCount
+        : std::min<std::size_t>(TearsOfEsmesantiCount, Hud::TearsOverlayMaximumCount);
+    LogTearsCollectedOverlayState(TearsOfEsmesantiCount, CollectedTearsCount);
+
     if (!(ActorFrameLoaded && ActorFrameVisible))
     {
         DrawTownMapActorFallbackMarker(Renderer, static_cast<float>(ActorMapPixelX),
@@ -2331,7 +2502,7 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     {
         constexpr float TextScale = 1.0f;
         constexpr float StartX = 8.0f;
-        constexpr float StartY = 8.0f;
+        constexpr float StartY = 24.0f;
         constexpr float LineSpacing = 10.0f;
         const std::size_t NpcMarkerCount = CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Npc);
         const std::size_t DoorMarkerCount = CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Door);
@@ -2364,6 +2535,11 @@ void TownScene::ToggleTownEntityMarkers() noexcept
     TownEntityMarkersEnabled = !TownEntityMarkersEnabled;
 }
 
+void TownScene::ToggleTearsOverlayDebugOverride() noexcept
+{
+    TownTearsOverlayDebugOverrideEnabled = !TownTearsOverlayDebugOverrideEnabled;
+}
+
 bool TownScene::IsBlockedTileOverlayEnabled() const noexcept
 {
     return BlockedTileOverlayEnabled;
@@ -2372,6 +2548,28 @@ bool TownScene::IsBlockedTileOverlayEnabled() const noexcept
 bool TownScene::IsTownEntityMarkersEnabled() const noexcept
 {
     return TownEntityMarkersEnabled;
+}
+
+bool TownScene::IsTearsOverlayDebugOverrideEnabled() const noexcept
+{
+    return TownTearsOverlayDebugOverrideEnabled;
+}
+
+void TownScene::LogTearsCollectedOverlayState(std::uint8_t RawTearsCount, std::size_t DrawCount) const
+{
+    if (!TownTearsOverlayStateLogInitialized
+        || RawTearsCount != TownTearsOverlayLastLoggedRawCount
+        || DrawCount != TownTearsOverlayLastLoggedDrawCount
+        || TownTearsOverlayDebugOverrideEnabled != TownTearsOverlayLastLoggedDebugOverrideEnabled)
+    {
+        std::cerr << "town tears overlay state: raw count " << static_cast<unsigned int>(RawTearsCount)
+            << ", draw count " << DrawCount
+            << ", debug override " << (TownTearsOverlayDebugOverrideEnabled ? "on" : "off") << '\n';
+        TownTearsOverlayStateLogInitialized = true;
+        TownTearsOverlayLastLoggedRawCount = RawTearsCount;
+        TownTearsOverlayLastLoggedDrawCount = DrawCount;
+        TownTearsOverlayLastLoggedDebugOverrideEnabled = TownTearsOverlayDebugOverrideEnabled;
+    }
 }
 
 bool TownScene::UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex)

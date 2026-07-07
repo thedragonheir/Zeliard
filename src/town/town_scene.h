@@ -12,8 +12,12 @@
 #include "../grp/grp_pattern_bank.h"
 #include "../grp/grp_sprite_sheet.h"
 #include "../mdt/mdt_map.h"
+#include "../hud/hud_tears_overlay.h"
 
 using Main64Palette = std::array<SDL_Color, 64>;
+
+// Mirrors the global Tear-count byte until the save/global-state wiring lands.
+extern std::uint8_t TearsOfEsmesantiCount;
 
 enum class TownMapActorFacingDirection
 {
@@ -30,8 +34,16 @@ public:
     static constexpr std::size_t TownBackgroundMountainHeight = 88;
     static constexpr std::size_t TownMoleDecorationPanelWidth = 48;
     static constexpr std::size_t TownMoleDecorationPanelHeight = 200;
+    static constexpr std::size_t TownMoleTopTearsBaseWidth = 224;
+    static constexpr std::size_t TownMoleTopTearsBaseHeight = 13;
     static constexpr std::size_t TownMoleBottomStatusBaseWidth = 224;
     static constexpr std::size_t TownMoleBottomStatusBaseHeight = 42;
+    static constexpr std::size_t TownTearsOverlayIconWidth = Hud::TearsOverlayIconWidth;
+    static constexpr std::size_t TownTearsOverlayIconHeight = Hud::TearsOverlayIconHeight;
+    static constexpr std::size_t TownTearsOverlayIconByteCount = Hud::TearsOverlayIconByteCount;
+    static constexpr std::size_t TownTearsOverlayMaxCollectedCount = Hud::TearsOverlayMaximumCount;
+    static constexpr std::size_t TownTearsOverlaySmallIconFileOffset = 0x0A61;
+    static constexpr std::size_t TownTearsOverlayLargeIconFileOffset = 0x0B31;
 
     TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std::filesystem::path& TownNpcSpriteGrpPath,
         const Mdt::TownMapInfo& TownMap,
@@ -43,9 +55,11 @@ public:
 
     void ToggleBlockedTileOverlay() noexcept;
     void ToggleTownEntityMarkers() noexcept;
+    void ToggleTearsOverlayDebugOverride() noexcept;
 
     bool IsBlockedTileOverlayEnabled() const noexcept;
     bool IsTownEntityMarkersEnabled() const noexcept;
+    bool IsTearsOverlayDebugOverrideEnabled() const noexcept;
 
 private:
     struct TownHeadLevelTiles
@@ -141,6 +155,7 @@ private:
     void AdvanceTownBackgroundStripScrollOffset(std::ptrdiff_t PixelDelta) noexcept;
     void SyncTownHeroRuntimeProjection() noexcept;
     void UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept;
+    void LogTearsCollectedOverlayState(std::uint8_t RawTearsCount, std::size_t DrawCount) const;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
         const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeRecord>& TownNpcArray,
         std::size_t ScrollOffsetPixels, TownNpcSpriteShadowBuffer& ShadowBuffer, bool DrawDebugEntityMarkers,
@@ -195,11 +210,14 @@ private:
     bool ActorCollisionBlocked = false;
     bool BlockedTileOverlayEnabled = false;
     bool TownEntityMarkersEnabled = false;
+    bool TownTearsOverlayDebugOverrideEnabled = false;
     bool TownBackgroundMountainLayerLoaded = false;
     bool TownBackgroundStripLoaded = false;
     bool TownBackgroundStripUsesCkpd = false;
     bool TownMoleDecorationPanelsLoaded = false;
+    bool TownMoleTopTearsBaseLoaded = false;
     bool TownMoleBottomStatusBaseLoaded = false;
+    bool TownTearsOverlayIconsLoaded = false;
     bool TownNpcLogicTimerPrimed = false;
     bool TownPatternAnimationTimerPrimed = false;
     std::size_t TownBackgroundStripScrollOffsetPixels = 0;
@@ -214,6 +232,13 @@ private:
     std::array<std::uint8_t, 224 * 16> TownBackgroundStripPixels{};
     std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight> TownMoleLeftDecorationPanelPixels{};
     std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight> TownMoleRightDecorationPanelPixels{};
+    std::array<std::uint8_t, TownMoleTopTearsBaseWidth * TownMoleTopTearsBaseHeight> TownMoleTopTearsBasePixels{};
     std::array<std::uint8_t, TownMoleBottomStatusBaseWidth * TownMoleBottomStatusBaseHeight> TownMoleBottomStatusBasePixels{};
+    Hud::TearsOverlayIconPixels TownTearsOverlaySmallIconPixels{};
+    Hud::TearsOverlayIconPixels TownTearsOverlayLargeIconPixels{};
+    mutable bool TownTearsOverlayStateLogInitialized = false;
+    mutable std::uint8_t TownTearsOverlayLastLoggedRawCount = 0;
+    mutable std::size_t TownTearsOverlayLastLoggedDrawCount = 0;
+    mutable bool TownTearsOverlayLastLoggedDebugOverrideEnabled = false;
     Grp::NpcSpriteFrame ActorFrame;
 };
