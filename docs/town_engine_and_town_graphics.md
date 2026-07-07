@@ -200,12 +200,18 @@ Town pattern tiles are 8×8 pixels and stored as 48 bytes per tile:
 ```
 
 Render routines unpack 3 source bytes into 4 destination pixels repeatedly. This is why the tile renderer loops over 16 packed groups per tile.
+Pattern tiles also keep their original mode byte and an 8-byte per-row transparency mask. Modes 1-3 use the missing plane as the mask source, mode 0 is fully opaque, and mode 4 uses the fully masked variant.
+Transparency is mask-driven only, so palette index 0 still renders as black whenever the mask leaves a pixel opaque.
 
 ## Tile animation
 
-`tile_render_and_animate` checks `tile_anim_count_table`. If a tile has no animation count, it falls back to `background_tile_render_with_blit_cache`. If it is animated, it renders with animation handling and then uses `tile_animation_replacement_table` to replace the tile id for the next phase.
+`render_town_tiles_28_columns` only routes rows 0, 1, and 2 through `tile_render_and_animate`. Rows 3, 4, 6, and 7 use `background_tile_render_with_blit_cache`, and row 5 uses `special_tile_dispatcher`.
+
+`tile_render_and_animate` checks `tile_anim_count_table`. If a tile has no animation count, it falls back to `background_tile_render_with_blit_cache`. If it is animated, it renders with the per-row transparency mask and then uses `tile_animation_replacement_table` to replace the tile id for the next phase.
 
 The replacement table is a counted or terminated list of `(old_tile, new_tile)` pairs.
+
+In the native C++ port, that replacement step is advanced from `TownScene::Update()` instead of `Draw()`, and it is gated to the DOS town-loop cadence (`TownDosTownLoopIntervalMilliseconds`, about 84.49 ms at standard speed). Only rows 0, 1, and 2 advance through the replacement table; masked tiles in other rows still render with their masks but stay fixed unless they have an explicit replacement entry.
 
 ## Blit cache
 

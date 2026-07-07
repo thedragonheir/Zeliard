@@ -185,6 +185,7 @@ private:
     std::size_t ScrollOffsetPixels = 0;
     std::size_t TownMovementFrameCountdown = 0;
     std::uint64_t TownNpcLogicLastUpdateTicks = 0;
+    std::uint64_t TownPatternAnimationLastUpdateTicks = 0;
 
     bool ActorFrameLoaded = false;
     bool ActorFrameVisible = false;
@@ -197,7 +198,9 @@ private:
     bool TownBackgroundStripUsesCkpd = false;
     bool TownMoleDecorationPanelsLoaded = false;
     bool TownNpcLogicTimerPrimed = false;
+    bool TownPatternAnimationTimerPrimed = false;
     std::size_t TownBackgroundStripScrollOffsetPixels = 0;
+    mutable std::vector<std::uint8_t> TownRuntimeCells;
     mutable bool FallbackWarningPrinted = false;
     mutable std::array<Grp::NpcSpriteFrame, TownNpcSpriteFrameCount> TownNpcSpriteFrames{};
     mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameLoaded{};

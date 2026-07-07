@@ -36,6 +36,7 @@ constexpr std::size_t TownDosTownWaitThresholdTicks = TownDosStandardSpeedConst 
 constexpr double TownDosNpcLogicIntervalSeconds = static_cast<double>(TownDosTownWaitThresholdTicks)
     * static_cast<double>(TownDosPitReloadValue) / TownDosPitInputHz;
 constexpr double TownDosNpcLogicIntervalMilliseconds = TownDosNpcLogicIntervalSeconds * 1000.0;
+constexpr double TownDosTownLoopIntervalMilliseconds = TownDosNpcLogicIntervalMilliseconds;
 constexpr std::size_t TownHeroLeftFacingFrameStart = 0;
 constexpr std::size_t TownHeroRightFacingFrameStart = 5;
 constexpr std::size_t TownNpcSpriteFramesPerBlock = 8;
@@ -1008,8 +1009,14 @@ void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const
 {
     for (std::size_t Row = 0; Row < 8; ++Row)
     {
+        const std::uint8_t TransparencyMaskRow = Tile.TransparencyMaskRows[Row];
         for (std::size_t Column = 0; Column < 8; ++Column)
         {
+            if ((TransparencyMaskRow & static_cast<std::uint8_t>(0x80 >> Column)) != 0)
+            {
+                continue;
+            }
+
             const std::uint8_t PaletteIndex = Tile.Pixels[Row * 8 + Column];
             const SDL_Color& Color = Palette[PaletteIndex];
             SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
@@ -1021,6 +1028,45 @@ void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const
                 PixelSize
             };
             SDL_RenderFillRect(Renderer, &PixelRect);
+        }
+    }
+}
+
+const Grp::PatternAnimationReplacement* FindPatternAnimationReplacement(const Grp::PatternBank& PatternBank,
+    std::uint8_t TileIndex)
+{
+    for (const Grp::PatternAnimationReplacement& AnimationReplacement : PatternBank.AnimationReplacementRules)
+    {
+        if (AnimationReplacement.SourceTile == TileIndex)
+        {
+            return &AnimationReplacement;
+        }
+    }
+
+    return nullptr;
+}
+
+void AdvanceTownPatternAnimations(std::vector<std::uint8_t>& TownRuntimeCells, const Mdt::TownMapInfo& TownMap,
+    const Grp::PatternBank& PatternBank)
+{
+    const std::size_t AnimatedRowCount = std::min<std::size_t>(3, TownMap.Height);
+    for (std::size_t Row = 0; Row < AnimatedRowCount; ++Row)
+    {
+        for (std::size_t Column = 0; Column < TownMap.Width; ++Column)
+        {
+            const std::size_t CellIndex = Column * TownMap.Height + Row;
+            if (CellIndex >= TownRuntimeCells.size())
+            {
+                continue;
+            }
+
+            const std::uint8_t TileIndex = TownRuntimeCells[CellIndex];
+            const Grp::PatternAnimationReplacement* AnimationReplacement = FindPatternAnimationReplacement(PatternBank,
+                TileIndex);
+            if (AnimationReplacement != nullptr)
+            {
+                TownRuntimeCells[CellIndex] = AnimationReplacement->ReplacementTile;
+            }
         }
     }
 }
@@ -1555,6 +1601,8 @@ void TownScene::ResetTownNpcLogicTimer() noexcept
 {
     TownNpcLogicLastUpdateTicks = 0;
     TownNpcLogicTimerPrimed = false;
+    TownPatternAnimationLastUpdateTicks = 0;
+    TownPatternAnimationTimerPrimed = false;
 }
 
 void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
@@ -1883,6 +1931,23 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
     bool DrawDebugFallbackMarker, TownColumnRenderStats& RenderStats) const
 {
     const Grp::PatternTile& FallbackTile = GetFallbackPatternTile();
+    const auto TryGetRuntimeTileIndexAtCell = [this](std::size_t Column, std::size_t Row, std::uint8_t& TileIndex) -> bool
+    {
+        if (Column >= TownMap.Width || Row >= TownMap.Height)
+        {
+            return false;
+        }
+
+        const std::size_t CellIndex = Column * TownMap.Height + Row;
+        if (CellIndex >= TownRuntimeCells.size())
+        {
+            return false;
+        }
+
+        TileIndex = TownRuntimeCells[CellIndex];
+        return true;
+    };
+
     const bool HasTownNpcMarker = MapColumn < HeadLevelTiles.Tiles.size()
         && HeadLevelTiles.Tiles[MapColumn] == TownHeadLevelNpcMarkerTile;
 
@@ -1898,7 +1963,7 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
                 TileIndex = HeadLevelTiles.OriginalTiles[MapColumn];
             }
         }
-        else if (!TryGetTownMapTileIndexAtCell(TownMap, MapColumn, Row, TileIndex))
+        else if (!TryGetRuntimeTileIndexAtCell(MapColumn, Row, TileIndex))
         {
             continue;
         }
@@ -1966,6 +2031,7 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     const Grp::PatternBank& PatternBank, const Main64Palette& Palette)
     : ActorSpriteGrpPath(ActorSpriteGrpPath), TownNpcSpriteGrpPath(TownNpcSpriteGrpPath), TownMap(TownMap), PatternBank(PatternBank), Palette(Palette)
 {
+    TownRuntimeCells = TownMap.Cells;
     TownNpcArray = BuildTownNpcRuntimeRecords(TownMap);
     TownBackgroundStripUsesCkpd = TownMap.HasMiddleLayer;
     const std::filesystem::path TownBackgroundBinPath = ActorSpriteGrpPath.parent_path()
@@ -2026,6 +2092,17 @@ void TownScene::Update(const bool* KeyboardState)
     {
         UpdateTownNpcRuntimeRecordsShell();
         TownNpcLogicLastUpdateTicks = CurrentTicks;
+    }
+
+    if (!TownPatternAnimationTimerPrimed)
+    {
+        TownPatternAnimationTimerPrimed = true;
+        TownPatternAnimationLastUpdateTicks = CurrentTicks;
+    }
+    else if (static_cast<double>(CurrentTicks - TownPatternAnimationLastUpdateTicks) >= TownDosTownLoopIntervalMilliseconds)
+    {
+        AdvanceTownPatternAnimations(TownRuntimeCells, TownMap, PatternBank);
+        TownPatternAnimationLastUpdateTicks = CurrentTicks;
     }
 
     UpdateTownHeroRuntimeState(KeyboardState);

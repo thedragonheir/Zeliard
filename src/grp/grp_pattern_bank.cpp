@@ -12,6 +12,11 @@ constexpr std::size_t PatternCount = 157;
 constexpr std::size_t PatternTileBytes = 48;
 constexpr std::size_t PatternExpectedSize = PatternHeaderSize + PatternCount * PatternTileBytes;
 
+std::uint16_t ReadLittleEndianWord(const std::vector<std::uint8_t>& Data, std::size_t Offset)
+{
+    return static_cast<std::uint16_t>(Data[Offset] | (static_cast<std::uint16_t>(Data[Offset + 1]) << 8));
+}
+
 std::uint16_t ReadBigEndianWord(const std::vector<std::uint8_t>& Data, std::size_t Offset)
 {
     return static_cast<std::uint16_t>((static_cast<std::uint16_t>(Data[Offset]) << 8) | Data[Offset + 1]);
@@ -45,6 +50,25 @@ void DecodeFourPixels(std::uint16_t& PlaneR, std::uint16_t& PlaneG, std::uint16_
     }
 }
 
+std::uint8_t DecodeTransparencyMaskByte(std::uint16_t MaskPlane)
+{
+    std::uint8_t Output = 0;
+
+    for (std::size_t PixelIndex = 0; PixelIndex < 8; ++PixelIndex)
+    {
+        const std::uint8_t FirstBit = static_cast<std::uint8_t>((MaskPlane & 0x8000) != 0);
+        MaskPlane = RotateLeft16(MaskPlane);
+
+        const std::uint8_t SecondBit = static_cast<std::uint8_t>((MaskPlane & 0x8000) != 0);
+        MaskPlane = RotateLeft16(MaskPlane);
+
+        const std::uint8_t TransparencyBit = static_cast<std::uint8_t>((FirstBit != 0 && SecondBit != 0) ? 1 : 0);
+        Output = static_cast<std::uint8_t>((Output << 1) | TransparencyBit);
+    }
+
+    return Output;
+}
+
 void DecodeEightPixels(std::uint16_t& PlaneR, std::uint16_t& PlaneG, std::uint16_t& PlaneB, std::array<std::uint8_t, 8>& Output)
 {
     std::array<std::uint8_t, 4> LeftHalf{};
@@ -57,10 +81,49 @@ void DecodeEightPixels(std::uint16_t& PlaneR, std::uint16_t& PlaneG, std::uint16
     std::copy(RightHalf.begin(), RightHalf.end(), Output.begin() + static_cast<std::ptrdiff_t>(LeftHalf.size()));
 }
 
-bool DecodePatternTile(const std::vector<std::uint8_t>& Unpacked, std::size_t PatternIndex, PatternTile& Output, std::uint8_t& MinimumPaletteIndex, std::uint8_t& MaximumPaletteIndex, std::string& ErrorMessage)
+bool DecodeAnimationReplacementRules(const std::vector<std::uint8_t>& Unpacked, std::size_t ReplacementTableOffset,
+    std::vector<PatternAnimationReplacement>& Output, std::string& ErrorMessage)
 {
-    const std::size_t HeaderIndex = 6 + PatternIndex;
-    const std::uint8_t Mode = Unpacked[HeaderIndex] > 4 ? 0 : Unpacked[HeaderIndex];
+    if (ReplacementTableOffset >= Unpacked.size())
+    {
+        ErrorMessage = "cpat.grp animation replacement table offset is out of range";
+        return false;
+    }
+
+    const std::uint8_t ReplacementCount = Unpacked[ReplacementTableOffset];
+    const std::size_t ReplacementTableSize = 1 + static_cast<std::size_t>(ReplacementCount) * 2;
+    if (ReplacementTableOffset + ReplacementTableSize > Unpacked.size())
+    {
+        ErrorMessage = "cpat.grp animation replacement table is truncated";
+        return false;
+    }
+
+    Output.clear();
+    Output.reserve(ReplacementCount);
+    for (std::size_t ReplacementIndex = 0; ReplacementIndex < ReplacementCount; ++ReplacementIndex)
+    {
+        const std::size_t EntryOffset = ReplacementTableOffset + 1 + ReplacementIndex * 2;
+        Output.push_back(PatternAnimationReplacement{
+            Unpacked[EntryOffset],
+            Unpacked[EntryOffset + 1]
+        });
+    }
+
+    return true;
+}
+
+bool DecodePatternTile(const std::vector<std::uint8_t>& Unpacked, std::size_t PatternIndex, std::size_t ModeTableOffset,
+    PatternTile& Output, std::uint8_t& MinimumPaletteIndex, std::uint8_t& MaximumPaletteIndex, std::string& ErrorMessage)
+{
+    const std::size_t HeaderIndex = ModeTableOffset + PatternIndex;
+    if (HeaderIndex >= Unpacked.size())
+    {
+        ErrorMessage = "cpat.grp mode table is truncated";
+        return false;
+    }
+
+    Output.ModeByte = Unpacked[HeaderIndex];
+    const std::uint8_t Mode = Output.ModeByte > 4 ? 0 : Output.ModeByte;
     const std::size_t TileOffset = PatternHeaderSize + PatternIndex * PatternTileBytes;
 
     for (std::size_t RowIndex = 0; RowIndex < 8; ++RowIndex)
@@ -73,37 +136,49 @@ bool DecodePatternTile(const std::vector<std::uint8_t>& Unpacked, std::size_t Pa
         std::uint16_t PlaneR = 0;
         std::uint16_t PlaneG = 0;
         std::uint16_t PlaneB = 0;
+        std::uint8_t TransparencyMask = 0;
 
         switch (Mode)
         {
         case 0:
-        case 4:
             PlaneR = Word0;
             PlaneG = Word1;
             PlaneB = Word2;
+            TransparencyMask = 0;
             break;
 
         case 1:
             PlaneR = Word0;
             PlaneG = Word1;
             PlaneB = 0;
+            TransparencyMask = DecodeTransparencyMaskByte(Word2);
             break;
 
         case 2:
             PlaneR = Word0;
             PlaneG = 0;
             PlaneB = Word2;
+            TransparencyMask = DecodeTransparencyMaskByte(Word1);
             break;
 
         case 3:
             PlaneR = 0;
             PlaneG = Word1;
             PlaneB = Word2;
+            TransparencyMask = DecodeTransparencyMaskByte(Word0);
+            break;
+
+        case 4:
+            PlaneR = Word0;
+            PlaneG = Word1;
+            PlaneB = Word2;
+            TransparencyMask = 0xFF;
             break;
         }
 
         std::array<std::uint8_t, 8> RowPixels{};
         DecodeEightPixels(PlaneR, PlaneG, PlaneB, RowPixels);
+        Output.TransparencyMaskRows[RowIndex] = TransparencyMask;
 
         for (std::size_t ColumnIndex = 0; ColumnIndex < RowPixels.size(); ++ColumnIndex)
         {
@@ -127,6 +202,7 @@ bool DecodePatternTile(const std::vector<std::uint8_t>& Unpacked, std::size_t Pa
 bool DecodePatternBank(const std::vector<std::uint8_t>& Unpacked, PatternBank& Output, std::string& ErrorMessage)
 {
     Output.Tiles.clear();
+    Output.AnimationReplacementRules.clear();
     Output.MinimumPaletteIndex = 0;
     Output.MaximumPaletteIndex = 0;
 
@@ -136,16 +212,32 @@ bool DecodePatternBank(const std::vector<std::uint8_t>& Unpacked, PatternBank& O
         return false;
     }
 
+    const std::size_t ModeTableOffset = ReadLittleEndianWord(Unpacked, 0);
+    const std::size_t SpecialTileListOffset = ReadLittleEndianWord(Unpacked, 2);
+    const std::size_t ReplacementTableOffset = ReadLittleEndianWord(Unpacked, 4);
+
+    if (ModeTableOffset + PatternCount > SpecialTileListOffset || SpecialTileListOffset > ReplacementTableOffset)
+    {
+        ErrorMessage = "cpat.grp pattern header pointers are inconsistent";
+        return false;
+    }
+
     Output.Tiles.resize(PatternCount);
 
     std::uint8_t MinimumPaletteIndex = 63;
     std::uint8_t MaximumPaletteIndex = 0;
     for (std::size_t PatternIndex = 0; PatternIndex < PatternCount; ++PatternIndex)
     {
-        if (!DecodePatternTile(Unpacked, PatternIndex, Output.Tiles[PatternIndex], MinimumPaletteIndex, MaximumPaletteIndex, ErrorMessage))
+        if (!DecodePatternTile(Unpacked, PatternIndex, ModeTableOffset, Output.Tiles[PatternIndex],
+                MinimumPaletteIndex, MaximumPaletteIndex, ErrorMessage))
         {
             return false;
         }
+    }
+
+    if (!DecodeAnimationReplacementRules(Unpacked, ReplacementTableOffset, Output.AnimationReplacementRules, ErrorMessage))
+    {
+        return false;
     }
 
     Output.MinimumPaletteIndex = MinimumPaletteIndex;
