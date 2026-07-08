@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -51,8 +52,13 @@ public:
         const Mdt::TownMapInfo& TownMap,
         const Grp::PatternBank& PatternBank, const Main64Palette& Palette);
 
-    void Update(const bool* KeyboardState);
+    std::optional<Mdt::TownTransitionData> Update(const bool* KeyboardState);
     void Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled) const;
+    void ReloadTownState();
+    void ReloadTownStateAfterRightEdgeTransition();
+    void ReloadTownStateAfterLeftEdgeTransition();
+    std::uint8_t GetHeroXInViewport() const noexcept;
+    std::uint16_t GetProximityMapLeftColumnX() const noexcept;
 
     void ToggleBlockedTileOverlay() noexcept;
     void ToggleTownEntityMarkers() noexcept;
@@ -63,6 +69,11 @@ public:
     bool IsTearsOverlayDebugOverrideEnabled() const noexcept;
 
 private:
+    static constexpr std::uint8_t TownHeroStartupHeroXInViewport = 12;
+    static constexpr std::uint16_t TownHeroStartupProximityMapLeftColumnX = 4;
+    static constexpr std::uint8_t TownHeroStartupFacingDirection = 0;
+    static constexpr std::uint8_t TownHeroStartupHeroAnimationPhase = 0;
+
     struct TownHeadLevelTiles
     {
         std::vector<std::uint8_t> Tiles;
@@ -78,10 +89,10 @@ private:
 
     struct TownHeroRuntimeState
     {
-        std::uint8_t HeroXInViewport = 12;
-        std::uint16_t ProximityMapLeftColumnX = 4;
-        std::uint8_t FacingDirection = 0; // bit 0: 0=right, 1=left
-        std::uint8_t HeroAnimationPhase = 0;
+        std::uint8_t HeroXInViewport = TownHeroStartupHeroXInViewport;
+        std::uint16_t ProximityMapLeftColumnX = TownHeroStartupProximityMapLeftColumnX;
+        std::uint8_t FacingDirection = TownHeroStartupFacingDirection; // bit 0: 0=right, 1=left
+        std::uint8_t HeroAnimationPhase = TownHeroStartupHeroAnimationPhase;
     };
 
     struct TownNpcRuntimeRecord
@@ -148,6 +159,9 @@ private:
     };
 
     bool UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex);
+    void ResetTownSceneState(std::optional<TownHeroRuntimeState> TransitionHeroState) noexcept;
+    void ReloadTownState(std::optional<TownHeroRuntimeState> TransitionHeroState, bool LoadTownNpcRecords);
+    std::optional<Mdt::TownTransitionData> GetEdgeTownTransition(bool IsLeftEdgeTransition) const;
     bool TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const;
     std::size_t GetTownHeroAbsoluteX() const noexcept;
     std::size_t GetTownHeroMapPixelX() const noexcept;
@@ -216,6 +230,7 @@ private:
     bool TownTearsOverlayIconsLoaded = false;
     std::size_t TownBackgroundStripScrollOffsetPixels = 0;
     mutable std::vector<std::uint8_t> TownRuntimeCells;
+    bool TownEdgeTransitionQueued = false;
     mutable bool FallbackWarningPrinted = false;
     mutable std::array<Grp::NpcSpriteFrame, TownNpcSpriteFrameCount> TownNpcSpriteFrames{};
     mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameLoaded{};

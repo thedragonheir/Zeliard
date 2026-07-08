@@ -23,6 +23,7 @@ struct PatternAnimationReplacement
 struct PatternBank
 {
     std::vector<PatternTile> Tiles;
+    std::vector<std::uint8_t> SpecialTileIndices;
     std::vector<PatternAnimationReplacement> AnimationReplacementRules;
     std::uint8_t MinimumPaletteIndex = 0;
     std::uint8_t MaximumPaletteIndex = 0;

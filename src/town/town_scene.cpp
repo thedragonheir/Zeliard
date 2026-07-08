@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <span>
 #include <string>
@@ -33,7 +34,7 @@ constexpr std::size_t TownMovementTileAheadRow = 7;
 constexpr std::size_t TownHeroViewportLeftThreshold = 10;
 constexpr std::size_t TownHeroViewportRightThreshold = 16;
 constexpr std::size_t TownHeroRightEdgeTransitionSentinel = 27;
-constexpr std::size_t TownHeroRightEdgeMaximumVisibleX = TownHeroRightEdgeTransitionSentinel - 1;
+constexpr std::uint8_t TownHeroLeftEdgeTransitionSentinel = 0xFF;
 constexpr std::size_t TownHeroProximityMapWidthColumns = 36;
 constexpr std::size_t TownEntityProximityRadiusPixels = 20;
 constexpr std::size_t TownMapActorAnimationPhaseCount = 4;
@@ -41,10 +42,11 @@ constexpr std::size_t TownHeroLeftFacingFrameStart = 0;
 constexpr std::size_t TownHeroRightFacingFrameStart = 5;
 constexpr std::size_t TownNpcSpriteFramesPerBlock = 8;
 constexpr std::size_t TownNpcSpriteFamilyCount = 5;
+constexpr std::uint8_t TownNpcPatrolStepPhaseMaskOneBit = 0x10;
+constexpr std::uint8_t TownNpcPatrolStepPhaseMaskTwoBit = 0x30;
+constexpr std::uint8_t TownNpcPatrolBounceTurnMask = 0x07;
 constexpr std::size_t TownHeadLevelRow = 5;
 constexpr std::uint8_t TownHeadLevelNpcMarkerTile = 0xFD;
-constexpr std::uint8_t TownMapBlockedTileIndexA = 0x3C;
-constexpr std::uint8_t TownMapBlockedTileIndexB = 0x3D;
 constexpr std::size_t TownBackgroundStripWidth = 224;
 constexpr std::size_t TownBackgroundStripHeight = 16;
 constexpr std::size_t TownBackgroundStripLeftWidth = TownBackgroundStripWidth / 2;
@@ -1152,8 +1154,13 @@ std::size_t GetTownNpcSpriteFrameIndexFromFields(std::uint8_t SpriteSelector, st
 }
 
 constexpr std::uint8_t NpcAiTypeLookAtHeroAndBob = 0;
+constexpr std::uint8_t NpcAiTypePatrol1BitPhase = 1;
+constexpr std::uint8_t NpcAiTypePatrol2BitPhase = 2;
 constexpr std::uint8_t NpcAiTypeFaceHero = 3;
 constexpr std::uint8_t NpcAiTypeBobInPlace = 4;
+constexpr std::uint8_t NpcAiTypePatrolBounce1Bit = 5;
+constexpr std::uint8_t NpcAiTypePatrolBounce2Bit = 6;
+constexpr std::uint8_t NpcAiTypeStatic = 7;
 
 std::size_t GetTownNpcSpriteFrameIndex(const Mdt::TownEntityMarker& EntityMarker)
 {
@@ -1395,9 +1402,25 @@ std::size_t GetTownMapMaximumScrollOffset(const Mdt::TownMapInfo& TownMap)
     return MapWidthPixels > TownMapViewportWidth ? MapWidthPixels - TownMapViewportWidth : 0;
 }
 
-bool IsTownMapBlockedTileIndex(std::uint8_t TileIndex)
+bool IsTownMapBlockedTileIndex(const Grp::PatternBank& PatternBank, std::uint8_t TileIndex)
 {
-    return TileIndex == TownMapBlockedTileIndexA || TileIndex == TownMapBlockedTileIndexB;
+    return std::find(PatternBank.SpecialTileIndices.begin(), PatternBank.SpecialTileIndices.end(), TileIndex)
+        != PatternBank.SpecialTileIndices.end();
+}
+
+bool IsTownToTownEdgeTransition(const Mdt::TownTransitionData& Transition, bool IsLeftEdgeTransition)
+{
+    const bool TransitionIsLeftEdge = (Transition.Flags & 1) != 0;
+    return TransitionIsLeftEdge == IsLeftEdgeTransition && (Transition.Flags & 0xFE) == 0;
+}
+
+bool HasTownToTownEdgeTransition(const Mdt::TownMapInfo& TownMap, bool IsLeftEdgeTransition)
+{
+    return std::any_of(TownMap.TransitionData.begin(), TownMap.TransitionData.end(),
+        [IsLeftEdgeTransition](const Mdt::TownTransitionData& Transition)
+        {
+            return IsTownToTownEdgeTransition(Transition, IsLeftEdgeTransition);
+        });
 }
 
 const SDL_Color& GetTownEntityMarkerColor(Mdt::TownEntityKind EntityKind)
@@ -1569,8 +1592,8 @@ bool TryGetTownMapTileIndexAtPixel(const Mdt::TownMapInfo& TownMap, std::size_t 
     return TryGetTownMapTileIndexAtCell(TownMap, Column, Row, TileIndex);
 }
 
-bool IsTownHeroBlockedByTownTile(const Mdt::TownMapInfo& TownMap, std::size_t ProximityMapLeftColumnX,
-    std::size_t HeroXInViewport, bool MovingLeft)
+bool IsTownHeroBlockedByTownTile(const Mdt::TownMapInfo& TownMap, const Grp::PatternBank& PatternBank,
+    std::size_t ProximityMapLeftColumnX, std::size_t HeroXInViewport, bool MovingLeft)
 {
     // Match loc_6781 and loc_67F4: probe row 7 one tile ahead of Duke before
     // any horizontal move or scroll can happen.
@@ -1581,7 +1604,7 @@ bool IsTownHeroBlockedByTownTile(const Mdt::TownMapInfo& TownMap, std::size_t Pr
         return true;
     }
 
-    return IsTownMapBlockedTileIndex(TileIndex);
+    return IsTownMapBlockedTileIndex(PatternBank, TileIndex);
 }
 
 const char* GetTownMapCollisionStatusName(bool ActorCollisionBlocked)
@@ -1870,7 +1893,7 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
 
     if (LeftPressed)
     {
-        if (IsTownHeroBlockedByTownTile(TownMap, TownHeroState.ProximityMapLeftColumnX,
+        if (IsTownHeroBlockedByTownTile(TownMap, PatternBank, TownHeroState.ProximityMapLeftColumnX,
                 TownHeroState.HeroXInViewport, true))
         {
             SyncTownHeroRuntimeProjection();
@@ -1907,10 +1930,17 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
             TownHeroState.FacingDirection |= 1;
             --TownHeroState.HeroXInViewport;
         }
+        else if (HasTownToTownEdgeTransition(TownMap, true))
+        {
+            TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
+            TownHeroState.FacingDirection |= 1;
+            // DOS detects the left transition after this byte wraps to 0xFF.
+            --TownHeroState.HeroXInViewport;
+        }
     }
     else if (RightPressed)
     {
-        if (IsTownHeroBlockedByTownTile(TownMap, TownHeroState.ProximityMapLeftColumnX,
+        if (IsTownHeroBlockedByTownTile(TownMap, PatternBank, TownHeroState.ProximityMapLeftColumnX,
                 TownHeroState.HeroXInViewport, false))
         {
             SyncTownHeroRuntimeProjection();
@@ -1941,19 +1971,11 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
             // town view instead of drifting independently.
             AdvanceTownBackgroundStripScrollOffset(-8);
         }
-        else if (TownHeroState.HeroXInViewport < TownHeroRightEdgeMaximumVisibleX)
+        else if (TownHeroState.HeroXInViewport < TownHeroRightEdgeTransitionSentinel)
         {
             TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
             TownHeroState.FacingDirection &= 0xFE;
             ++TownHeroState.HeroXInViewport;
-        }
-        else
-        {
-            // The DOS path would hand off through hero_x_in_viewport == 27 here.
-            // Keep Duke on the last safe visible column until native transitions exist.
-            SyncTownHeroRuntimeProjection();
-            ActorCollisionBlocked = true;
-            return;
         }
     }
 
@@ -2018,19 +2040,28 @@ std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecor
 
 void TownScene::UpdateTownNpcRuntimeRecordsShell() const
 {
-    // Match the confirmed AI 0 facing rule and bob-in-place phase step, keep AI 3 facing-only,
-    // then leave other AI paths neutral.
-    const auto UpdateTownNpcFacingTowardHero = [](TownNpcRuntimeRecord& RuntimeRecord, std::size_t HeroAbsoluteX)
+    const auto SetTownNpcFacing = [](TownNpcRuntimeRecord& RuntimeRecord, bool FaceLeft)
     {
-        if (HeroAbsoluteX < RuntimeRecord.X)
+        RuntimeRecord.Facing = FaceLeft ? 1 : 0;
+        if (FaceLeft)
         {
-            RuntimeRecord.Facing = 1;
             RuntimeRecord.SpriteSelector |= 0x80;
-            return;
         }
+        else
+        {
+            RuntimeRecord.SpriteSelector &= 0x7F;
+        }
+    };
 
-        RuntimeRecord.Facing = 0;
-        RuntimeRecord.SpriteSelector &= 0x7F;
+    const auto ToggleTownNpcFacing = [&SetTownNpcFacing](TownNpcRuntimeRecord& RuntimeRecord)
+    {
+        SetTownNpcFacing(RuntimeRecord, RuntimeRecord.Facing == 0);
+    };
+
+    const auto UpdateTownNpcFacingTowardHero = [&SetTownNpcFacing](TownNpcRuntimeRecord& RuntimeRecord,
+        std::size_t HeroAbsoluteX)
+    {
+        SetTownNpcFacing(RuntimeRecord, HeroAbsoluteX < RuntimeRecord.X);
     };
 
     const auto UpdateTownNpcBobInPlace = [](TownNpcRuntimeRecord& RuntimeRecord)
@@ -2046,6 +2077,79 @@ void TownScene::UpdateTownNpcRuntimeRecordsShell() const
         RuntimeRecord.AnimationPhase = static_cast<std::uint8_t>((AnimPhase + 1) & 1);
     };
 
+    const auto AdvanceTownNpcPatrolPhase = [](TownNpcRuntimeRecord& RuntimeRecord, std::uint8_t PhaseMask) -> bool
+    {
+        std::uint8_t AnimPhase = static_cast<std::uint8_t>(RuntimeRecord.AnimationPhase + 0x10);
+        RuntimeRecord.AnimationPhase = AnimPhase;
+        if ((AnimPhase & PhaseMask) != 0)
+        {
+            return false;
+        }
+
+        RuntimeRecord.AnimationPhase = static_cast<std::uint8_t>((AnimPhase + 1) & 0x0F);
+        return true;
+    };
+
+    const auto UpdateTownNpcPatrolBetweenBoundaries = [&AdvanceTownNpcPatrolPhase, &SetTownNpcFacing](TownNpcRuntimeRecord& RuntimeRecord,
+        const Mdt::TownNpcPatrolBoundaries& PatrolBoundaries, bool HasPatrolBoundaries, std::uint8_t PhaseMask)
+    {
+        if (!AdvanceTownNpcPatrolPhase(RuntimeRecord, PhaseMask))
+        {
+            return;
+        }
+
+        if (!HasPatrolBoundaries)
+        {
+            return;
+        }
+
+        std::uint16_t NpcX = RuntimeRecord.X;
+        if (RuntimeRecord.Facing != 0)
+        {
+            --NpcX;
+            RuntimeRecord.X = NpcX;
+            if (NpcX <= PatrolBoundaries.MinimumX)
+            {
+                SetTownNpcFacing(RuntimeRecord, false);
+            }
+            return;
+        }
+
+        ++NpcX;
+        RuntimeRecord.X = NpcX;
+        if (NpcX > PatrolBoundaries.MaximumX)
+        {
+            SetTownNpcFacing(RuntimeRecord, true);
+        }
+    };
+
+    const auto UpdateTownNpcPatrolBounce = [&AdvanceTownNpcPatrolPhase, &ToggleTownNpcFacing](TownNpcRuntimeRecord& RuntimeRecord,
+        std::uint8_t PhaseMask)
+    {
+        if (!AdvanceTownNpcPatrolPhase(RuntimeRecord, PhaseMask))
+        {
+            return;
+        }
+
+        if ((RuntimeRecord.AnimationPhase & TownNpcPatrolBounceTurnMask) == 0)
+        {
+            ToggleTownNpcFacing(RuntimeRecord);
+            return;
+        }
+
+        std::uint16_t NpcX = RuntimeRecord.X;
+        if (RuntimeRecord.Facing != 0)
+        {
+            --NpcX;
+        }
+        else
+        {
+            ++NpcX;
+        }
+
+        RuntimeRecord.X = NpcX;
+    };
+
     const std::size_t HeroAbsoluteX = TownHeroState.HeroXInViewport + TownVisibleViewportColumnOffset
         + TownHeroState.ProximityMapLeftColumnX;
 
@@ -2058,12 +2162,35 @@ void TownScene::UpdateTownNpcRuntimeRecordsShell() const
             UpdateTownNpcBobInPlace(TownNpcRuntimeRecord);
             break;
 
+        case NpcAiTypePatrol1BitPhase:
+            UpdateTownNpcPatrolBetweenBoundaries(TownNpcRuntimeRecord, TownMap.NpcPatrolBoundaries,
+                TownMap.HasNpcPatrolBoundaries,
+                TownNpcPatrolStepPhaseMaskOneBit);
+            break;
+
+        case NpcAiTypePatrol2BitPhase:
+            UpdateTownNpcPatrolBetweenBoundaries(TownNpcRuntimeRecord, TownMap.NpcPatrolBoundaries,
+                TownMap.HasNpcPatrolBoundaries,
+                TownNpcPatrolStepPhaseMaskTwoBit);
+            break;
+
         case NpcAiTypeFaceHero:
             UpdateTownNpcFacingTowardHero(TownNpcRuntimeRecord, HeroAbsoluteX);
             break;
 
         case NpcAiTypeBobInPlace:
             UpdateTownNpcBobInPlace(TownNpcRuntimeRecord);
+            break;
+
+        case NpcAiTypePatrolBounce1Bit:
+            UpdateTownNpcPatrolBounce(TownNpcRuntimeRecord, TownNpcPatrolStepPhaseMaskOneBit);
+            break;
+
+        case NpcAiTypePatrolBounce2Bit:
+            UpdateTownNpcPatrolBounce(TownNpcRuntimeRecord, TownNpcPatrolStepPhaseMaskTwoBit);
+            break;
+
+        case NpcAiTypeStatic:
             break;
 
         default:
@@ -2222,9 +2349,9 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
         {
             if (!FallbackWarningPrinted)
             {
-                std::cerr << "cmap.mdt tile at column " << MapColumn << ", row " << Row
+                std::cerr << "town MDT tile at column " << MapColumn << ", row " << Row
                     << " uses tile index " << static_cast<int>(TileIndex)
-                    << " outside the cpat.grp pattern bank; drawing fallback tiles." << '\n';
+                    << " outside the active town pattern bank; drawing fallback tiles." << '\n';
                 FallbackWarningPrinted = true;
             }
 
@@ -2236,7 +2363,7 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
             static_cast<float>(TownMapViewportLeftPixelX) + ScreenTileX,
             static_cast<float>(TownMapViewportTopPixelY + Row * TownMapTileSize), 1.0f, UseTransparencyMask);
 
-        if (BlockedTileOverlayEnabled && IsTownMapBlockedTileIndex(TileIndex))
+        if (BlockedTileOverlayEnabled && IsTownMapBlockedTileIndex(PatternBank, TileIndex))
         {
             SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(Renderer, 255, 48, 48, 96);
@@ -2277,8 +2404,85 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     const Grp::PatternBank& PatternBank, const Main64Palette& Palette)
     : ActorSpriteGrpPath(ActorSpriteGrpPath), TownNpcSpriteGrpPath(TownNpcSpriteGrpPath), TownMap(TownMap), PatternBank(PatternBank), Palette(Palette)
 {
+    ReloadTownState();
+}
+
+void TownScene::ResetTownSceneState(std::optional<TownHeroRuntimeState> TransitionHeroState) noexcept
+{
+    TownHeroState = TownHeroRuntimeState{};
+    if (TransitionHeroState.has_value())
+    {
+        TownHeroState = *TransitionHeroState;
+    }
+
+    ActorFacingDirection = TownMapActorFacingDirection::Right;
+    ActorAnimationPhase = 0;
+    ActorAnimationTickCount = 0;
+    ActorFrameIndex = 0;
+    ActorMapPixelX = TownMapActorInitialMapPixelX;
+    ActorMapPixelY = TownMapActorInitialMapPixelY;
+    ScrollOffsetPixels = 0;
+    ActorFrameLoaded = false;
+    ActorFrameVisible = false;
+    ActorFrameWarningPrinted = false;
+    ActorCollisionBlocked = false;
+    TownBackgroundMountainLayerLoaded = false;
+    TownBackgroundStripLoaded = false;
+    TownBackgroundStripUsesCkpd = false;
+    TownMoleDecorationPanelsLoaded = false;
+    TownMoleTopTearsBaseLoaded = false;
+    TownMoleBottomStatusBaseLoaded = false;
+    TownTearsOverlayIconsLoaded = false;
+    TownBackgroundStripScrollOffsetPixels = 0;
+    TownRuntimeCells.clear();
+    TownNpcArray.clear();
+    TownEdgeTransitionQueued = false;
+    FallbackWarningPrinted = false;
+    TownNpcSpriteFrames.fill({});
+    TownNpcSpriteFrameLoaded.fill(false);
+    TownNpcSpriteFrameVisible.fill(false);
+    TownNpcSpriteFrameWarningPrinted = false;
+    TownBackgroundMountainLayerPixels.fill(0);
+    TownBackgroundStripPixels.fill(0);
+}
+
+void TownScene::ReloadTownState()
+{
+    ReloadTownState(std::nullopt, true);
+}
+
+void TownScene::ReloadTownStateAfterRightEdgeTransition()
+{
+    TownHeroRuntimeState TransitionHeroState{};
+    TransitionHeroState.HeroXInViewport = 0;
+    TransitionHeroState.ProximityMapLeftColumnX = 0;
+    TransitionHeroState.FacingDirection = 0;
+    TransitionHeroState.HeroAnimationPhase = 0;
+    ReloadTownState(TransitionHeroState, true);
+}
+
+void TownScene::ReloadTownStateAfterLeftEdgeTransition()
+{
+    TownHeroRuntimeState TransitionHeroState{};
+    TransitionHeroState.HeroXInViewport = 26;
+    TransitionHeroState.ProximityMapLeftColumnX = TownMap.Width > TownHeroProximityMapWidthColumns
+        ? static_cast<std::uint16_t>(TownMap.Width - TownHeroProximityMapWidthColumns)
+        : 0;
+    TransitionHeroState.FacingDirection = 0;
+    TransitionHeroState.HeroAnimationPhase = 0;
+    ReloadTownState(TransitionHeroState, true);
+}
+
+void TownScene::ReloadTownState(std::optional<TownHeroRuntimeState> TransitionHeroState, bool LoadTownNpcRecords)
+{
+    ResetTownSceneState(TransitionHeroState);
+
     TownRuntimeCells = TownMap.Cells;
-    TownNpcArray = BuildTownNpcRuntimeRecords(TownMap);
+    if (LoadTownNpcRecords)
+    {
+        // Rebuild the active town NPC runtime records from the loaded map.
+        TownNpcArray = BuildTownNpcRuntimeRecords(TownMap);
+    }
     TownBackgroundStripUsesCkpd = TownMap.HasMiddleLayer;
     const std::filesystem::path TownBackgroundBinPath = ActorSpriteGrpPath.parent_path()
         / (TownBackgroundStripUsesCkpd ? "ckpd.bin" : "ympd.bin");
@@ -2346,18 +2550,86 @@ TownScene::TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std:
     SyncTownHeroRuntimeProjection();
 }
 
-void TownScene::Update(const bool* KeyboardState)
+std::optional<Mdt::TownTransitionData> TownScene::GetEdgeTownTransition(bool IsLeftEdgeTransition) const
+{
+    if (TownEdgeTransitionQueued)
+    {
+        return std::nullopt;
+    }
+
+    if (IsLeftEdgeTransition)
+    {
+        if (TownHeroState.HeroXInViewport != TownHeroLeftEdgeTransitionSentinel)
+        {
+            return std::nullopt;
+        }
+    }
+    else if (TownHeroState.HeroXInViewport != TownHeroRightEdgeTransitionSentinel)
+    {
+        return std::nullopt;
+    }
+
+    for (const Mdt::TownTransitionData& Transition : TownMap.TransitionData)
+    {
+        if (!IsTownToTownEdgeTransition(Transition, IsLeftEdgeTransition))
+        {
+            continue;
+        }
+
+        return Transition;
+    }
+
+    return std::nullopt;
+}
+
+std::optional<Mdt::TownTransitionData> TownScene::Update(const bool* KeyboardState)
 {
     if (KeyboardState == nullptr)
     {
-        return;
+        return std::nullopt;
+    }
+
+    if (const std::optional<Mdt::TownTransitionData> Transition = GetEdgeTownTransition(true))
+    {
+        TownEdgeTransitionQueued = true;
+        return Transition;
+    }
+
+    if (const std::optional<Mdt::TownTransitionData> Transition = GetEdgeTownTransition(false))
+    {
+        TownEdgeTransitionQueued = true;
+        return Transition;
     }
 
     UpdateTownNpcRuntimeRecordsShell();
     AdvanceTownPatternAnimations(TownRuntimeCells, TownMap, PatternBank);
     UpdateTownHeroRuntimeState(KeyboardState);
+
+    if (const std::optional<Mdt::TownTransitionData> Transition = GetEdgeTownTransition(true))
+    {
+        TownEdgeTransitionQueued = true;
+        return Transition;
+    }
+
+    if (const std::optional<Mdt::TownTransitionData> Transition = GetEdgeTownTransition(false))
+    {
+        TownEdgeTransitionQueued = true;
+        return Transition;
+    }
+
     const std::size_t DesiredTownMapActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, true, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(DesiredTownMapActorFrameIndex);
+    return std::nullopt;
+}
+
+std::uint8_t TownScene::GetHeroXInViewport() const noexcept
+{
+    return TownHeroState.HeroXInViewport;
+}
+
+std::uint16_t TownScene::GetProximityMapLeftColumnX() const noexcept
+{
+    return TownHeroState.ProximityMapLeftColumnX;
 }
 
 void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled) const

@@ -33,6 +33,25 @@ struct TownEntityMarker
     std::uint8_t NpcId = 0;
 };
 
+struct TownNpcPatrolBoundaries
+{
+    // Shared patrol range used by the town NPC walk AI.
+    std::uint16_t MinimumX = 0;
+    std::uint16_t MaximumX = 0;
+};
+
+struct TownTransitionData
+{
+    // Bit 0 selects the edge direction; the remaining bits route to the
+    // dungeon transition path in the assembly.
+    std::uint8_t Flags = 0;
+    std::uint8_t DestinationMapId = 0;
+    // Town transitions use this byte to select the NPC sprite group.
+    std::uint8_t NpcSpriteGroupId = 0;
+    // Town transitions use this byte to select the pattern bank.
+    std::uint8_t PatternGroupId = 0;
+};
+
 struct TownMapInfo
 {
     std::uint16_t Width = 0;
@@ -42,8 +61,14 @@ struct TownMapInfo
     std::uint8_t MaximumTileIndex = 0;
     // town_descriptor_addr[3] selects the YMPD/CKPD background module.
     bool HasMiddleLayer = false;
+    std::uint8_t TownId = 0;
+    std::uint8_t TownPatternGroupId = 0;
+    std::uint16_t TownTransitionTablePointer = 0;
+    bool HasNpcPatrolBoundaries = false;
+    TownNpcPatrolBoundaries NpcPatrolBoundaries{};
     std::vector<std::uint8_t> Cells;
     std::vector<TownEntityMarker> EntityMarkers;
+    std::vector<TownTransitionData> TransitionData;
 };
 
 bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, std::string& ErrorMessage);

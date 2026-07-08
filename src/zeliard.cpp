@@ -12,7 +12,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -24,7 +26,6 @@ namespace
 {
 const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
 constexpr std::uint64_t SpriteAnimationFrameDelayMs = 160;
-constexpr std::size_t TownMapMaxCatchUpSteps = 4;
 
 enum class SpriteBankKind
 {
@@ -262,7 +263,7 @@ void PrintActiveViewMode(ViewMode ActiveViewMode)
         break;
 
     case ViewMode::TownMap:
-        std::cout << "active view mode: cmap.mdt town map" << '\n';
+        std::cout << "active view mode: town map" << '\n';
         break;
 
     case ViewMode::Sprite:
@@ -519,6 +520,69 @@ bool LoadPatternBank(Grp::PatternBank& PatternBank)
     return true;
 }
 
+std::filesystem::path GetTownPatternBankPath(std::uint8_t PatternGroupId)
+{
+    switch (PatternGroupId)
+    {
+    case 0:
+        return ProjectRoot / "tools" / "grpviewer" / "cpat.grp";
+
+    case 1:
+        return ProjectRoot / "tools" / "grpviewer" / "mpat.grp";
+
+    case 2:
+        return ProjectRoot / "tools" / "grpviewer" / "dpat.grp";
+    }
+
+    return {};
+}
+
+bool LoadTownPatternBank(std::uint8_t PatternGroupId, Grp::PatternBank& PatternBank)
+{
+    std::vector<std::uint8_t> Unpacked;
+    std::string ErrorMessage;
+    const std::filesystem::path GrpPath = GetTownPatternBankPath(PatternGroupId);
+    if (GrpPath.empty())
+    {
+        std::cerr << "invalid town pattern group id: " << static_cast<unsigned int>(PatternGroupId) << '\n';
+        return false;
+    }
+
+    if (!Grp::UnpackFile(GrpPath, Unpacked, ErrorMessage))
+    {
+        std::cerr << GrpPath.filename().string() << " load failed: " << ErrorMessage << '\n';
+        return false;
+    }
+
+    if (!Grp::DecodePatternBank(Unpacked, PatternBank, ErrorMessage))
+    {
+        std::cerr << GrpPath.filename().string() << " pattern decode failed: " << ErrorMessage << '\n';
+        return false;
+    }
+
+    std::ostringstream SpecialTileStream;
+    SpecialTileStream << std::uppercase << std::hex << std::setfill('0');
+    for (std::size_t TileIndex = 0; TileIndex < PatternBank.SpecialTileIndices.size(); ++TileIndex)
+    {
+        if (TileIndex > 0)
+        {
+            SpecialTileStream << ' ';
+        }
+
+        SpecialTileStream << std::setw(2)
+            << static_cast<unsigned int>(PatternBank.SpecialTileIndices[TileIndex]);
+    }
+
+    std::cout << GrpPath.filename().string() << " pattern bank loaded: " << PatternBank.Tiles.size()
+              << " patterns, " << Unpacked.size() << " source bytes, "
+              << (PatternBank.Tiles.size() * 64) << " decoded pixels, "
+              << "palette indices " << static_cast<int>(PatternBank.MinimumPaletteIndex) << ".."
+              << static_cast<int>(PatternBank.MaximumPaletteIndex)
+              << ", special tiles "
+              << (PatternBank.SpecialTileIndices.empty() ? "none" : SpecialTileStream.str()) << "." << '\n';
+    return true;
+}
+
 bool LoadNpcSpriteSheetSummary(Grp::SpriteSheetSummary& SpriteSheet)
 {
     std::string ErrorMessage;
@@ -570,25 +634,80 @@ std::filesystem::path GetTownNpcSpriteGrpPath(const std::vector<std::uint8_t>& F
     return ProjectRoot / "game" / "0" / NpcGrpName;
 }
 
-bool LoadTownMap(Mdt::TownMapInfo& TownMap, std::filesystem::path& TownNpcSpriteGrpPath)
+std::filesystem::path GetTownMdtPath(std::uint8_t TownId)
 {
-    const std::filesystem::path MdtPath = ProjectRoot / "tools" / "cmap.mdt";
+    switch (TownId)
+    {
+    case 0:
+        return ProjectRoot / "game" / "0" / "cmap.mdt";
+
+    case 1:
+        return ProjectRoot / "game" / "0" / "mrmp.mdt";
+
+    case 2:
+        return ProjectRoot / "game" / "0" / "stmp.mdt";
+
+    case 3:
+        return ProjectRoot / "game" / "0" / "bsmp.mdt";
+
+    case 4:
+        return ProjectRoot / "game" / "0" / "hlmp.mdt";
+
+    case 5:
+        return ProjectRoot / "game" / "0" / "tmmp.mdt";
+
+    case 6:
+        return ProjectRoot / "game" / "0" / "drmp.mdt";
+
+    case 7:
+        return ProjectRoot / "game" / "0" / "llmp.mdt";
+
+    case 8:
+        return ProjectRoot / "game" / "0" / "prmp.mdt";
+
+    case 9:
+        return ProjectRoot / "game" / "0" / "esmp.mdt";
+    }
+
+    return {};
+}
+
+std::string FormatTownTransitionRecordBytes(const Mdt::TownTransitionData& TownTransition)
+{
+    std::ostringstream Stream;
+    Stream << std::uppercase << std::hex << std::setfill('0')
+           << std::setw(2) << static_cast<unsigned int>(TownTransition.Flags) << ' '
+           << std::setw(2) << static_cast<unsigned int>(TownTransition.DestinationMapId) << ' '
+           << std::setw(2) << static_cast<unsigned int>(TownTransition.NpcSpriteGroupId) << ' '
+           << std::setw(2) << static_cast<unsigned int>(TownTransition.PatternGroupId);
+    return Stream.str();
+}
+
+bool LoadTownMap(std::uint8_t TownId, Mdt::TownMapInfo& TownMap, std::filesystem::path& TownNpcSpriteGrpPath)
+{
+    const std::filesystem::path MdtPath = GetTownMdtPath(TownId);
+    if (MdtPath.empty())
+    {
+        std::cerr << "invalid town id: " << static_cast<unsigned int>(TownId) << '\n';
+        return false;
+    }
+
     std::vector<std::uint8_t> FileBytes;
     std::string ErrorMessage;
     if (!ReadWholeFile(MdtPath, FileBytes))
     {
-        std::cerr << "cmap.mdt load failed: failed to open " << MdtPath.string() << std::endl;
+        std::cerr << MdtPath.filename().string() << " load failed: failed to open " << MdtPath.string() << std::endl;
         return false;
     }
 
     Mdt::TownMapInfo MapInfo;
     if (!Mdt::ParseTownMap(FileBytes, MapInfo, ErrorMessage))
     {
-        std::cerr << "cmap.mdt parse failed: " << ErrorMessage << std::endl;
+        std::cerr << MdtPath.filename().string() << " parse failed: " << ErrorMessage << std::endl;
         return false;
     }
 
-    std::cout << "cmap.mdt parsed: " << MdtPath.string() << ", width " << MapInfo.Width
+    std::cout << MdtPath.filename().string() << " parsed: " << MdtPath.string() << ", width " << MapInfo.Width
               << ", height " << MapInfo.Height << ", cells " << MapInfo.CellCount
               << ", tile indices " << static_cast<int>(MapInfo.MinimumTileIndex) << ".."
               << static_cast<int>(MapInfo.MaximumTileIndex) << "." << std::endl;
@@ -850,18 +969,24 @@ int main()
 
     Mdt::TownMapInfo TownMap;
     std::filesystem::path TownNpcSpriteGrpPath = ProjectRoot / "game" / "0" / "mman.grp";
-    const bool TownMapLoaded = LoadTownMap(TownMap, TownNpcSpriteGrpPath);
+    constexpr std::uint8_t StartingTownId = 0;
+    std::uint8_t ActiveTownId = StartingTownId;
+    const bool TownMapLoaded = LoadTownMap(StartingTownId, TownMap, TownNpcSpriteGrpPath);
     if (!TownMapLoaded)
     {
-        std::cerr << "cmap.mdt parse validation failed; continuing anyway." << '\n';
+        std::cerr << "town MDT parse validation failed; continuing anyway." << '\n';
     }
     else
     {
-        std::cout << "cmap.mdt town NPC sprite group selected: " << TownNpcSpriteGrpPath.filename().string() << '\n';
+        std::cout << "town NPC sprite group selected: " << TownNpcSpriteGrpPath.filename().string() << '\n';
     }
 
-    Grp::PatternBank PatternBank;
-    const bool PatternBankLoaded = LoadPatternBank(PatternBank);
+    Grp::PatternBank CpatPatternBank;
+    const bool CpatPatternBankLoaded = LoadPatternBank(CpatPatternBank);
+
+    Grp::PatternBank TownPatternBank;
+    const bool TownPatternBankLoaded = TownMapLoaded
+        && LoadTownPatternBank(TownMap.TownPatternGroupId, TownPatternBank);
 
     Grp::SpriteSheetSummary SpriteSheet;
     const bool SpriteSheetLoaded = LoadNpcSpriteSheetSummary(SpriteSheet);
@@ -902,13 +1027,13 @@ int main()
         std::cout << "cpat.grp palette loaded from tools/grpviewer/v15/PALETTE.json main_64." << '\n';
     }
 
-    TownScene TownMapScene(TownActorSpriteGrpPath, TownNpcSpriteGrpPath, TownMap, PatternBank, Palette);
+    TownScene TownMapScene(TownActorSpriteGrpPath, TownNpcSpriteGrpPath, TownMap, TownPatternBank, Palette);
 
-    const bool CpatViewAvailable = PatternBankLoaded && PaletteLoaded;
-    const bool TownMapViewAvailable = TownMapLoaded && PatternBankLoaded && PaletteLoaded;
+    const bool CpatViewAvailable = CpatPatternBankLoaded && PaletteLoaded;
+    const bool TownMapViewAvailable = TownMapLoaded && TownPatternBankLoaded && PaletteLoaded;
     const bool SpriteViewAvailable = PaletteLoaded;
     std::string CpatViewUnavailableMessage;
-    if (!PatternBankLoaded)
+    if (!CpatPatternBankLoaded)
     {
         CpatViewUnavailableMessage = "pattern bank decode failed";
     }
@@ -922,7 +1047,7 @@ int main()
     {
         TownMapViewUnavailableMessage = "town map parse failed";
     }
-    else if (!PatternBankLoaded)
+    else if (!TownPatternBankLoaded)
     {
         TownMapViewUnavailableMessage = "pattern bank decode failed";
     }
@@ -941,8 +1066,8 @@ int main()
     std::array<bool, 3> FontGroupAvailable{};
     const bool FontLoaded = LoadFontGroups(FontGroups, FontGroupAvailable);
     std::size_t ActiveFontGroupIndex = 0;
-    ViewMode ActiveViewMode = ViewMode::Font;
-    bool DebugOverlayEnabled = true;
+    ViewMode ActiveViewMode = ViewMode::TownMap;
+    bool DebugOverlayEnabled = false;
     bool SpriteAnimationEnabled = false;
     std::uint64_t LastSpriteAnimationTick = 0;
     ViewMode LastTownViewMode = ActiveViewMode;
@@ -1068,7 +1193,7 @@ int main()
                     }
                     else
                     {
-                        std::cerr << "cmap.mdt town map unavailable: " << TownMapViewUnavailableMessage << '\n';
+                        std::cerr << "town map unavailable: " << TownMapViewUnavailableMessage << '\n';
                     }
                 }
                 else if (Event.key.key == SDLK_S)
@@ -1203,19 +1328,41 @@ int main()
                 }
 
                 // Advance town gameplay on the DOS cadence while still redrawing every frame.
-                std::size_t TownMapUpdatesThisFrame = 0;
-                while (TownMapTimingAccumulatorNs >= TownScene::TownDosTownLoopIntervalNanoseconds
-                    && TownMapUpdatesThisFrame < TownMapMaxCatchUpSteps)
+                while (TownMapTimingAccumulatorNs >= TownScene::TownDosTownLoopIntervalNanoseconds)
                 {
-                    TownMapScene.Update(KeyboardState);
-                    TownMapTimingAccumulatorNs -= TownScene::TownDosTownLoopIntervalNanoseconds;
-                    ++TownMapUpdatesThisFrame;
-                }
+                    if (const std::optional<Mdt::TownTransitionData> TownTransition = TownMapScene.Update(KeyboardState))
+                    {
+                        const bool IsLeftEdgeTransition = (TownTransition->Flags & 1) != 0;
+                        Mdt::TownMapInfo DestinationTownMap;
+                        std::filesystem::path DestinationTownNpcSpriteGrpPath = TownNpcSpriteGrpPath;
+                        Grp::PatternBank DestinationTownPatternBank;
+                        if (LoadTownMap(TownTransition->DestinationMapId, DestinationTownMap, DestinationTownNpcSpriteGrpPath)
+                            && LoadTownPatternBank(TownTransition->PatternGroupId, DestinationTownPatternBank))
+                        {
+                            TownMap = std::move(DestinationTownMap);
+                            TownNpcSpriteGrpPath = std::move(DestinationTownNpcSpriteGrpPath);
+                            TownPatternBank = std::move(DestinationTownPatternBank);
+                            if (IsLeftEdgeTransition)
+                            {
+                                TownMapScene.ReloadTownStateAfterLeftEdgeTransition();
+                            }
+                            else
+                            {
+                                TownMapScene.ReloadTownStateAfterRightEdgeTransition();
+                            }
+                            ActiveTownId = TownTransition->DestinationMapId;
+                            TownMapTimingAccumulatorNs = 0;
+                            TownMapTimingLastTicksNs = CurrentTicksNs;
+                        }
+                        else
+                        {
+                            std::cerr << "town transition reload failed; staying on the current town." << '\n';
+                        }
 
-                if (TownMapUpdatesThisFrame == TownMapMaxCatchUpSteps
-                    && TownMapTimingAccumulatorNs >= TownScene::TownDosTownLoopIntervalNanoseconds)
-                {
-                    TownMapTimingAccumulatorNs = 0;
+                        break;
+                    }
+
+                    TownMapTimingAccumulatorNs -= TownScene::TownDosTownLoopIntervalNanoseconds;
                 }
             }
         }
@@ -1293,7 +1440,7 @@ int main()
         }
         else if (CpatViewAvailable)
         {
-            DrawPatternBankGrid(Renderer, PatternBank, Palette);
+            DrawPatternBankGrid(Renderer, CpatPatternBank, Palette);
         }
 
         SDL_RenderPresent(Renderer);

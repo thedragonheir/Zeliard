@@ -8,9 +8,7 @@ namespace Grp
 namespace
 {
 constexpr std::size_t PatternHeaderSize = 256;
-constexpr std::size_t PatternCount = 157;
 constexpr std::size_t PatternTileBytes = 48;
-constexpr std::size_t PatternExpectedSize = PatternHeaderSize + PatternCount * PatternTileBytes;
 
 std::uint16_t ReadLittleEndianWord(const std::vector<std::uint8_t>& Data, std::size_t Offset)
 {
@@ -86,7 +84,7 @@ bool DecodeAnimationReplacementRules(const std::vector<std::uint8_t>& Unpacked, 
 {
     if (ReplacementTableOffset >= Unpacked.size())
     {
-        ErrorMessage = "cpat.grp animation replacement table offset is out of range";
+        ErrorMessage = "pattern bank animation replacement table offset is out of range";
         return false;
     }
 
@@ -94,7 +92,7 @@ bool DecodeAnimationReplacementRules(const std::vector<std::uint8_t>& Unpacked, 
     const std::size_t ReplacementTableSize = 1 + static_cast<std::size_t>(ReplacementCount) * 2;
     if (ReplacementTableOffset + ReplacementTableSize > Unpacked.size())
     {
-        ErrorMessage = "cpat.grp animation replacement table is truncated";
+        ErrorMessage = "pattern bank animation replacement table is truncated";
         return false;
     }
 
@@ -112,13 +110,35 @@ bool DecodeAnimationReplacementRules(const std::vector<std::uint8_t>& Unpacked, 
     return true;
 }
 
+bool DecodeSpecialTileIndices(const std::vector<std::uint8_t>& Unpacked, std::size_t SpecialTileListOffset,
+    std::vector<std::uint8_t>& Output, std::string& ErrorMessage)
+{
+    if (SpecialTileListOffset >= Unpacked.size())
+    {
+        ErrorMessage = "pattern bank special tile list offset is out of range";
+        return false;
+    }
+
+    const std::uint8_t SpecialTileCount = Unpacked[SpecialTileListOffset];
+    const std::size_t SpecialTileListSize = 1 + static_cast<std::size_t>(SpecialTileCount);
+    if (SpecialTileListOffset + SpecialTileListSize > Unpacked.size())
+    {
+        ErrorMessage = "pattern bank special tile list is truncated";
+        return false;
+    }
+
+    Output.assign(Unpacked.begin() + static_cast<std::ptrdiff_t>(SpecialTileListOffset + 1),
+        Unpacked.begin() + static_cast<std::ptrdiff_t>(SpecialTileListOffset + SpecialTileListSize));
+    return true;
+}
+
 bool DecodePatternTile(const std::vector<std::uint8_t>& Unpacked, std::size_t PatternIndex, std::size_t ModeTableOffset,
     PatternTile& Output, std::uint8_t& MinimumPaletteIndex, std::uint8_t& MaximumPaletteIndex, std::string& ErrorMessage)
 {
     const std::size_t HeaderIndex = ModeTableOffset + PatternIndex;
     if (HeaderIndex >= Unpacked.size())
     {
-        ErrorMessage = "cpat.grp mode table is truncated";
+        ErrorMessage = "pattern bank mode table is truncated";
         return false;
     }
 
@@ -185,7 +205,7 @@ bool DecodePatternTile(const std::vector<std::uint8_t>& Unpacked, std::size_t Pa
             const std::uint8_t Pixel = RowPixels[ColumnIndex];
             if (Pixel > 63)
             {
-                ErrorMessage = "cpat.grp decoded palette index out of range";
+                ErrorMessage = "pattern bank decoded palette index out of range";
                 return false;
             }
 
@@ -202,23 +222,26 @@ bool DecodePatternTile(const std::vector<std::uint8_t>& Unpacked, std::size_t Pa
 bool DecodePatternBank(const std::vector<std::uint8_t>& Unpacked, PatternBank& Output, std::string& ErrorMessage)
 {
     Output.Tiles.clear();
+    Output.SpecialTileIndices.clear();
     Output.AnimationReplacementRules.clear();
     Output.MinimumPaletteIndex = 0;
     Output.MaximumPaletteIndex = 0;
 
-    if (Unpacked.size() != PatternExpectedSize)
+    if (Unpacked.size() < PatternHeaderSize || (Unpacked.size() - PatternHeaderSize) % PatternTileBytes != 0)
     {
-        ErrorMessage = "cpat.grp unpacked size mismatch: expected " + std::to_string(PatternExpectedSize) + " bytes, got " + std::to_string(Unpacked.size()) + " bytes";
+        ErrorMessage = "pattern bank unpacked size does not match the 256-byte header plus 48-byte tiles: got "
+            + std::to_string(Unpacked.size()) + " bytes";
         return false;
     }
 
+    const std::size_t PatternCount = (Unpacked.size() - PatternHeaderSize) / PatternTileBytes;
     const std::size_t ModeTableOffset = ReadLittleEndianWord(Unpacked, 0);
     const std::size_t SpecialTileListOffset = ReadLittleEndianWord(Unpacked, 2);
     const std::size_t ReplacementTableOffset = ReadLittleEndianWord(Unpacked, 4);
 
     if (ModeTableOffset + PatternCount > SpecialTileListOffset || SpecialTileListOffset > ReplacementTableOffset)
     {
-        ErrorMessage = "cpat.grp pattern header pointers are inconsistent";
+        ErrorMessage = "pattern bank header pointers are inconsistent";
         return false;
     }
 
@@ -233,6 +256,11 @@ bool DecodePatternBank(const std::vector<std::uint8_t>& Unpacked, PatternBank& O
         {
             return false;
         }
+    }
+
+    if (!DecodeSpecialTileIndices(Unpacked, SpecialTileListOffset, Output.SpecialTileIndices, ErrorMessage))
+    {
+        return false;
     }
 
     if (!DecodeAnimationReplacementRules(Unpacked, ReplacementTableOffset, Output.AnimationReplacementRules, ErrorMessage))

@@ -16,6 +16,8 @@ Town NPC AI type `0` now matches `npc_ai_look_at_hero_and_bob`: it faces Duke us
 Town NPC AI type `3` now mirrors `npc_ai_face_hero`: it uses the same hero absolute X comparison, flips `n_facing` bit 7 only, and leaves bobbing alone.
 The parsed `tools/cmap.mdt` town data confirms NPC ID `2` uses AI type `3` with `X = 84`, `NpcSpriteSelector = 0x80`, `NpcAnimationPhase = 0x01`, `NpcFlags = 0x00`, and `NpcId = 2` (the checked-in `game/0/cmap.mdt` copy matches this record).
 NPC runtime animation now advances from `TownScene::Update` instead of `Draw`, so rendering stays read-only. The previous logic-tick placement was still too fast because native `Update` is not the DOS `frame_timer` cadence; the town NPC gate now mirrors the assembly-proven standard town interval from PIT reload `0x13B1` and `speed_const = 5`.
+The DOS town loop advances NPC AI once per town-loop tick through `update_npcs`, and the movement / bobbing cadence is still the per-NPC `n_anim_phase` step inside each AI routine. The native town loop no longer caps catch-up steps, so brief stalls do not under-run NPC updates relative to DOS.
+The MDT parser now also surfaces the town transition table as 4-byte records, so edge reloads can stay data-driven instead of hard-coding a destination map. Current startup loads `game/0/cmap.mdt` (`StartingTownId = 0`); its transition table is `C3C6..C3CA`, exposing the single right-edge record `00 01 00 01`, selecting `MRMP.MDT` and `mpat.grp`. `MRMP.MDT` has `C6E8..C6EC`, exposing only the matching left-edge record `01 00 00 00`. The native transition reload now rebuilds the destination NPC runtime records from the loaded map, so CMAP gets its own NPCs back when returning from MRMP while MRMP now brings back its 9 parsed NPC records and uses the same DOS AI table for patrols, facing, and bobbing.
 
 ## Canonical Horizontal Model
 - `TownHeroRuntimeState.HeroXInViewport` maps to `hero_x_in_viewport`.
@@ -23,11 +25,13 @@ NPC runtime animation now advances from `TownScene::Update` instead of `Draw`, s
 - `TownHeroRuntimeState.FacingDirection` maps to `facing_direction`, and bit 0 still means `0=right, 1=left`.
 - `TownHeroRuntimeState.HeroAnimationPhase` maps to `hero_animation_phase`.
 - `GetTownHeroAbsoluteX()` remains the canonical absolute X helper: `ProximityMapLeftColumnX + HeroXInViewport + 4`.
-- The initial state is still the conservative mirror:
+- Muralla startup now uses the assembly-backed town-entry seed:
   - `HeroXInViewport = 12`
   - `ProximityMapLeftColumnX = 4`
   - `FacingDirection = 0`
   - `HeroAnimationPhase = 0`
+- The far-edge transition reloads still force `FacingDirection = 0` and `HeroAnimationPhase = 0`; only the startup seed uses the Muralla entry position above.
+- Normal startup now opens directly in town gameplay mode (`M`) instead of the font viewer, with the existing debug overlays still behind the explicit `D`, `T`, `O`, and `Y` controls.
 - The old town camera-follow toggle was removed; the town view now projects from the canonical horizontal hero state only.
 
 ## Movement Mapping
@@ -65,12 +69,14 @@ NPC runtime animation now advances from `TownScene::Update` instead of `Draw`, s
 - The collected Tears overlay path is proven: `game.asm` `render_tears_collected` (`game.asm:316..345`, called at `game.asm:148`) loops `Tears_of_Esmesanti_count` times over `tears_order_coords` (`game.asm:348..356`), each `dw` encoding `BH*256+BL` -> screen `x = BH*4`, `y = BL` (all `y = 0`). Icons: `gmmcga.asm` `Render_Icon_16x13` (`gmmcga.asm:1722..1763`) reads `off_2A5D[AL]` -> `byte_2A61` (`AL=0`, small blue, `gmmcga.asm:1768`) or `byte_2B31` (`AL=1`, large red, `gmmcga.asm:1785`), `16 x 13`, `0x80` transparent.
 ## Collision And Scrolling
 - The remaining collision work is deferred.
-- Horizontal town movement now mirrors the assembly tile-ahead gate on row `7` before any move or scroll: left probes `ProximityMapLeftColumnX + HeroXInViewport + 3`, right probes `ProximityMapLeftColumnX + HeroXInViewport + 6`, and both still rely on `IsTownMapBlockedTileIndex` for the current native blocked-tile list.
+- Horizontal town movement now mirrors the assembly tile-ahead gate on row `7` before any move or scroll: left probes `ProximityMapLeftColumnX + HeroXInViewport + 3`, right probes `ProximityMapLeftColumnX + HeroXInViewport + 6`, and both check the active pattern bank's decoded special-tile list. `cpat.grp` blocks `3C 3D`; `mpat.grp` blocks `96 97`.
 - The NPC blocker path now matches the assembly's X-column scan and only treats `n_flags` bit 6 as non-passable.
 - `ActorCollisionBlocked` is retained only as a debug/provisional field and is cleared by the projection sync.
-- Edge scrolling is implemented narrowly from the confirmed left/right town thresholds by advancing `ProximityMapLeftColumnX` when the viewport needs to pan; once the map cannot scroll right any further, the native path keeps Duke walking in-viewport up to the provisional clamp instead of freezing at the scroll edge.
+- Edge scrolling is implemented narrowly from the confirmed left/right town thresholds by advancing `ProximityMapLeftColumnX` when the viewport needs to pan; once the map cannot scroll right any further, the native path keeps Duke walking in-viewport up to the right-edge sentinel instead of freezing at the scroll edge.
 - The projection clamps scroll to the current map bounds, so the visible hero stays tied to the canonical horizontal state.
-- The exact edge-transition wrap at the far left/right map boundary is still provisional in C++; `hero_x_in_viewport + 1 == 28` is the DOS right-edge transition check, `hero_x_in_viewport = 27` belongs to that transition path, and the native path currently clamps before that sentinel.
+- The exact edge-transition wrap at the far left/right map boundary now follows the parsed town transition records. `hero_x_in_viewport + 1 == 28` is the DOS right-edge transition check, and the native path now lets Duke reach `hero_x_in_viewport = 27` before queueing a town reload when a matching right-edge entry exists. Source/data validation for current startup reaches `HeroXInViewport = 27` with `ProximityMapLeftColumnX = 78`, then selects `CMAP.MDT` record `00 01 00 01`. The prior missing visual transition was a reload failure: the destination `mpat.grp` bank unpacked to 11872 bytes, but the native pattern decoder still required the 7792-byte `cpat.grp` size.
+- The left-edge sentinel is the assembly byte wrap: left movement decrements `hero_x_in_viewport = 0` to `0xFF`, then `handle_edge_screen_transition` increments it and branches on zero. A left town record has bit `0` set; `MRMP.MDT` record `01 00 00 00` selects destination id `0` (`CMAP.MDT`) and pattern group `0` (`cpat.grp`). After the reload, assembly sets `hero_x_in_viewport = 26` and `proximity_map_left_col_x = mapWidth - 36`, which is `78` for CMAP.
+- Normal startup keeps the Muralla seed `HeroXInViewport = 12` and `ProximityMapLeftColumnX = 4` state. Confirmed right-edge transition reloads apply `HeroXInViewport = 0` and `ProximityMapLeftColumnX = 0`; confirmed left-edge transition reloads apply `HeroXInViewport = 26` and `ProximityMapLeftColumnX = mapWidth - 36`. Transition reloads now rebuild the destination NPC runtime records from the loaded map, so skipped MRMP NPCs do not become fake blockers and CMAP NPCs come back on return.
 
 ## Removed From Normal Town Mode
 - The free 4-way pixel movement path no longer drives normal town updates.
@@ -101,5 +107,5 @@ NPC runtime animation now advances from `TownScene::Update` instead of `Draw`, s
 - The town viewport projection now matches the proven MCGA origin; the YMPD mountain layer above the town tile band is now implemented, while CKPD scenic behavior and any byte-exact viewport-buffer behavior remain provisional.
 - The lower strip scroll is now implemented as the proven 8px cyclic floor-band shift; what remains provisional is the rest of the scenic background driver and any byte-exact VRAM copy ordering outside that strip.
 - The provisional free 2D town-movement helpers were removed from `town_scene.cpp`; the remaining town movement stays on the confirmed horizontal hero state.
-- The DOS town loop still does not expose a proven held-input repeat cadence in a way that maps cleanly to one exact C++ frame delay, so the new movement cooldown is a small provisional throttle rather than a claimed perfect match.
 - The current town NPC timing gate uses the standard DOS town wait threshold of `speed_const * 4 = 20` PIT ticks. With PIT input `1193182 Hz` and reload `0x13B1 = 5041`, the interval is `20.0 / (1193182.0 / 5041.0) ≈ 0.08449 s` per NPC logic update, so the visible bob phase changes about every `0.338 s` at standard speed. Speed controls are still not implemented in the native town view.
+- Muralla NPC patrol movement uses the `npc_patrol_boundaries` table parsed from each MDT header. `CMAP.MDT` resolves to `33 00 6D 00` and `MRMP.MDT` resolves to `05 00 96 00`, so the patrol AI walks within the per-map DOS boundary checks.

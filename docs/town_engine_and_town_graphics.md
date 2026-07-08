@@ -56,7 +56,7 @@ while in town:
   wait for frame timing
 ```
 
-The frame wait is handled by `game_loop_with_frame_wait`, which also runs global handlers such as exit dialog, pause, speed change, joystick calibration, and restore-game handling.
+The frame wait is handled by `game_loop_with_frame_wait`, which also runs global handlers such as exit dialog, pause, speed change, joystick calibration, and restore-game handling. Town NPC AI advances once per town-loop tick, and the movement / bobbing cadence still comes from each NPC's `n_anim_phase` logic inside `asm/town.asm`.
 
 ## Town map data
 
@@ -65,6 +65,19 @@ The frame wait is handled by `game_loop_with_frame_wait`, which also runs global
 The tile map starts at `town_tiles = 0C017h`. The source comment shows one town map as `0xD7 * 8` bytes, meaning 215 columns by 8 tile rows.
 
 The viewport renderer displays only 28 columns at a time. The engine tracks a larger proximity window and uses `proximity_start_tiles` to point at the left column currently being rendered. In the MCGA path, `render_town_tiles_28_columns` then adds `0x20` bytes, which is 4 tile columns, so the visible viewport begins at `proximity_start_tiles + 0x20` instead of the proximity window's left edge.
+
+Town transition data is also stored in the MDT header block. The 1-based `town_id` byte lives at `+0x06`, `town_transition_table` starts at `+0x07`, and the door table begins at `+0x09`. The transition records are 4 bytes each:
+
+- byte 0: edge flags
+- byte 1: destination town id
+- byte 2: NPC sprite-group selector
+- byte 3: pattern-group selector
+
+The transition table ends where the door table starts. Current startup loads `game/0/cmap.mdt` through `StartingTownId = 0`; its transition table pointer is `C3C6` (`0x03C6`) and its door table pointer is `C3CA` (`0x03CA`), leaving exactly one 4-byte record: `00 01 00 01`. That right-edge town record selects destination town id `1` (`MRMP.MDT`) and pattern group `1` (`mpat.grp`). `MRMP.MDT` has transition pointer `C6E8` (`0x06E8`) and door table pointer `C6EC` (`0x06EC`), leaving exactly one matching left-edge record: `01 00 00 00` back to destination id `0` (`CMAP.MDT`).
+The current native edge path rebuilds the destination town NPC runtime records from the loaded map before movement resumes, so CMAP restores its own NPCs after a round-trip from MRMP without carrying blockers forward. MRMP parses 9 NPC records and now uses the same runtime AI table as CMAP. The destination visual reload still needs to accept all town pattern banks (`cpat.grp`, `mpat.grp`, and `dpat.grp`); the `CMAP.MDT -> MRMP.MDT` handoff needs the 242-tile, 11872-byte unpacked `mpat.grp` bank.
+Normal startup now opens directly in town gameplay mode (`M`) instead of the font viewer, with the existing debug overlays still behind the explicit `D`, `T`, `O`, and `Y` controls.
+Muralla's startup seed uses `HeroXInViewport = 12`, `ProximityMapLeftColumnX = 4`, `FacingDirection = 0` (right), and `HeroAnimationPhase = 0`.
+The far-edge transition reloads still force `FacingDirection = 0` and `HeroAnimationPhase = 0`; only the startup seed uses the Muralla entry position above.
 
 ## Town NPC structure
 
@@ -93,6 +106,8 @@ Key behaviors:
 - `n_ai_type` indexes the town NPC AI table.
 - `n_flags` controls passability and special interaction.
 - `n_id` selects conversation/person data.
+- `npc_patrol_boundaries` is a per-map min/max X pair for the patrol AIs; `CMAP.MDT` parses `33 00 6D 00` and `MRMP.MDT` parses `05 00 96 00`, so the patrol walkers use the range stored in their own MDT header.
+- `CMAP.MDT` and `MRMP.MDT` both resolve to `mman.grp` from descriptor byte 1, so Muralla NPC sprites keep using the same bank after the town transition.
 
 ## NPC tile marker system
 
@@ -128,9 +143,11 @@ The DOS movement handlers probe row `7` before changing any horizontal state:
 Both checks feed `check_tile_in_special_list`, so a tile found in the special list blocks movement before the hero can advance or scroll.
 When the viewport is already at the maximum right scroll column, the DOS path falls back to incrementing `hero_x_in_viewport` instead of scrolling further.
 The right-edge transition check is `hero_x_in_viewport + 1 == 28`, so `hero_x_in_viewport = 27` belongs to the transition path.
-Until native transitions exist, the C++ port should clamp before that sentinel and keep Duke on the last safe visible column.
+The native path lets Duke reach that sentinel, then reloads the destination town from the parsed transition entry when a right-edge town record is present. Source/data validation for the current `cmap.mdt` startup reaches `HeroXInViewport = 27` at `ProximityMapLeftColumnX = 78`; the right-edge check then selects `00 01 00 01`. The SDL update re-checks the sentinel immediately after movement reaches `27` so the next presented frame uses the destination map. The `hero_x_in_viewport = 0` and `proximity_map_left_col_x = 0` reset is transition-only; normal startup keeps the original town entry state.
 
-The passability list comes from `seg1:special_tile_list_ptr`, part of the active pattern/tile group.
+The left-edge transition is the mirror path in `handle_edge_screen_transition`: after left movement decrements unsigned `hero_x_in_viewport` from `0` to `0xFF`, the transition test increments it and branches when the result is zero. The transition scan then requires bit `0` set in the 4-byte record. For `MRMP.MDT`, the raw record is `01 00 00 00`, so destination id `0` maps back to `CMAP.MDT` and pattern group `0` maps to `cpat.grp`. After `load_town_transition_data`, the assembly sets `hero_x_in_viewport = 26` and `proximity_map_left_col_x = mapWidth - 36`; returning to `CMAP.MDT` therefore lands at `HeroXInViewport = 26`, `ProximityMapLeftColumnX = 78`.
+
+The passability list comes from `seg1:special_tile_list_ptr`, part of the active pattern/tile group. That means `cpat.grp` blocks `3C 3D`, while `mpat.grp` blocks `96 97`; using the old CMAP list after the MRMP reload falsely blocks walkable MRMP row-7 columns such as `57`, `58`, `61`, and `62` where the map contains tile `3D`.
 
 ## Dialog system
 
