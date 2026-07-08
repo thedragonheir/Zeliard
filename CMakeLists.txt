@@ -57,11 +57,15 @@ target_compile_options(Zeliard PRIVATE
 target_link_libraries(Zeliard PRIVATE SDL3::SDL3)
 
 if (EMSCRIPTEN)
+  set(ZeliardWebStackSize 4194304)
   set_target_properties(Zeliard PROPERTIES SUFFIX ".html")
   target_link_options(Zeliard PRIVATE
     "SHELL:--shell-file=\"${CMAKE_SOURCE_DIR}/web/zeliard_shell.html\""
     "SHELL:--preload-file \"${CMAKE_SOURCE_DIR}/game@/game\""
     "SHELL:--preload-file \"${CMAKE_SOURCE_DIR}/assets@/assets\""
+    "SHELL:-sSTACK_SIZE=${ZeliardWebStackSize}"
+    "SHELL:-sINITIAL_MEMORY=134217728"
+    "SHELL:-sALLOW_MEMORY_GROWTH=1"
   )
 endif()
 
