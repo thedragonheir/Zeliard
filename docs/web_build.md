@@ -22,6 +22,7 @@ It compiles the app for the browser and bundles `game/` and `assets/` into `Zeli
 2. In GitHub, open `Settings > Pages`.
 3. Under `Source`, select `GitHub Actions`.
 4. The workflow will publish the Pages artifact with `index.html` at the root.
+5. The Pages workflow intentionally pins Emscripten `5.0.1` to avoid the current `TextDecoder` resizable-`ArrayBuffer` crash seen with newer output.
 
 ## Notes
 
