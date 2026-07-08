@@ -100,12 +100,32 @@
                     "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}"
                 }
             }
+        },
+        {
+            "name": "web-base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "installDir": "${sourceDir}/out/install/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "web-debug",
+            "displayName": "Web Debug",
+            "inherits": "web-base"
         }
     ],
     "buildPresets": [
         {
             "name": "x64-debug",
             "configurePreset": "x64-debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "web-debug",
+            "configurePreset": "web-debug",
             "configuration": "Debug"
         }
     ]

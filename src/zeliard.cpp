@@ -20,6 +20,10 @@
 #include <utility>
 #include <vector>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include "town/town.h"
 
 namespace
@@ -957,35 +961,50 @@ void DrawSpriteFrameView(SDL_Renderer* Renderer, const SpriteBankDefinition& Spr
             "STATE " + std::string(GetSpriteFrameLoadStateName(LoadState)));
     }
 }
-}
 
-int main()
+struct ZeliardApp
 {
     Mdt::TownMapInfo TownMap;
-    std::filesystem::path TownNpcSpriteGrpPath = ProjectRoot / "game" / "0" / "mman.grp";
+    std::filesystem::path TownNpcSpriteGrpPath;
+    std::filesystem::path TownActorSpriteGrpPath;
+    Grp::PatternBank TownPatternBank;
+    Main64Palette Palette{};
+    std::optional<TownScene> TownMapScene;
+    SDL_Window* Window = nullptr;
+    SDL_Renderer* Renderer = nullptr;
+    bool TownMapLoaded = false;
+    bool TownPatternBankLoaded = false;
+    bool PaletteLoaded = false;
+    bool TownReady = false;
+    bool Running = false;
+    std::uint64_t TownMapTimingLastTicksNs = 0;
+    std::uint64_t TownMapTimingAccumulatorNs = 0;
+};
+
+void LoadZeliardContent(ZeliardApp& App)
+{
+    App.TownNpcSpriteGrpPath = ProjectRoot / "game" / "0" / "mman.grp";
     constexpr std::uint8_t StartingTownId = 0;
-    const bool TownMapLoaded = LoadTownMap(StartingTownId, TownMap, TownNpcSpriteGrpPath);
-    if (!TownMapLoaded)
+    App.TownMapLoaded = LoadTownMap(StartingTownId, App.TownMap, App.TownNpcSpriteGrpPath);
+    if (!App.TownMapLoaded)
     {
         std::cerr << "town MDT parse validation failed; continuing anyway." << '\n';
     }
     else
     {
-        std::cout << "town NPC sprite group selected: " << TownNpcSpriteGrpPath.filename().string() << '\n';
+        std::cout << "town NPC sprite group selected: " << App.TownNpcSpriteGrpPath.filename().string() << '\n';
     }
 
-    Grp::PatternBank TownPatternBank;
-    const bool TownPatternBankLoaded = TownMapLoaded
-        && LoadTownPatternBank(TownMap.TownPatternGroupId, TownPatternBank);
-    if (!TownPatternBankLoaded)
+    App.TownPatternBankLoaded = App.TownMapLoaded
+        && LoadTownPatternBank(App.TownMap.TownPatternGroupId, App.TownPatternBank);
+    if (!App.TownPatternBankLoaded)
     {
         std::cerr << "town pattern bank decode failed; continuing anyway." << '\n';
     }
 
-    Main64Palette Palette{};
     std::string PaletteErrorMessage;
-    const bool PaletteLoaded = LoadMain64Palette(Palette, PaletteErrorMessage);
-    if (!PaletteLoaded)
+    App.PaletteLoaded = LoadMain64Palette(App.Palette, PaletteErrorMessage);
+    if (!App.PaletteLoaded)
     {
         std::cerr << "cpat.grp palette load failed: " << PaletteErrorMessage << '\n';
     }
@@ -994,127 +1013,179 @@ int main()
         std::cout << "cpat.grp palette loaded from tools/grpviewer/v15/PALETTE.json main_64." << '\n';
     }
 
-    const std::filesystem::path TownActorSpriteGrpPath = ProjectRoot / "game" / "0" / "tman.grp";
-    TownScene TownMapScene(TownActorSpriteGrpPath, TownNpcSpriteGrpPath, TownMap, TownPatternBank, Palette);
+    App.TownActorSpriteGrpPath = ProjectRoot / "game" / "0" / "tman.grp";
+    App.TownMapScene.emplace(App.TownActorSpriteGrpPath, App.TownNpcSpriteGrpPath, App.TownMap, App.TownPatternBank, App.Palette);
+    App.TownReady = App.TownMapLoaded && App.TownPatternBankLoaded && App.PaletteLoaded;
+}
+
+bool InitializeZeliardApp(ZeliardApp& App)
+{
+    LoadZeliardContent(App);
 
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
-        return 1;
+        return false;
     }
 
-    SDL_Window* Window = SDL_CreateWindow("Zeliard", 960, 600, 0);
-    if (!Window)
+    App.Window = SDL_CreateWindow("Zeliard", 960, 600, 0);
+    if (!App.Window)
     {
         std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';
-        SDL_Quit();
-        return 1;
+        return false;
     }
 
-    SDL_Renderer* Renderer = SDL_CreateRenderer(Window, nullptr);
-    if (!Renderer)
+    App.Renderer = SDL_CreateRenderer(App.Window, nullptr);
+    if (!App.Renderer)
     {
         std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << '\n';
-        SDL_DestroyWindow(Window);
-        SDL_Quit();
-        return 1;
+        return false;
     }
 
-    if (!SDL_SetRenderLogicalPresentation(Renderer, 320, 200, SDL_LOGICAL_PRESENTATION_LETTERBOX))
+    if (!SDL_SetRenderLogicalPresentation(App.Renderer, 320, 200, SDL_LOGICAL_PRESENTATION_LETTERBOX))
     {
         std::cerr << "SDL_SetRenderLogicalPresentation failed: " << SDL_GetError() << '\n';
-        SDL_DestroyRenderer(Renderer);
-        SDL_DestroyWindow(Window);
-        SDL_Quit();
-        return 1;
+        return false;
     }
 
-    const bool TownReady = TownMapLoaded && TownPatternBankLoaded && PaletteLoaded;
-    std::uint64_t TownMapTimingLastTicksNs = 0;
-    std::uint64_t TownMapTimingAccumulatorNs = 0;
+    App.Running = true;
+    return true;
+}
 
-    bool Running = true;
-    while (Running)
+bool RunZeliardFrame(ZeliardApp& App)
+{
+    SDL_Event Event;
+    while (SDL_PollEvent(&Event))
     {
-        SDL_Event Event;
-        while (SDL_PollEvent(&Event))
+        if (Event.type == SDL_EVENT_QUIT)
         {
-            if (Event.type == SDL_EVENT_QUIT)
-            {
-                Running = false;
-            }
-            else if (Event.type == SDL_EVENT_KEY_DOWN && Event.key.key == SDLK_ESCAPE)
-            {
-                Running = false;
-            }
+            App.Running = false;
+        }
+        else if (Event.type == SDL_EVENT_KEY_DOWN && Event.key.key == SDLK_ESCAPE)
+        {
+            App.Running = false;
+        }
+    }
+
+    const std::uint64_t CurrentTicksNs = SDL_GetTicksNS();
+    if (App.TownReady && App.TownMapScene.has_value())
+    {
+        const bool* KeyboardState = SDL_GetKeyboardState(nullptr);
+        if (App.TownMapTimingLastTicksNs == 0)
+        {
+            App.TownMapTimingLastTicksNs = CurrentTicksNs;
+            App.TownMapTimingAccumulatorNs = TownScene::TownDosTownLoopIntervalNanoseconds;
+        }
+        else
+        {
+            App.TownMapTimingAccumulatorNs += CurrentTicksNs - App.TownMapTimingLastTicksNs;
+            App.TownMapTimingLastTicksNs = CurrentTicksNs;
         }
 
-        const std::uint64_t CurrentTicksNs = SDL_GetTicksNS();
-        if (TownReady)
+        while (App.TownMapTimingAccumulatorNs >= TownScene::TownDosTownLoopIntervalNanoseconds)
         {
-            const bool* KeyboardState = SDL_GetKeyboardState(nullptr);
-            if (TownMapTimingLastTicksNs == 0)
+            if (const std::optional<Mdt::TownTransitionData> TownTransition = App.TownMapScene->Update(KeyboardState))
             {
-                TownMapTimingLastTicksNs = CurrentTicksNs;
-                TownMapTimingAccumulatorNs = TownScene::TownDosTownLoopIntervalNanoseconds;
-            }
-            else
-            {
-                TownMapTimingAccumulatorNs += CurrentTicksNs - TownMapTimingLastTicksNs;
-                TownMapTimingLastTicksNs = CurrentTicksNs;
-            }
-
-            while (TownMapTimingAccumulatorNs >= TownScene::TownDosTownLoopIntervalNanoseconds)
-            {
-                if (const std::optional<Mdt::TownTransitionData> TownTransition = TownMapScene.Update(KeyboardState))
+                const bool IsLeftEdgeTransition = (TownTransition->Flags & 1) != 0;
+                Mdt::TownMapInfo DestinationTownMap;
+                std::filesystem::path DestinationTownNpcSpriteGrpPath = App.TownNpcSpriteGrpPath;
+                Grp::PatternBank DestinationTownPatternBank;
+                if (LoadTownMap(TownTransition->DestinationMapId, DestinationTownMap, DestinationTownNpcSpriteGrpPath)
+                    && LoadTownPatternBank(TownTransition->PatternGroupId, DestinationTownPatternBank))
                 {
-                    const bool IsLeftEdgeTransition = (TownTransition->Flags & 1) != 0;
-                    Mdt::TownMapInfo DestinationTownMap;
-                    std::filesystem::path DestinationTownNpcSpriteGrpPath = TownNpcSpriteGrpPath;
-                    Grp::PatternBank DestinationTownPatternBank;
-                    if (LoadTownMap(TownTransition->DestinationMapId, DestinationTownMap, DestinationTownNpcSpriteGrpPath)
-                        && LoadTownPatternBank(TownTransition->PatternGroupId, DestinationTownPatternBank))
+                    App.TownMap = std::move(DestinationTownMap);
+                    App.TownNpcSpriteGrpPath = std::move(DestinationTownNpcSpriteGrpPath);
+                    App.TownPatternBank = std::move(DestinationTownPatternBank);
+                    if (IsLeftEdgeTransition)
                     {
-                        TownMap = std::move(DestinationTownMap);
-                        TownNpcSpriteGrpPath = std::move(DestinationTownNpcSpriteGrpPath);
-                        TownPatternBank = std::move(DestinationTownPatternBank);
-                        if (IsLeftEdgeTransition)
-                        {
-                            TownMapScene.ReloadTownStateAfterLeftEdgeTransition();
-                        }
-                        else
-                        {
-                            TownMapScene.ReloadTownStateAfterRightEdgeTransition();
-                        }
-                        TownMapTimingAccumulatorNs = 0;
-                        TownMapTimingLastTicksNs = CurrentTicksNs;
+                        App.TownMapScene->ReloadTownStateAfterLeftEdgeTransition();
                     }
                     else
                     {
-                        std::cerr << "town transition reload failed; staying on the current town." << '\n';
+                        App.TownMapScene->ReloadTownStateAfterRightEdgeTransition();
                     }
 
-                    break;
+                    App.TownMapTimingAccumulatorNs = 0;
+                    App.TownMapTimingLastTicksNs = CurrentTicksNs;
+                }
+                else
+                {
+                    std::cerr << "town transition reload failed; staying on the current town." << '\n';
                 }
 
-                TownMapTimingAccumulatorNs -= TownScene::TownDosTownLoopIntervalNanoseconds;
+                break;
             }
+
+            App.TownMapTimingAccumulatorNs -= TownScene::TownDosTownLoopIntervalNanoseconds;
         }
-
-        SDL_SetRenderDrawColor(Renderer, 12, 18, 12, 255);
-        SDL_RenderClear(Renderer);
-
-        if (TownReady)
-        {
-            TownMapScene.Draw(Renderer);
-        }
-
-        SDL_RenderPresent(Renderer);
-        SDL_Delay(1);
     }
 
-    SDL_DestroyRenderer(Renderer);
-    SDL_DestroyWindow(Window);
+    SDL_SetRenderDrawColor(App.Renderer, 12, 18, 12, 255);
+    SDL_RenderClear(App.Renderer);
+
+    if (App.TownReady && App.TownMapScene.has_value())
+    {
+        App.TownMapScene->Draw(App.Renderer);
+    }
+
+    SDL_RenderPresent(App.Renderer);
+#ifndef __EMSCRIPTEN__
+    SDL_Delay(1);
+#endif
+    return App.Running;
+}
+
+void ShutdownZeliardApp(ZeliardApp& App)
+{
+    if (App.Renderer != nullptr)
+    {
+        SDL_DestroyRenderer(App.Renderer);
+        App.Renderer = nullptr;
+    }
+
+    if (App.Window != nullptr)
+    {
+        SDL_DestroyWindow(App.Window);
+        App.Window = nullptr;
+    }
+
     SDL_Quit();
+}
+
+#ifdef __EMSCRIPTEN__
+void RunZeliardMainLoop(void* UserData)
+{
+    auto* App = static_cast<ZeliardApp*>(UserData);
+    if (App == nullptr || !RunZeliardFrame(*App))
+    {
+        emscripten_cancel_main_loop();
+    }
+}
+#endif
+}
+
+int main()
+{
+    ZeliardApp App;
+    if (!InitializeZeliardApp(App))
+    {
+        ShutdownZeliardApp(App);
+        return 1;
+    }
+
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop_arg(RunZeliardMainLoop, &App, 0, true);
+    return 0;
+#else
+    while (App.Running)
+    {
+        if (!RunZeliardFrame(App))
+        {
+            break;
+        }
+    }
+#endif
+
+    ShutdownZeliardApp(App);
     return 0;
 }

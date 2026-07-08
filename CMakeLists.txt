@@ -42,13 +42,26 @@ add_executable(Zeliard
   src/grp/pat_grp.cpp
   src/grp/grp_unpack.cpp
 )
-target_compile_definitions(Zeliard PRIVATE
-  ZELIARD_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
-)
+if (EMSCRIPTEN)
+  target_compile_definitions(Zeliard PRIVATE
+    ZELIARD_PROJECT_ROOT="."
+  )
+else()
+  target_compile_definitions(Zeliard PRIVATE
+    ZELIARD_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"
+  )
+endif()
 target_compile_options(Zeliard PRIVATE
   $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
 )
 target_link_libraries(Zeliard PRIVATE SDL3::SDL3)
+
+if (EMSCRIPTEN)
+  set_target_properties(Zeliard PROPERTIES SUFFIX ".html")
+  target_link_options(Zeliard PRIVATE
+    "SHELL:--shell-file=\"${CMAKE_SOURCE_DIR}/web/zeliard_shell.html\""
+  )
+endif()
 
 if (WIN32)
   add_custom_command(TARGET Zeliard POST_BUILD
