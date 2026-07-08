@@ -27,6 +27,77 @@
 namespace
 {
     const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
+
+    enum class DisplayAspectMode
+    {
+        SquarePixels,
+        DosFourThree
+    };
+
+    constexpr DisplayAspectMode SelectedDisplayAspectMode = DisplayAspectMode::SquarePixels;
+    constexpr int InternalWidth = 320;
+    constexpr int InternalHeight = 200;
+    constexpr int SquarePixelWindowWidth = 960;
+    constexpr int SquarePixelWindowHeight = 600;
+    constexpr int DosAspectWindowWidth = 960;
+    constexpr int DosAspectWindowHeight = 720;
+
+    constexpr const char* GetDisplayAspectModeName(DisplayAspectMode Mode)
+    {
+        switch (Mode)
+        {
+        case DisplayAspectMode::SquarePixels:
+            return "SquarePixels";
+
+        case DisplayAspectMode::DosFourThree:
+            return "DosFourThree";
+        }
+
+        return "Unknown";
+    }
+
+    constexpr int GetWindowWidth(DisplayAspectMode Mode)
+    {
+        switch (Mode)
+        {
+        case DisplayAspectMode::SquarePixels:
+            return SquarePixelWindowWidth;
+
+        case DisplayAspectMode::DosFourThree:
+            return DosAspectWindowWidth;
+        }
+
+        return SquarePixelWindowWidth;
+    }
+
+    constexpr int GetWindowHeight(DisplayAspectMode Mode)
+    {
+        switch (Mode)
+        {
+        case DisplayAspectMode::SquarePixels:
+            return SquarePixelWindowHeight;
+
+        case DisplayAspectMode::DosFourThree:
+            return DosAspectWindowHeight;
+        }
+
+        return SquarePixelWindowHeight;
+    }
+
+    constexpr SDL_RendererLogicalPresentation GetLogicalPresentation(DisplayAspectMode Mode)
+    {
+        switch (Mode)
+        {
+        case DisplayAspectMode::SquarePixels:
+            return SDL_LOGICAL_PRESENTATION_LETTERBOX;
+
+        case DisplayAspectMode::DosFourThree:
+            return SDL_LOGICAL_PRESENTATION_STRETCH;
+        }
+
+        return SDL_LOGICAL_PRESENTATION_LETTERBOX;
+    }
+
     bool ReadWholeFile(const std::filesystem::path& Path, std::vector<std::uint8_t>& Output)
     {
         std::ifstream Input(Path, std::ios::binary | std::ios::ate);
@@ -304,7 +375,11 @@ namespace
             return false;
         }
 
-        App.Window = SDL_CreateWindow("Zeliard", 960, 600, 0);
+        const DisplayAspectMode DisplayMode = SelectedDisplayAspectMode;
+        constexpr int WindowWidth = GetWindowWidth(SelectedDisplayAspectMode);
+        constexpr int WindowHeight = GetWindowHeight(SelectedDisplayAspectMode);
+
+        App.Window = SDL_CreateWindow("Zeliard", WindowWidth, WindowHeight, 0);
         if (!App.Window)
         {
             std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';
@@ -321,11 +396,18 @@ namespace
         const char* RendererName = SDL_GetRendererName(App.Renderer);
         std::cout << "SDL renderer selected: " << (RendererName != nullptr ? RendererName : "unknown") << '\n';
 
-        if (!SDL_SetRenderLogicalPresentation(App.Renderer, 320, 200, SDL_LOGICAL_PRESENTATION_LETTERBOX))
+        if (!SDL_SetRenderLogicalPresentation(App.Renderer, InternalWidth, InternalHeight, GetLogicalPresentation(DisplayMode)))
         {
             std::cerr << "SDL_SetRenderLogicalPresentation failed: " << SDL_GetError() << '\n';
             return false;
         }
+
+        int ActualWindowWidth = 0;
+        int ActualWindowHeight = 0;
+        SDL_GetWindowSize(App.Window, &ActualWindowWidth, &ActualWindowHeight);
+        std::cout << "display aspect mode: " << GetDisplayAspectModeName(DisplayMode)
+            << ", window " << ActualWindowWidth << "x" << ActualWindowHeight
+            << ", logical " << InternalWidth << "x" << InternalHeight << '\n';
 
         App.TownMapTimingLastTicksNs = SDL_GetTicksNS();
         App.TownMapTimingAccumulatorNs = 0;
