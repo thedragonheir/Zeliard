@@ -152,6 +152,7 @@ private:
     std::size_t GetTownHeroScrollOffsetPixels() const noexcept;
     void AdvanceTownBackgroundStripScrollOffset(std::ptrdiff_t PixelDelta) noexcept;
     void SyncTownHeroRuntimeProjection() noexcept;
+    void SyncTownHeroStartupActorFrame() noexcept;
     void UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept;
     void LogTearsCollectedOverlayState(std::uint8_t RawTearsCount, std::size_t DrawCount) const;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,

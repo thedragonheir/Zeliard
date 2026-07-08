@@ -31,6 +31,7 @@ The MDT parser now also surfaces the town transition table as 4-byte records, so
   - `ProximityMapLeftColumnX = 0x001E`
   - `FacingDirection = 0`
   - `HeroAnimationPhase = 0`
+- The native startup path now preloads Duke's standing hero sprite from that seed before the first draw, so the initial visible frame matches the idle pose the town loop settles on after the first no-input tick.
 - These are the normal start values from `stdply.bin`, not the Falter warp back to Dorado (`0x84` / `0x0D`).
 - The far-edge transition reloads still force `FacingDirection = 0` and `HeroAnimationPhase = 0`; only the startup seed uses the CMAP entry values above.
 - Normal startup now opens directly in town gameplay mode (`M`) instead of the font viewer, with the existing debug overlays still behind the explicit `D`, `T`, `O`, and `Y` controls.

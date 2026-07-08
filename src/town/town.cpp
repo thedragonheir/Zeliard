@@ -1639,6 +1639,13 @@ void TownScene::SyncTownHeroRuntimeProjection() noexcept
     ActorCollisionBlocked = false;
 }
 
+void TownScene::SyncTownHeroStartupActorFrame() noexcept
+{
+    const std::size_t StartupStandingAnimationPhase = static_cast<std::size_t>(TownHeroState.HeroAnimationPhase | 1);
+    ActorFrameIndex = TownActors::GetActorFrameIndex(ActorFacingDirection, false, StartupStandingAnimationPhase);
+    (void)UpdateTownMapActorFrame(ActorFrameIndex);
+}
+
 void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
 {
     if (KeyboardState == nullptr)
@@ -2326,9 +2333,16 @@ void TownScene::ReloadTownState(std::optional<TownHeroRuntimeState> TransitionHe
             << TownHudFontErrorMessage << '\n';
     }
 
-    ActorFrameIndex = TownActors::GetActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
-    (void)UpdateTownMapActorFrame(ActorFrameIndex);
     SyncTownHeroRuntimeProjection();
+    if (TransitionHeroState.has_value())
+    {
+        ActorFrameIndex = TownActors::GetActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
+        (void)UpdateTownMapActorFrame(ActorFrameIndex);
+    }
+    else
+    {
+        SyncTownHeroStartupActorFrame();
+    }
 }
 
 std::optional<Mdt::TownTransitionData> TownScene::Update(const bool* KeyboardState)
