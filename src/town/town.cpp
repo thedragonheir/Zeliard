@@ -95,6 +95,19 @@ constexpr std::size_t TownMoleBottomStatusBaseSecondPlaneFillByteCount =
     TownMoleBottomStatusBaseSecondPlaneFillWordCount * sizeof(std::uint16_t);
 constexpr std::size_t TownTearsOverlaySmallIconFileOffset = TownScene::TownTearsOverlaySmallIconFileOffset;
 constexpr std::size_t TownTearsOverlayLargeIconFileOffset = TownScene::TownTearsOverlayLargeIconFileOffset;
+constexpr std::uint8_t TownTrainingSwordType = 1;
+constexpr std::size_t TownItempGroupOffsetCount = 7;
+constexpr std::size_t TownItempGroupOffsetTableByteCount = TownItempGroupOffsetCount * sizeof(std::uint16_t);
+constexpr std::size_t TownItempGroup0Offset = 0x000E;
+constexpr std::size_t TownItempGroup0EndOffset = 0x0662;
+constexpr std::size_t TownSwordItemSpriteWidth = 20;
+constexpr std::size_t TownSwordItemSpriteHeight = 18;
+constexpr std::size_t TownSwordItemSpriteRowStride = 15;
+constexpr std::size_t TownSwordItemSpriteSourceByteCount = TownSwordItemSpriteRowStride * TownSwordItemSpriteHeight;
+constexpr std::size_t TownSwordItemGroup0SpriteCount = 6;
+constexpr std::size_t TownSwordItemSpritePixelCount = TownSwordItemSpriteWidth * TownSwordItemSpriteHeight;
+constexpr std::size_t TownSwordItemHudScreenX = 0x18 * 8;
+constexpr std::size_t TownSwordItemHudScreenY = 0xAB;
 constexpr std::size_t YmpdMountainPlaneByteWidth = 56;
 constexpr std::size_t YmpdMountainPlaneHeight = 88;
 constexpr std::size_t YmpdMountainPlaneDecodedByteCount = YmpdMountainPlaneByteWidth * YmpdMountainPlaneHeight;
@@ -160,6 +173,42 @@ std::string FormatHexByte(std::uint8_t Value)
     Output << "0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
         << static_cast<int>(Value);
     return Output.str();
+}
+
+std::uint16_t ReadLittleEndianWord(const std::vector<std::uint8_t>& Data, std::size_t Offset)
+{
+    return static_cast<std::uint16_t>(Data[Offset]
+        | (static_cast<std::uint16_t>(Data[Offset + 1]) << 8));
+}
+
+void DecodeFourPixelsFromTownItemPlanes(std::uint16_t& Plane1, std::uint16_t& Plane2,
+    std::uint16_t& Plane3, std::uint8_t* Output)
+{
+    auto ShiftPlaneBitIntoPixel = [](std::uint16_t& Plane, std::uint8_t& Pixel)
+    {
+        const std::uint8_t Carry = (Plane & 0x8000) != 0 ? 1 : 0;
+        Plane = static_cast<std::uint16_t>((Plane << 1) | Carry);
+        Pixel = static_cast<std::uint8_t>((Pixel << 1) | Carry);
+    };
+
+    for (std::size_t PixelIndex = 0; PixelIndex < 4; ++PixelIndex)
+    {
+        std::uint8_t Pixel = 0;
+        ShiftPlaneBitIntoPixel(Plane3, Pixel);
+        ShiftPlaneBitIntoPixel(Plane2, Pixel);
+        ShiftPlaneBitIntoPixel(Plane1, Pixel);
+        ShiftPlaneBitIntoPixel(Plane3, Pixel);
+        ShiftPlaneBitIntoPixel(Plane2, Pixel);
+        ShiftPlaneBitIntoPixel(Plane1, Pixel);
+        Output[PixelIndex] = Pixel;
+    }
+}
+
+void DecodeEightPixelsFromTownItemPlanes(std::uint16_t Plane1, std::uint16_t Plane2,
+    std::uint16_t Plane3, std::uint8_t* Output)
+{
+    DecodeFourPixelsFromTownItemPlanes(Plane1, Plane2, Plane3, Output);
+    DecodeFourPixelsFromTownItemPlanes(Plane1, Plane2, Plane3, Output + 4);
 }
 
 bool DecodeYmpdExtract28Bytes(const std::vector<std::uint8_t>& FileBytes, std::size_t& SourceOffset,
@@ -1094,6 +1143,117 @@ bool LoadTownTearsCollectedOverlayIcons(const std::filesystem::path& GmmcgaBinPa
     return true;
 }
 
+bool DecodeTownSwordItemSprite(const std::vector<std::uint8_t>& Unpacked, std::size_t SpriteOffset,
+    std::array<std::uint8_t, TownSwordItemSpritePixelCount>& Output, std::string& ErrorMessage)
+{
+    const std::size_t SpriteEndOffset = SpriteOffset + TownSwordItemSpriteSourceByteCount;
+    if (SpriteEndOffset > Unpacked.size())
+    {
+        ErrorMessage = "Training Sword source span "
+            + FormatHexOffset(SpriteOffset) + ".." + FormatHexOffset(SpriteEndOffset)
+            + " is past the unpacked itemp.grp size";
+        return false;
+    }
+
+    for (std::size_t Row = 0; Row < TownSwordItemSpriteHeight; ++Row)
+    {
+        const std::uint8_t* RowBytes = Unpacked.data() + SpriteOffset + Row * TownSwordItemSpriteRowStride;
+        std::uint8_t* DestinationRow = Output.data() + Row * TownSwordItemSpriteWidth;
+
+        DecodeEightPixelsFromTownItemPlanes(
+            static_cast<std::uint16_t>((RowBytes[0] << 8) | RowBytes[1]),
+            static_cast<std::uint16_t>((RowBytes[9] << 8) | RowBytes[8]),
+            static_cast<std::uint16_t>((RowBytes[10] << 8) | RowBytes[11]),
+            DestinationRow);
+        DecodeEightPixelsFromTownItemPlanes(
+            static_cast<std::uint16_t>((RowBytes[2] << 8) | RowBytes[3]),
+            static_cast<std::uint16_t>((RowBytes[7] << 8) | RowBytes[6]),
+            static_cast<std::uint16_t>((RowBytes[12] << 8) | RowBytes[13]),
+            DestinationRow + 8);
+        std::uint16_t Plane1 = static_cast<std::uint16_t>(RowBytes[4] << 8);
+        std::uint16_t Plane2 = static_cast<std::uint16_t>(RowBytes[5] << 8);
+        std::uint16_t Plane3 = static_cast<std::uint16_t>(RowBytes[14] << 8);
+        DecodeFourPixelsFromTownItemPlanes(Plane1, Plane2, Plane3, DestinationRow + 16);
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+
+bool LoadTownTrainingSwordItemSprite(const std::filesystem::path& ItempGrpPath,
+    std::array<std::uint8_t, TownSwordItemSpritePixelCount>& TrainingSwordPixels,
+    std::string& ErrorMessage)
+{
+    std::vector<std::uint8_t> Unpacked;
+    if (!Grp::UnpackFile(ItempGrpPath, Unpacked, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (Unpacked.size() < TownItempGroupOffsetTableByteCount)
+    {
+        ErrorMessage = ItempGrpPath.filename().string() + " unpacked data is too small for the item group offset table";
+        return false;
+    }
+
+    std::array<std::uint16_t, TownItempGroupOffsetCount> GroupOffsets{};
+    for (std::size_t GroupIndex = 0; GroupIndex < GroupOffsets.size(); ++GroupIndex)
+    {
+        GroupOffsets[GroupIndex] = ReadLittleEndianWord(Unpacked, GroupIndex * sizeof(std::uint16_t));
+    }
+
+    if (GroupOffsets[0] != TownItempGroup0Offset || GroupOffsets[1] != TownItempGroup0EndOffset)
+    {
+        ErrorMessage = ItempGrpPath.filename().string() + " group 0 offsets are "
+            + FormatHexOffset(GroupOffsets[0]) + ".." + FormatHexOffset(GroupOffsets[1])
+            + " instead of " + FormatHexOffset(TownItempGroup0Offset) + ".."
+            + FormatHexOffset(TownItempGroup0EndOffset);
+        return false;
+    }
+
+    if (GroupOffsets[1] > Unpacked.size())
+    {
+        ErrorMessage = ItempGrpPath.filename().string() + " group 0 end offset "
+            + FormatHexOffset(GroupOffsets[1]) + " is past the unpacked size";
+        return false;
+    }
+
+    if (TownItempGroup0EndOffset - TownItempGroup0Offset
+        != TownSwordItemGroup0SpriteCount * TownSwordItemSpriteSourceByteCount)
+    {
+        ErrorMessage = ItempGrpPath.filename().string() + " group 0 size does not match six sword item sprites";
+        return false;
+    }
+
+    const std::size_t SpriteIndex = static_cast<std::size_t>(TownTrainingSwordType - 1);
+    const std::size_t SpriteOffset = TownItempGroup0Offset + SpriteIndex * TownSwordItemSpriteSourceByteCount;
+    const std::size_t SpriteEndOffset = SpriteOffset + TownSwordItemSpriteSourceByteCount;
+    if (SpriteEndOffset > TownItempGroup0EndOffset)
+    {
+        ErrorMessage = ItempGrpPath.filename().string() + " Training Sword sprite overruns item group 0";
+        return false;
+    }
+
+    if (!DecodeTownSwordItemSprite(Unpacked, SpriteOffset, TrainingSwordPixels, ErrorMessage))
+    {
+        return false;
+    }
+
+    std::cerr << ItempGrpPath.filename().string() << " Training Sword item sprite: "
+        << "unpacked " << Unpacked.size() << " bytes, group 0 "
+        << FormatHexOffset(GroupOffsets[0]) << ".." << FormatHexOffset(GroupOffsets[1])
+        << ", sword type " << static_cast<int>(TownTrainingSwordType)
+        << ", sprite index " << SpriteIndex
+        << ", source span " << FormatHexOffset(SpriteOffset) << ".." << FormatHexOffset(SpriteEndOffset)
+        << ", source bytes " << TownSwordItemSpriteSourceByteCount
+        << ", decoded pixels " << TownSwordItemSpritePixelCount
+        << ", render position x = " << TownSwordItemHudScreenX
+        << ", y = " << TownSwordItemHudScreenY << '\n';
+
+    ErrorMessage.clear();
+    return true;
+}
+
 const char* GetTownMapActorFacingDirectionName(TownMapActorFacingDirection FacingDirection)
 {
     switch (FacingDirection)
@@ -1603,6 +1763,22 @@ void DrawTownPixel(SDL_Renderer* Renderer, const Main64Palette& Palette, std::ui
     SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
     const SDL_FRect Rect{ X, Y, 1.0f, 1.0f };
     SDL_RenderFillRect(Renderer, &Rect);
+}
+
+void DrawTownTrainingSwordItemSprite(SDL_Renderer* Renderer, const Main64Palette& Palette,
+    const std::array<std::uint8_t, TownSwordItemSpritePixelCount>& Pixels)
+{
+    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
+    for (std::size_t Row = 0; Row < TownSwordItemSpriteHeight; ++Row)
+    {
+        for (std::size_t Column = 0; Column < TownSwordItemSpriteWidth; ++Column)
+        {
+            const std::uint8_t PaletteIndex = Pixels[Row * TownSwordItemSpriteWidth + Column];
+            DrawTownPixel(Renderer, Palette, PaletteIndex,
+                static_cast<float>(TownSwordItemHudScreenX + Column),
+                static_cast<float>(TownSwordItemHudScreenY + Row));
+        }
+    }
 }
 
 void DrawTownThinFontGlyph(SDL_Renderer* Renderer, const Main64Palette& Palette, const Grp::FontGroup& FontGroup,
@@ -2497,6 +2673,7 @@ void TownScene::ResetTownSceneState(std::optional<TownHeroRuntimeState> Transiti
     TownMoleTopTearsBaseLoaded = false;
     TownMoleBottomStatusBaseLoaded = false;
     TownTearsOverlayIconsLoaded = false;
+    TownTrainingSwordItemSpriteLoaded = false;
     TownHudFontsLoaded = false;
     TownBackgroundStripScrollOffsetPixels = 0;
     TownRuntimeCells.clear();
@@ -2611,6 +2788,16 @@ void TownScene::ReloadTownState(std::optional<TownHeroRuntimeState> TransitionHe
     {
         std::cerr << TownGmmcgaBinPath.filename().string() << " collected Tears icon load failed: "
             << TownTearsOverlayIconsErrorMessage << '\n';
+    }
+
+    const std::filesystem::path TownItempGrpPath = ActorSpriteGrpPath.parent_path() / "itemp.grp";
+    std::string TownTrainingSwordItemSpriteErrorMessage;
+    TownTrainingSwordItemSpriteLoaded = LoadTownTrainingSwordItemSprite(TownItempGrpPath,
+        TownTrainingSwordItemSpritePixels, TownTrainingSwordItemSpriteErrorMessage);
+    if (!TownTrainingSwordItemSpriteLoaded)
+    {
+        std::cerr << TownItempGrpPath.filename().string() << " Training Sword item sprite load failed: "
+            << TownTrainingSwordItemSpriteErrorMessage << '\n';
     }
 
     const std::filesystem::path TownFontGrpPath = ActorSpriteGrpPath.parent_path() / "font.grp";
@@ -2769,6 +2956,11 @@ void TownScene::Draw(SDL_Renderer* Renderer) const
     {
         DrawTownMolePanel(Renderer, TownMoleBottomStatusBasePixels.data(), TownMoleBottomStatusBaseWidth,
             TownMoleBottomStatusBaseHeight, Palette, TownMoleBottomStatusBaseLeftX, TownMoleBottomStatusBaseTopY);
+    }
+
+    if (TownTrainingSwordItemSpriteLoaded)
+    {
+        DrawTownTrainingSwordItemSprite(Renderer, Palette, TownTrainingSwordItemSpritePixels);
     }
 
     DrawTownHudBars(Renderer, Palette);

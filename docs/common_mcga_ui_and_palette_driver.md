@@ -139,6 +139,10 @@ The module renders several fixed-size icon classes:
 
 These are used by `select.asm` and by HUD restore/render flows in `game.asm`.
 
+`Render_Sword_Item_Sprite_20x18` uses unpacked `itemp.grp`, not the raw compressed file bytes. The unpacked file begins with 7 little-endian group offsets. Group 0 starts at `0x000E` and ends at `0x0662`, for six `20 x 18` sword item sprites. Each sprite is `270` bytes: `18` rows with a `15`-byte planar row stride. The routine receives the 1-based sword type in `AL`, performs `dec al`, then indexes by `270`, so `SWORD_TRAINING = 1` selects group 0 sprite index `0`: `0x000E + (SwordType - 1) * 270`.
+
+For the town bottom HUD, `game.asm` calls the sword renderer with `BX = 0x18AB`. In the sword-specific coordinate math, `BH` is scaled by 8 and `BL` is the row, so Training Sword draws at `x = 192`, `y = 171`.
+
 ## Collected Tear icons
 
 `Render_Icon_16x13` is also the renderer for the collected Tears overlay. Its source table is `off_2A5D` in `gmmcga.asm`, which sits at file offset `0x0A5D` in `game/gmmcga.bin`.

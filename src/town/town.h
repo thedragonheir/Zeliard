@@ -217,6 +217,7 @@ private:
     bool TownMoleTopTearsBaseLoaded = false;
     bool TownMoleBottomStatusBaseLoaded = false;
     bool TownTearsOverlayIconsLoaded = false;
+    bool TownTrainingSwordItemSpriteLoaded = false;
     bool TownHudFontsLoaded = false;
     std::size_t TownBackgroundStripScrollOffsetPixels = 0;
     mutable std::vector<std::uint8_t> TownRuntimeCells;
@@ -233,6 +234,7 @@ private:
     std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight> TownMoleRightDecorationPanelPixels{};
     std::array<std::uint8_t, TownMoleTopTearsBaseWidth * TownMoleTopTearsBaseHeight> TownMoleTopTearsBasePixels{};
     std::array<std::uint8_t, TownMoleBottomStatusBaseWidth * TownMoleBottomStatusBaseHeight> TownMoleBottomStatusBasePixels{};
+    std::array<std::uint8_t, 20 * 18> TownTrainingSwordItemSpritePixels{};
     Grp::FontGroup TownThinFontGroup;
     Grp::FontGroup TownDigitFontGroup;
     Hud::TearsOverlayIconPixels TownTearsOverlaySmallIconPixels{};

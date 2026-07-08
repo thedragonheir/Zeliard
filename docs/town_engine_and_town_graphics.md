@@ -389,7 +389,7 @@ The place name comes from the MDT/runtime `town_name_rendering_info` pointer at 
 
 Remaining unresolved lower-HUD work:
 
-- Training Sword rendering is not implemented. The assembly draws a sword item sprite through `Render_Sword_Item_Sprite_20x18` from relocated `seg1:sword_item_gfx`, but the exact C++ `itemp.grp` source offset for the Training Sword has not been proven.
+- Training Sword rendering is proven and implemented from unpacked `itemp.grp`. The file starts with 7 little-endian group offsets; group 0 starts at `0x000E` and ends at `0x0662`, giving six sword item sprites. Each sword sprite is `18 * 15 = 270` source bytes and decodes to `20 x 18` pixels. `SWORD_TRAINING = 1`, and `gmmcga.asm` `Render_Sword_Item_Sprite_20x18` does `dec al` before multiplying by `270`, so Training Sword uses group 0 sprite index `0`: `0x000E + (SwordType - 1) * 270`.
 - Startup HP/max HP are not implemented. The assembly calls `Draw_Hero_Max_Health` and `Draw_Hero_Health`, but the C++ startup values are not proven from the runtime/save-state source yet.
 
 ## Full top Tears bar render order
@@ -416,7 +416,7 @@ The complete startup render order is:
 2. The same MOLE routine draws the left and right side panels at `x = 0` and `x = 272`. These touch `y = 0..199`, but they do not modify the center top strip.
 3. The same MOLE routine later draws the bottom/status base art at `x = 48`, `y = 158`, size `224 x 42`, then `DrawTitleFrame` writes small frame rows around `y = 47`. Neither overlaps `y = 0..13`.
 4. After the far call returns, `game.asm` immediately calls `render_tears_collected`. This is the only post-MOLE call in the inspected startup path that writes into the center top bar.
-5. The following equipment calls render into the bottom HUD contents: sword at `bx = 0x18AB`, shield at `bx = 0x3EA4`, and magic at `bx = 0x37A4`; their `BL` values place them below the top bar and they are separate from the MOLE bottom/status base art.
+5. The following equipment calls render into the bottom HUD contents: sword at `bx = 0x18AB`, shield at `bx = 0x3EA4`, and magic at `bx = 0x37A4`; their `BL` values place them below the top bar and they are separate from the MOLE bottom/status base art. The sword routine scales `BH` by 8, so the town HUD Training Sword position is `x = 192`, `y = 171`.
 
 `render_tears_collected` returns without drawing when `Tears_of_Esmesanti_count == 0`. Otherwise it loops through the first `count` entries in `tears_order_coords`, passes each coordinate in `BX`, and calls `Render_Icon_16x13`. The first eight collected tears use `AL = 0`; the ninth uses `AL = 1`.
 

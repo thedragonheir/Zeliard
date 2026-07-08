@@ -137,6 +137,22 @@ The viewer maps files to these modes:
 | 12 | boss sprites, for example `crab.grp` |
 | 13 | `dman.grp`, rokademo sprites |
 
+## `itemp.grp` Training Sword item icon
+
+Use `itemp.grp` after the normal GRP unpack step. The unpacked data starts with 7 little-endian group offsets. Group 0 starts at `0x000E` and ends at `0x0662`, and that span contains six sword item sprites.
+
+Group 0 sprite format:
+
+- six `20 x 18` sword item sprites
+- `270` source bytes per sprite
+- `18` rows, `15` planar bytes per row
+
+`SWORD_TRAINING = 1`. `gmmcga.asm` `Render_Sword_Item_Sprite_20x18` does `dec al` before indexing, so Training Sword uses group 0 sprite index `0`. The final unpacked source offset is:
+
+```text
+0x000E + (SwordType - 1) * 270
+```
+
 ## `cpat.grp` technical note
 
 `cpat.grp` appears to be a town pattern/background tileset, not a sprite sheet. The viewer maps it to mode 7 alongside `mpat.grp` and `dpat.grp`, and `asm/town.asm` loads it through the same pattern-group path as the other town static tile sets.
