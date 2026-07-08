@@ -4,6 +4,14 @@ Unofficial C++23 + SDL3 port/reimplementation of **Zeliard**, focused on faithfu
 
 This project is preservation-focused. The goal is not to modernize the game randomly, but to understand how the original works and rebuild it cleanly with accurate behavior.
 
+## Live Web Preview
+
+An experimental C++23 + SDL3 WebAssembly build is available at:
+
+https://thedragonheir.github.io/Zeliard/
+
+The preview is part of the work-in-progress port and does not represent a complete game.
+
 ## Current status
 
 Work in progress.
