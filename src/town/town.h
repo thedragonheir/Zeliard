@@ -9,7 +9,6 @@
 
 #include <SDL3/SDL.h>
 
-#include "../grp/font_grp.h"
 #include "../grp/pat_grp.h"
 #include "../grp/man_grp.h"
 #include "../mdt/town_mdt.h"
@@ -53,20 +52,12 @@ public:
         const Grp::PatternBank& PatternBank, const Main64Palette& Palette);
 
     std::optional<Mdt::TownTransitionData> Update(const bool* KeyboardState);
-    void Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled) const;
+    void Draw(SDL_Renderer* Renderer) const;
     void ReloadTownState();
     void ReloadTownStateAfterRightEdgeTransition();
     void ReloadTownStateAfterLeftEdgeTransition();
     std::uint8_t GetHeroXInViewport() const noexcept;
     std::uint16_t GetProximityMapLeftColumnX() const noexcept;
-
-    void ToggleBlockedTileOverlay() noexcept;
-    void ToggleTownEntityMarkers() noexcept;
-    void ToggleTearsOverlayDebugOverride() noexcept;
-
-    bool IsBlockedTileOverlayEnabled() const noexcept;
-    bool IsTownEntityMarkersEnabled() const noexcept;
-    bool IsTearsOverlayDebugOverrideEnabled() const noexcept;
 
 private:
     static constexpr std::uint8_t TownHeroStartupHeroXInViewport = 12;
@@ -173,12 +164,11 @@ private:
     void LogTearsCollectedOverlayState(std::uint8_t RawTearsCount, std::size_t DrawCount) const;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
         const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeRecord>& TownNpcArray,
-        std::size_t ScrollOffsetPixels, TownNpcSpriteShadowBuffer& ShadowBuffer, bool DrawDebugEntityMarkers,
-        bool DrawDebugFallbackMarker, TownColumnRenderStats& RenderStats) const;
+        std::size_t ScrollOffsetPixels, TownNpcSpriteShadowBuffer& ShadowBuffer,
+        TownColumnRenderStats& RenderStats) const;
     void DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
         const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t ScrollOffsetPixels,
-        TownNpcSpriteShadowBuffer& ShadowBuffer, bool DrawDebugFallbackMarker,
-        TownColumnRenderStats& RenderStats) const;
+        TownNpcSpriteShadowBuffer& ShadowBuffer, TownColumnRenderStats& RenderStats) const;
 
     TownHeadLevelTiles SaveHeadLevelTilesInNpcs() const;
     void RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles) const;
@@ -219,9 +209,6 @@ private:
     bool ActorFrameVisible = false;
     bool ActorFrameWarningPrinted = false;
     bool ActorCollisionBlocked = false;
-    bool BlockedTileOverlayEnabled = false;
-    bool TownEntityMarkersEnabled = false;
-    bool TownTearsOverlayDebugOverrideEnabled = false;
     bool TownBackgroundMountainLayerLoaded = false;
     bool TownBackgroundStripLoaded = false;
     bool TownBackgroundStripUsesCkpd = false;
@@ -249,6 +236,5 @@ private:
     mutable bool TownTearsOverlayStateLogInitialized = false;
     mutable std::uint8_t TownTearsOverlayLastLoggedRawCount = 0;
     mutable std::size_t TownTearsOverlayLastLoggedDrawCount = 0;
-    mutable bool TownTearsOverlayLastLoggedDebugOverrideEnabled = false;
     Grp::NpcSpriteFrame ActorFrame;
 };

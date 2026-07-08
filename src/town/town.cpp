@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include "../grp/font_grp.h"
+
 std::uint8_t TearsOfEsmesantiCount = 0;
 
 namespace Grp
@@ -1423,142 +1425,6 @@ bool HasTownToTownEdgeTransition(const Mdt::TownMapInfo& TownMap, bool IsLeftEdg
         });
 }
 
-const SDL_Color& GetTownEntityMarkerColor(Mdt::TownEntityKind EntityKind)
-{
-    static const SDL_Color DoorColor{255, 176, 64, 216};
-    static const SDL_Color NpcColor{96, 224, 255, 216};
-
-    return EntityKind == Mdt::TownEntityKind::Door ? DoorColor : NpcColor;
-}
-
-std::size_t CountTownEntityMarkers(const Mdt::TownMapInfo& TownMap, Mdt::TownEntityKind EntityKind)
-{
-    return static_cast<std::size_t>(std::count_if(TownMap.EntityMarkers.begin(), TownMap.EntityMarkers.end(),
-        [EntityKind](const Mdt::TownEntityMarker& EntityMarker)
-        {
-            return EntityMarker.Kind == EntityKind;
-        }));
-}
-
-struct TownEntityProximityResult
-{
-    const Mdt::TownEntityMarker* Marker = nullptr;
-    std::size_t DistanceSquared = 0;
-};
-
-TownEntityProximityResult FindNearestTownEntityMarker(const Mdt::TownMapInfo& TownMap,
-    std::size_t ActorMapPixelX, std::size_t ActorMapPixelY)
-{
-    const std::size_t ActorCenterPixelX = ActorMapPixelX + (Grp::NpcSpriteFrame::FrameWidth / 2);
-    const std::size_t ActorCenterPixelY = ActorMapPixelY + (Grp::NpcSpriteFrame::FrameHeight / 2);
-    const std::size_t ProximityRadiusSquared = TownEntityProximityRadiusPixels * TownEntityProximityRadiusPixels;
-
-    TownEntityProximityResult Result{};
-    for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
-    {
-        const std::size_t EntityCenterPixelX = (static_cast<std::size_t>(EntityMarker.X) * TownMapTileSize) + (TownMapTileSize / 2);
-        const std::size_t EntityCenterPixelY = (static_cast<std::size_t>(EntityMarker.Y) * TownMapTileSize) + (TownMapTileSize / 2);
-        const std::size_t DeltaPixelX = ActorCenterPixelX > EntityCenterPixelX ? ActorCenterPixelX - EntityCenterPixelX : EntityCenterPixelX - ActorCenterPixelX;
-        const std::size_t DeltaPixelY = ActorCenterPixelY > EntityCenterPixelY ? ActorCenterPixelY - EntityCenterPixelY : EntityCenterPixelY - ActorCenterPixelY;
-        const std::size_t DistanceSquared = (DeltaPixelX * DeltaPixelX) + (DeltaPixelY * DeltaPixelY);
-
-        if (DistanceSquared > ProximityRadiusSquared)
-        {
-            continue;
-        }
-
-        if (Result.Marker == nullptr || DistanceSquared < Result.DistanceSquared)
-        {
-            Result.Marker = &EntityMarker;
-            Result.DistanceSquared = DistanceSquared;
-        }
-    }
-
-    return Result;
-}
-
-std::string GetTownEntityProximityStatus(const Mdt::TownMapInfo& TownMap, std::size_t ActorMapPixelX, std::size_t ActorMapPixelY)
-{
-    const TownEntityProximityResult ProximityResult = FindNearestTownEntityMarker(TownMap, ActorMapPixelX, ActorMapPixelY);
-    if (ProximityResult.Marker == nullptr)
-    {
-        return "NEAR NONE";
-    }
-
-    if (ProximityResult.Marker->Kind == Mdt::TownEntityKind::Npc)
-    {
-        return "NEAR " + GetTownNpcSpriteDebugSummary(*ProximityResult.Marker);
-    }
-
-    return "NEAR DOOR " + std::to_string(static_cast<unsigned int>(ProximityResult.Marker->DoorType));
-}
-
-void DrawTownEntityMarker(SDL_Renderer* Renderer, const Mdt::TownEntityMarker& EntityMarker, std::size_t ScrollOffsetPixels)
-{
-    constexpr float MarkerSize = 6.0f;
-    constexpr float MarkerInset = 1.0f;
-
-    const float ScreenX = static_cast<float>(TownMapViewportLeftPixelX + EntityMarker.X * TownMapTileSize)
-        - static_cast<float>(ScrollOffsetPixels) + MarkerInset;
-    const float ScreenY = static_cast<float>(TownMapViewportTopPixelY + EntityMarker.Y * TownMapTileSize) + MarkerInset;
-    const SDL_Color& Color = GetTownEntityMarkerColor(EntityMarker.Kind);
-
-    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
-    const SDL_FRect MarkerRect{
-        ScreenX,
-        ScreenY,
-        MarkerSize,
-        MarkerSize
-    };
-    SDL_RenderFillRect(Renderer, &MarkerRect);
-
-    if (EntityMarker.Kind == Mdt::TownEntityKind::Door)
-    {
-        SDL_SetRenderDrawColor(Renderer, 32, 16, 0, 240);
-
-        const SDL_FRect DoorStripe{
-            ScreenX + 1.0f,
-            ScreenY + 2.0f,
-            MarkerSize - 2.0f,
-            2.0f
-        };
-        SDL_RenderFillRect(Renderer, &DoorStripe);
-
-        SDL_SetRenderDrawColor(Renderer, 255, 208, 112, 240);
-        SDL_RenderRect(Renderer, &MarkerRect);
-    }
-    else
-    {
-        SDL_SetRenderDrawColor(Renderer, 32, 96, 112, 240);
-
-        const SDL_FRect NpcCore{
-            ScreenX + 2.0f,
-            ScreenY + 2.0f,
-            2.0f,
-            2.0f
-        };
-        SDL_RenderFillRect(Renderer, &NpcCore);
-
-        SDL_SetRenderDrawColor(Renderer, 192, 255, 255, 240);
-        SDL_RenderRect(Renderer, &MarkerRect);
-    }
-}
-
-void DrawTownEntityMarkersForColumn(SDL_Renderer* Renderer, const Mdt::TownMapInfo& TownMap,
-    std::size_t ScrollOffsetPixels, Mdt::TownEntityKind EntityKind, std::size_t MapColumn)
-{
-    for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
-    {
-        if (EntityMarker.Kind != EntityKind || EntityMarker.X != MapColumn)
-        {
-            continue;
-        }
-
-        DrawTownEntityMarker(Renderer, EntityMarker, ScrollOffsetPixels);
-    }
-}
-
 bool TryGetTownMapTileIndexAtCell(const Mdt::TownMapInfo& TownMap, std::size_t Column, std::size_t Row,
     std::uint8_t& TileIndex)
 {
@@ -2002,7 +1868,12 @@ std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecor
     // vectors instead of a synthetic 0xFFFF terminator, so the live mirror is
     // built from parsed town markers and stops at the end of that list.
     std::vector<TownNpcRuntimeRecord> TownNpcRuntimeRecords;
-    TownNpcRuntimeRecords.reserve(CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Npc));
+    TownNpcRuntimeRecords.reserve(static_cast<std::size_t>(std::count_if(TownMap.EntityMarkers.begin(),
+        TownMap.EntityMarkers.end(),
+        [](const Mdt::TownEntityMarker& EntityMarker)
+        {
+            return EntityMarker.Kind == Mdt::TownEntityKind::Npc;
+        })));
 
     for (const Mdt::TownEntityMarker& EntityMarker : TownMap.EntityMarkers)
     {
@@ -2266,8 +2137,7 @@ const TownScene::TownNpcRuntimeRecord* TownScene::FindFirstTownNpcRuntimeRecordF
 
 void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapColumn,
     const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t ScrollOffsetPixels,
-    TownNpcSpriteShadowBuffer& ShadowBuffer, bool DrawDebugFallbackMarker,
-    TownColumnRenderStats& RenderStats) const
+    TownNpcSpriteShadowBuffer& ShadowBuffer, TownColumnRenderStats& RenderStats) const
 {
     const TownNpcRuntimeRecord* RuntimeRecord = FindFirstTownNpcRuntimeRecordForColumn(TownNpcArray, MapColumn);
     while (RuntimeRecord != nullptr)
@@ -2286,18 +2156,6 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
             if (!HasSpriteFrame)
             {
                 ++RenderStats.NpcSpriteMissCount;
-                if (DrawDebugFallbackMarker)
-                {
-                    // Keep this hidden outside the debug overlay because the assembly does not confirm
-                    // a fallback marker for missing NPC sprite frames.
-                    Mdt::TownEntityMarker FallbackMarker{};
-                    FallbackMarker.Kind = Mdt::TownEntityKind::Npc;
-                    FallbackMarker.X = RuntimeRecord->X;
-                    FallbackMarker.Y = TownHeadLevelRow;
-                    FallbackMarker.NpcSpriteSelector = RuntimeRecord->SpriteSelector;
-                    FallbackMarker.NpcAnimationPhase = RuntimeRecord->AnimationPhase;
-                    DrawTownEntityMarker(Renderer, FallbackMarker, ScrollOffsetPixels);
-                }
             }
             else
             {
@@ -2328,8 +2186,8 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
 
 void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
     const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeRecord>& TownNpcArray,
-    std::size_t ScrollOffsetPixels, TownNpcSpriteShadowBuffer& ShadowBuffer, bool DrawDebugEntityMarkers,
-    bool DrawDebugFallbackMarker, TownColumnRenderStats& RenderStats) const
+    std::size_t ScrollOffsetPixels, TownNpcSpriteShadowBuffer& ShadowBuffer,
+    TownColumnRenderStats& RenderStats) const
 {
     const Grp::PatternTile& FallbackTile = GetFallbackPatternTile();
     const auto TryGetRuntimeTileIndexAtCell = [this](std::size_t Column, std::size_t Row, std::uint8_t& TileIndex) -> bool
@@ -2392,30 +2250,13 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
             static_cast<float>(TownMapViewportLeftPixelX) + ScreenTileX,
             static_cast<float>(TownMapViewportTopPixelY + Row * TownMapTileSize), 1.0f, UseTransparencyMask);
 
-        if (BlockedTileOverlayEnabled && IsTownMapBlockedTileIndex(PatternBank, TileIndex))
-        {
-            SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
-            SDL_SetRenderDrawColor(Renderer, 255, 48, 48, 96);
-            const SDL_FRect PixelRect{
-                static_cast<float>(TownMapViewportLeftPixelX) + ScreenTileX,
-                static_cast<float>(TownMapViewportTopPixelY + Row * TownMapTileSize),
-                static_cast<float>(TownMapTileSize),
-                static_cast<float>(TownMapTileSize)
-            };
-            SDL_RenderFillRect(Renderer, &PixelRect);
-        }
-    }
-
-    if (DrawDebugEntityMarkers)
-    {
-        DrawTownEntityMarkersForColumn(Renderer, TownMap, ScrollOffsetPixels, Mdt::TownEntityKind::Door, MapColumn);
     }
 
     // Match the DOS flow: only the row-5 0xFD marker opens the NPC compositor.
     if (HasTownNpcMarker)
     {
         DispatchTownSpecialTile(Renderer, MapColumn, TownNpcArray, ScrollOffsetPixels,
-            ShadowBuffer, DrawDebugFallbackMarker, RenderStats);
+            ShadowBuffer, RenderStats);
     }
 
     // Flush only the slices that belong to the column whose background was just drawn.
@@ -2662,7 +2503,7 @@ std::uint16_t TownScene::GetProximityMapLeftColumnX() const noexcept
     return TownHeroState.ProximityMapLeftColumnX;
 }
 
-void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGroup, bool DebugOverlayEnabled) const
+void TownScene::Draw(SDL_Renderer* Renderer) const
 {
     constexpr std::size_t TileSize = TownMapTileSize;
     constexpr std::size_t VisibleColumns = TownMapVisibleColumns;
@@ -2694,7 +2535,7 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
     if (TownTearsOverlayIconsLoaded)
     {
         Hud::DrawTearsOverlay(Renderer, Palette, TownTearsOverlaySmallIconPixels, TownTearsOverlayLargeIconPixels,
-            TearsOfEsmesantiCount, TownTearsOverlayDebugOverrideEnabled);
+            TearsOfEsmesantiCount, false);
     }
 
     if (TownBackgroundMountainLayerLoaded)
@@ -2707,7 +2548,7 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
         const std::size_t MapColumn = FirstColumn + Column;
         const float TileX = static_cast<float>(Column * TileSize) - static_cast<float>(ColumnPixelOffset);
         RenderTownColumn(Renderer, MapColumn, TileX, HeadLevelTiles, TownNpcArray, ClampedScrollOffset,
-            ShadowBuffer, TownEntityMarkersEnabled, DebugOverlayEnabled, RenderStats);
+            ShadowBuffer, RenderStats);
     }
 
     RestoreHeadLevelTilesFromNpcs(HeadLevelTiles);
@@ -2723,88 +2564,27 @@ void TownScene::Draw(SDL_Renderer* Renderer, const Grp::FontGroup* DebugFontGrou
             TownMoleBottomStatusBaseHeight, Palette, TownMoleBottomStatusBaseLeftX, TownMoleBottomStatusBaseTopY);
     }
 
-    const std::size_t CollectedTearsCount = TownTearsOverlayDebugOverrideEnabled
-        ? Hud::TearsOverlayMaximumCount
-        : std::min<std::size_t>(TearsOfEsmesantiCount, Hud::TearsOverlayMaximumCount);
-    LogTearsCollectedOverlayState(TearsOfEsmesantiCount, CollectedTearsCount);
+    LogTearsCollectedOverlayState(TearsOfEsmesantiCount,
+        std::min<std::size_t>(TearsOfEsmesantiCount, Hud::TearsOverlayMaximumCount));
 
     if (!(ActorFrameLoaded && ActorFrameVisible))
     {
         DrawTownMapActorFallbackMarker(Renderer, static_cast<float>(ActorMapPixelX),
             static_cast<float>(ActorMapPixelY), ClampedScrollOffset);
     }
-
-    if (DebugOverlayEnabled && DebugFontGroup != nullptr)
-    {
-        constexpr float TextScale = 1.0f;
-        constexpr float StartX = 8.0f;
-        constexpr float StartY = 24.0f;
-        constexpr float LineSpacing = 10.0f;
-        const std::size_t NpcMarkerCount = CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Npc);
-        const std::size_t DoorMarkerCount = CountTownEntityMarkers(TownMap, Mdt::TownEntityKind::Door);
-
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY, TextScale,
-            "ACT F" + std::to_string(ActorFrameIndex) + " " + GetTownMapActorFacingDirectionName(ActorFacingDirection)
-            + " ACTSPR " + GetTownMapActorSpriteStatusName(ActorFrameLoaded, ActorFrameVisible));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing, TextScale,
-            "POS " + std::to_string(ActorMapPixelX) + "," + std::to_string(ActorMapPixelY) + " "
-            + GetTownMapCollisionStatusName(ActorCollisionBlocked));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 2.0f, TextScale,
-            std::string("TILE ") + (BlockedTileOverlayEnabled ? "ON" : "OFF") + " OBJ "
-            + (TownEntityMarkersEnabled ? "ON" : "OFF"));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 3.0f, TextScale,
-            "NPCSPR " + std::to_string(RenderStats.RenderedNpcSpriteCount) + "/" + std::to_string(NpcMarkerCount)
-            + " NPCMISS " + std::to_string(RenderStats.NpcSpriteMissCount)
-            + " DOOR " + std::to_string(DoorMarkerCount));
-        DrawFontText(Renderer, *DebugFontGroup, StartX, StartY + LineSpacing * 4.0f, TextScale,
-            GetTownEntityProximityStatus(TownMap, ActorMapPixelX, ActorMapPixelY));
-    }
-}
-
-void TownScene::ToggleBlockedTileOverlay() noexcept
-{
-    BlockedTileOverlayEnabled = !BlockedTileOverlayEnabled;
-}
-
-void TownScene::ToggleTownEntityMarkers() noexcept
-{
-    TownEntityMarkersEnabled = !TownEntityMarkersEnabled;
-}
-
-void TownScene::ToggleTearsOverlayDebugOverride() noexcept
-{
-    TownTearsOverlayDebugOverrideEnabled = !TownTearsOverlayDebugOverrideEnabled;
-}
-
-bool TownScene::IsBlockedTileOverlayEnabled() const noexcept
-{
-    return BlockedTileOverlayEnabled;
-}
-
-bool TownScene::IsTownEntityMarkersEnabled() const noexcept
-{
-    return TownEntityMarkersEnabled;
-}
-
-bool TownScene::IsTearsOverlayDebugOverrideEnabled() const noexcept
-{
-    return TownTearsOverlayDebugOverrideEnabled;
 }
 
 void TownScene::LogTearsCollectedOverlayState(std::uint8_t RawTearsCount, std::size_t DrawCount) const
 {
     if (!TownTearsOverlayStateLogInitialized
         || RawTearsCount != TownTearsOverlayLastLoggedRawCount
-        || DrawCount != TownTearsOverlayLastLoggedDrawCount
-        || TownTearsOverlayDebugOverrideEnabled != TownTearsOverlayLastLoggedDebugOverrideEnabled)
+        || DrawCount != TownTearsOverlayLastLoggedDrawCount)
     {
         std::cerr << "town tears overlay state: raw count " << static_cast<unsigned int>(RawTearsCount)
-            << ", draw count " << DrawCount
-            << ", debug override " << (TownTearsOverlayDebugOverrideEnabled ? "on" : "off") << '\n';
+            << ", draw count " << DrawCount << '\n';
         TownTearsOverlayStateLogInitialized = true;
         TownTearsOverlayLastLoggedRawCount = RawTearsCount;
         TownTearsOverlayLastLoggedDrawCount = DrawCount;
-        TownTearsOverlayLastLoggedDebugOverrideEnabled = TownTearsOverlayDebugOverrideEnabled;
     }
 }
 

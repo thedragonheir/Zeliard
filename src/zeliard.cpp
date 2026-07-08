@@ -961,16 +961,9 @@ void DrawSpriteFrameView(SDL_Renderer* Renderer, const SpriteBankDefinition& Spr
 
 int main()
 {
-    const bool ValidationMatch = ValidateGrpUnpack();
-    if (!ValidationMatch)
-    {
-        std::cerr << "cpat.grp unpack validation failed; continuing anyway." << '\n';
-    }
-
     Mdt::TownMapInfo TownMap;
     std::filesystem::path TownNpcSpriteGrpPath = ProjectRoot / "game" / "0" / "mman.grp";
     constexpr std::uint8_t StartingTownId = 0;
-    std::uint8_t ActiveTownId = StartingTownId;
     const bool TownMapLoaded = LoadTownMap(StartingTownId, TownMap, TownNpcSpriteGrpPath);
     if (!TownMapLoaded)
     {
@@ -981,40 +974,14 @@ int main()
         std::cout << "town NPC sprite group selected: " << TownNpcSpriteGrpPath.filename().string() << '\n';
     }
 
-    Grp::PatternBank CpatPatternBank;
-    const bool CpatPatternBankLoaded = LoadPatternBank(CpatPatternBank);
-
     Grp::PatternBank TownPatternBank;
     const bool TownPatternBankLoaded = TownMapLoaded
         && LoadTownPatternBank(TownMap.TownPatternGroupId, TownPatternBank);
-
-    Grp::SpriteSheetSummary SpriteSheet;
-    const bool SpriteSheetLoaded = LoadNpcSpriteSheetSummary(SpriteSheet);
-    if (!SpriteSheetLoaded)
+    if (!TownPatternBankLoaded)
     {
-        std::cerr << "mman.grp sprite validation failed; continuing anyway." << '\n';
+        std::cerr << "town pattern bank decode failed; continuing anyway." << '\n';
     }
 
-    const std::filesystem::path TownActorSpriteGrpPath = ProjectRoot / "game" / "0" / "tman.grp";
-    std::size_t ActiveSpriteBankIndex = 0;
-    SpriteViewFrame CurrentSpriteFrame;
-    std::size_t CurrentSpriteFrameIndex = 0;
-    SpriteFrameLoadState CurrentSpriteFrameLoadState = SpriteFrameLoadState::Miss;
-    std::string SpriteFrameLoadErrorMessage;
-    LoadSpriteFrameForView(SpriteBankDefinitions[ActiveSpriteBankIndex], CurrentSpriteFrameIndex,
-        CurrentSpriteFrame, CurrentSpriteFrameLoadState, SpriteFrameLoadErrorMessage);
-    if (CurrentSpriteFrameLoadState == SpriteFrameLoadState::Miss)
-    {
-        std::cerr << SpriteBankDefinitions[ActiveSpriteBankIndex].FileName << " sprite frame 0 load failed: "
-                  << SpriteFrameLoadErrorMessage << '\n';
-    }
-    else
-    {
-        std::cout << SpriteBankDefinitions[ActiveSpriteBankIndex].FileName
-                  << " sprite frame 0 loaded: frame " << CurrentSpriteFrame.Width << "x"
-                  << CurrentSpriteFrame.Height << ", state "
-                  << GetSpriteFrameLoadStateName(CurrentSpriteFrameLoadState) << "." << '\n';
-    }
     Main64Palette Palette{};
     std::string PaletteErrorMessage;
     const bool PaletteLoaded = LoadMain64Palette(Palette, PaletteErrorMessage);
@@ -1027,64 +994,8 @@ int main()
         std::cout << "cpat.grp palette loaded from tools/grpviewer/v15/PALETTE.json main_64." << '\n';
     }
 
+    const std::filesystem::path TownActorSpriteGrpPath = ProjectRoot / "game" / "0" / "tman.grp";
     TownScene TownMapScene(TownActorSpriteGrpPath, TownNpcSpriteGrpPath, TownMap, TownPatternBank, Palette);
-
-    const bool CpatViewAvailable = CpatPatternBankLoaded && PaletteLoaded;
-    const bool TownMapViewAvailable = TownMapLoaded && TownPatternBankLoaded && PaletteLoaded;
-    const bool SpriteViewAvailable = PaletteLoaded;
-    std::string CpatViewUnavailableMessage;
-    if (!CpatPatternBankLoaded)
-    {
-        CpatViewUnavailableMessage = "pattern bank decode failed";
-    }
-    else if (!PaletteLoaded)
-    {
-        CpatViewUnavailableMessage = PaletteErrorMessage;
-    }
-
-    std::string TownMapViewUnavailableMessage;
-    if (!TownMapLoaded)
-    {
-        TownMapViewUnavailableMessage = "town map parse failed";
-    }
-    else if (!TownPatternBankLoaded)
-    {
-        TownMapViewUnavailableMessage = "pattern bank decode failed";
-    }
-    else if (!PaletteLoaded)
-    {
-        TownMapViewUnavailableMessage = PaletteErrorMessage;
-    }
-
-    std::string SpriteViewUnavailableMessage;
-    if (!PaletteLoaded)
-    {
-        SpriteViewUnavailableMessage = PaletteErrorMessage;
-    }
-
-    std::array<Grp::FontGroup, 3> FontGroups{};
-    std::array<bool, 3> FontGroupAvailable{};
-    const bool FontLoaded = LoadFontGroups(FontGroups, FontGroupAvailable);
-    std::size_t ActiveFontGroupIndex = 0;
-    ViewMode ActiveViewMode = ViewMode::TownMap;
-    bool DebugOverlayEnabled = false;
-    bool SpriteAnimationEnabled = false;
-    std::uint64_t LastSpriteAnimationTick = 0;
-    ViewMode LastTownViewMode = ActiveViewMode;
-    std::uint64_t TownMapTimingLastTicksNs = 0;
-    std::uint64_t TownMapTimingAccumulatorNs = 0;
-
-    if (FontLoaded && !FontGroupAvailable[ActiveFontGroupIndex])
-    {
-        for (std::size_t GroupIndex = 0; GroupIndex < FontGroupAvailable.size(); ++GroupIndex)
-        {
-            if (FontGroupAvailable[GroupIndex])
-            {
-                ActiveFontGroupIndex = GroupIndex;
-                break;
-            }
-        }
-    }
 
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
@@ -1118,6 +1029,10 @@ int main()
         return 1;
     }
 
+    const bool TownReady = TownMapLoaded && TownPatternBankLoaded && PaletteLoaded;
+    std::uint64_t TownMapTimingLastTicksNs = 0;
+    std::uint64_t TownMapTimingAccumulatorNs = 0;
+
     bool Running = true;
     while (Running)
     {
@@ -1132,315 +1047,66 @@ int main()
             {
                 Running = false;
             }
-            else if (Event.type == SDL_EVENT_KEY_DOWN && !Event.key.repeat)
-            {
-                if (Event.key.key == SDLK_F)
-                {
-                    if (ActiveViewMode != ViewMode::Font)
-                    {
-                        ActiveViewMode = ViewMode::Font;
-                        PrintActiveViewMode(ActiveViewMode);
-                        if (FontLoaded && ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
-                        {
-                            PrintActiveFontGroup(ActiveFontGroupIndex, FontGroups[ActiveFontGroupIndex]);
-                        }
-                    }
-                }
-                else if (Event.key.key == SDLK_D)
-                {
-                    DebugOverlayEnabled = !DebugOverlayEnabled;
-                    PrintDebugOverlayState(DebugOverlayEnabled);
-                }
-                else if (Event.key.key == SDLK_T && ActiveViewMode == ViewMode::TownMap)
-                {
-                    TownMapScene.ToggleBlockedTileOverlay();
-                    PrintTownMapBlockedTileOverlayState(TownMapScene.IsBlockedTileOverlayEnabled());
-                }
-                else if (Event.key.key == SDLK_O && ActiveViewMode == ViewMode::TownMap)
-                {
-                    TownMapScene.ToggleTownEntityMarkers();
-                    PrintTownMapEntityMarkerState(TownMapScene.IsTownEntityMarkersEnabled());
-                }
-                else if (Event.key.key == SDLK_Y && ActiveViewMode == ViewMode::TownMap)
-                {
-                    TownMapScene.ToggleTearsOverlayDebugOverride();
-                    PrintTownTearsOverlayDebugOverrideState(TownMapScene.IsTearsOverlayDebugOverrideEnabled());
-                }
-                else if (Event.key.key == SDLK_C)
-                {
-                    if (CpatViewAvailable)
-                    {
-                        if (ActiveViewMode != ViewMode::Cpat)
-                        {
-                            ActiveViewMode = ViewMode::Cpat;
-                            PrintActiveViewMode(ActiveViewMode);
-                        }
-                    }
-                    else
-                    {
-                        std::cerr << "cpat.grp tile grid unavailable: " << CpatViewUnavailableMessage << '\n';
-                    }
-                }
-                else if (Event.key.key == SDLK_M)
-                {
-                    if (TownMapViewAvailable)
-                    {
-                        if (ActiveViewMode != ViewMode::TownMap)
-                        {
-                            ActiveViewMode = ViewMode::TownMap;
-                            PrintActiveViewMode(ActiveViewMode);
-                        }
-                    }
-                    else
-                    {
-                        std::cerr << "town map unavailable: " << TownMapViewUnavailableMessage << '\n';
-                    }
-                }
-                else if (Event.key.key == SDLK_S)
-                {
-                    if (SpriteViewAvailable)
-                    {
-                        if (ActiveViewMode != ViewMode::Sprite)
-                        {
-                            ActiveViewMode = ViewMode::Sprite;
-                            PrintActiveViewMode(ActiveViewMode);
-                        }
-                    }
-                    else
-                    {
-                        std::cerr << "sprite viewer unavailable: " << SpriteViewUnavailableMessage << '\n';
-                    }
-                }
-                else if (ActiveViewMode == ViewMode::Sprite)
-                {
-                    if (Event.key.key == SDLK_G)
-                    {
-                        ActiveSpriteBankIndex = (ActiveSpriteBankIndex + 1) % SpriteBankDefinitions.size();
-                        CurrentSpriteFrameIndex = 0;
-                        LoadSpriteFrameForView(SpriteBankDefinitions[ActiveSpriteBankIndex], CurrentSpriteFrameIndex,
-                            CurrentSpriteFrame, CurrentSpriteFrameLoadState, SpriteFrameLoadErrorMessage);
-                        LastSpriteAnimationTick = SDL_GetTicks();
-                        PrintActiveSpriteBank(SpriteBankDefinitions[ActiveSpriteBankIndex]);
-                        if (CurrentSpriteFrameLoadState == SpriteFrameLoadState::Miss)
-                        {
-                            std::cerr << SpriteBankDefinitions[ActiveSpriteBankIndex].FileName
-                                      << " sprite frame " << CurrentSpriteFrameIndex
-                                      << " load failed: " << SpriteFrameLoadErrorMessage << '\n';
-                        }
-                    }
-                    else if (Event.key.key == SDLK_SPACE)
-                    {
-                        SpriteAnimationEnabled = !SpriteAnimationEnabled;
-                        LastSpriteAnimationTick = SDL_GetTicks();
-                        PrintSpriteAnimationState(SpriteAnimationEnabled);
-                    }
-                    else if (Event.key.key == SDLK_LEFT || Event.key.key == SDLK_RIGHT)
-                    {
-                        const SpriteBankDefinition& ActiveSpriteBank = SpriteBankDefinitions[ActiveSpriteBankIndex];
-                        std::size_t RequestedSpriteFrameIndex = CurrentSpriteFrameIndex;
-                        if (Event.key.key == SDLK_LEFT)
-                        {
-                            RequestedSpriteFrameIndex = RequestedSpriteFrameIndex == 0
-                                ? ActiveSpriteBank.FrameCount - 1
-                                : RequestedSpriteFrameIndex - 1;
-                        }
-                        else
-                        {
-                            RequestedSpriteFrameIndex = RequestedSpriteFrameIndex + 1 >= ActiveSpriteBank.FrameCount
-                                ? 0
-                                : RequestedSpriteFrameIndex + 1;
-                        }
-
-                        CurrentSpriteFrameIndex = RequestedSpriteFrameIndex;
-                        LoadSpriteFrameForView(ActiveSpriteBank, CurrentSpriteFrameIndex,
-                            CurrentSpriteFrame, CurrentSpriteFrameLoadState, SpriteFrameLoadErrorMessage);
-                        LastSpriteAnimationTick = SDL_GetTicks();
-                        if (CurrentSpriteFrameLoadState == SpriteFrameLoadState::Miss)
-                        {
-                            std::cerr << ActiveSpriteBank.FileName
-                                      << " sprite frame " << CurrentSpriteFrameIndex
-                                      << " load failed: " << SpriteFrameLoadErrorMessage << '\n';
-                        }
-                    }
-                }
-                else if (ActiveViewMode == ViewMode::Font)
-                {
-                    std::size_t RequestedGroupIndex = 0;
-                    bool HasSelection = true;
-
-                    if (Event.key.key == SDLK_1)
-                    {
-                        RequestedGroupIndex = 0;
-                    }
-                    else if (Event.key.key == SDLK_2)
-                    {
-                        RequestedGroupIndex = 1;
-                    }
-                    else if (Event.key.key == SDLK_3)
-                    {
-                        RequestedGroupIndex = 2;
-                    }
-                    else
-                    {
-                        HasSelection = false;
-                    }
-
-                    if (HasSelection && RequestedGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[RequestedGroupIndex] && RequestedGroupIndex != ActiveFontGroupIndex)
-                    {
-                        ActiveFontGroupIndex = RequestedGroupIndex;
-                        PrintActiveFontGroup(ActiveFontGroupIndex, FontGroups[ActiveFontGroupIndex]);
-                    }
-                }
-            }
         }
 
         const std::uint64_t CurrentTicksNs = SDL_GetTicksNS();
-        if (ActiveViewMode != LastTownViewMode)
+        if (TownReady)
         {
-            if (ActiveViewMode == ViewMode::TownMap)
+            const bool* KeyboardState = SDL_GetKeyboardState(nullptr);
+            if (TownMapTimingLastTicksNs == 0)
             {
                 TownMapTimingLastTicksNs = CurrentTicksNs;
                 TownMapTimingAccumulatorNs = TownScene::TownDosTownLoopIntervalNanoseconds;
             }
-            else if (LastTownViewMode == ViewMode::TownMap)
+            else
             {
-                TownMapTimingLastTicksNs = 0;
-                TownMapTimingAccumulatorNs = 0;
+                TownMapTimingAccumulatorNs += CurrentTicksNs - TownMapTimingLastTicksNs;
+                TownMapTimingLastTicksNs = CurrentTicksNs;
             }
 
-            LastTownViewMode = ActiveViewMode;
-        }
-
-        if (ActiveViewMode == ViewMode::TownMap)
-        {
-            if (TownMapViewAvailable)
+            while (TownMapTimingAccumulatorNs >= TownScene::TownDosTownLoopIntervalNanoseconds)
             {
-                const bool* KeyboardState = SDL_GetKeyboardState(nullptr);
-                if (TownMapTimingLastTicksNs == 0)
+                if (const std::optional<Mdt::TownTransitionData> TownTransition = TownMapScene.Update(KeyboardState))
                 {
-                    TownMapTimingLastTicksNs = CurrentTicksNs;
-                    TownMapTimingAccumulatorNs = TownScene::TownDosTownLoopIntervalNanoseconds;
-                }
-                else
-                {
-                    TownMapTimingAccumulatorNs += CurrentTicksNs - TownMapTimingLastTicksNs;
-                    TownMapTimingLastTicksNs = CurrentTicksNs;
-                }
-
-                // Advance town gameplay on the DOS cadence while still redrawing every frame.
-                while (TownMapTimingAccumulatorNs >= TownScene::TownDosTownLoopIntervalNanoseconds)
-                {
-                    if (const std::optional<Mdt::TownTransitionData> TownTransition = TownMapScene.Update(KeyboardState))
+                    const bool IsLeftEdgeTransition = (TownTransition->Flags & 1) != 0;
+                    Mdt::TownMapInfo DestinationTownMap;
+                    std::filesystem::path DestinationTownNpcSpriteGrpPath = TownNpcSpriteGrpPath;
+                    Grp::PatternBank DestinationTownPatternBank;
+                    if (LoadTownMap(TownTransition->DestinationMapId, DestinationTownMap, DestinationTownNpcSpriteGrpPath)
+                        && LoadTownPatternBank(TownTransition->PatternGroupId, DestinationTownPatternBank))
                     {
-                        const bool IsLeftEdgeTransition = (TownTransition->Flags & 1) != 0;
-                        Mdt::TownMapInfo DestinationTownMap;
-                        std::filesystem::path DestinationTownNpcSpriteGrpPath = TownNpcSpriteGrpPath;
-                        Grp::PatternBank DestinationTownPatternBank;
-                        if (LoadTownMap(TownTransition->DestinationMapId, DestinationTownMap, DestinationTownNpcSpriteGrpPath)
-                            && LoadTownPatternBank(TownTransition->PatternGroupId, DestinationTownPatternBank))
+                        TownMap = std::move(DestinationTownMap);
+                        TownNpcSpriteGrpPath = std::move(DestinationTownNpcSpriteGrpPath);
+                        TownPatternBank = std::move(DestinationTownPatternBank);
+                        if (IsLeftEdgeTransition)
                         {
-                            TownMap = std::move(DestinationTownMap);
-                            TownNpcSpriteGrpPath = std::move(DestinationTownNpcSpriteGrpPath);
-                            TownPatternBank = std::move(DestinationTownPatternBank);
-                            if (IsLeftEdgeTransition)
-                            {
-                                TownMapScene.ReloadTownStateAfterLeftEdgeTransition();
-                            }
-                            else
-                            {
-                                TownMapScene.ReloadTownStateAfterRightEdgeTransition();
-                            }
-                            ActiveTownId = TownTransition->DestinationMapId;
-                            TownMapTimingAccumulatorNs = 0;
-                            TownMapTimingLastTicksNs = CurrentTicksNs;
+                            TownMapScene.ReloadTownStateAfterLeftEdgeTransition();
                         }
                         else
                         {
-                            std::cerr << "town transition reload failed; staying on the current town." << '\n';
+                            TownMapScene.ReloadTownStateAfterRightEdgeTransition();
                         }
-
-                        break;
+                        TownMapTimingAccumulatorNs = 0;
+                        TownMapTimingLastTicksNs = CurrentTicksNs;
+                    }
+                    else
+                    {
+                        std::cerr << "town transition reload failed; staying on the current town." << '\n';
                     }
 
-                    TownMapTimingAccumulatorNs -= TownScene::TownDosTownLoopIntervalNanoseconds;
+                    break;
                 }
-            }
-        }
-        else if (ActiveViewMode == ViewMode::Sprite && SpriteAnimationEnabled)
-        {
-            const std::uint64_t CurrentTick = SDL_GetTicks();
-            if (LastSpriteAnimationTick == 0)
-            {
-                LastSpriteAnimationTick = CurrentTick;
-            }
 
-            const std::uint64_t ElapsedTicks = CurrentTick - LastSpriteAnimationTick;
-            if (ElapsedTicks >= SpriteAnimationFrameDelayMs)
-            {
-                const SpriteBankDefinition& ActiveSpriteBank = SpriteBankDefinitions[ActiveSpriteBankIndex];
-                const std::size_t FrameStep = static_cast<std::size_t>(ElapsedTicks / SpriteAnimationFrameDelayMs);
-                CurrentSpriteFrameIndex = (CurrentSpriteFrameIndex + FrameStep) % ActiveSpriteBank.FrameCount;
-                LastSpriteAnimationTick += static_cast<std::uint64_t>(FrameStep) * SpriteAnimationFrameDelayMs;
-                LoadSpriteFrameForView(ActiveSpriteBank, CurrentSpriteFrameIndex,
-                    CurrentSpriteFrame, CurrentSpriteFrameLoadState, SpriteFrameLoadErrorMessage);
+                TownMapTimingAccumulatorNs -= TownScene::TownDosTownLoopIntervalNanoseconds;
             }
         }
 
-        if (ActiveViewMode == ViewMode::Font)
-        {
-            if (FontLoaded)
-            {
-                SDL_SetRenderDrawColor(Renderer, 16, 24, 32, 255);
-            }
-            else
-            {
-                SDL_SetRenderDrawColor(Renderer, 48, 16, 16, 255);
-            }
-        }
-        else if (ActiveViewMode == ViewMode::TownMap)
-        {
-            SDL_SetRenderDrawColor(Renderer, 10, 14, 18, 255);
-        }
-        else if (ActiveViewMode == ViewMode::Sprite)
-        {
-            SDL_SetRenderDrawColor(Renderer, 16, 14, 20, 255);
-        }
-        else
-        {
-            SDL_SetRenderDrawColor(Renderer, 12, 18, 12, 255);
-        }
+        SDL_SetRenderDrawColor(Renderer, 12, 18, 12, 255);
         SDL_RenderClear(Renderer);
 
-        if (ActiveViewMode == ViewMode::Font)
+        if (TownReady)
         {
-            if (FontLoaded && ActiveFontGroupIndex < FontGroupAvailable.size() && FontGroupAvailable[ActiveFontGroupIndex])
-            {
-                DrawFontGlyphGrid(Renderer, FontGroups[ActiveFontGroupIndex]);
-            }
-        }
-        else if (ActiveViewMode == ViewMode::TownMap)
-        {
-            if (TownMapViewAvailable)
-            {
-                const Grp::FontGroup* DebugFontGroup = FontLoaded ? GetDebugFontGroup(FontGroups, FontGroupAvailable) : nullptr;
-
-                TownMapScene.Draw(Renderer, DebugFontGroup, DebugOverlayEnabled);
-            }
-        }
-        else if (ActiveViewMode == ViewMode::Sprite)
-        {
-            if (SpriteViewAvailable)
-            {
-                const Grp::FontGroup* DebugFontGroup = FontLoaded ? GetDebugFontGroup(FontGroups, FontGroupAvailable) : nullptr;
-
-                DrawSpriteFrameView(Renderer, SpriteBankDefinitions[ActiveSpriteBankIndex], CurrentSpriteFrame,
-                    CurrentSpriteFrameIndex, CurrentSpriteFrameLoadState, SpriteAnimationEnabled,
-                    Palette, DebugFontGroup, DebugOverlayEnabled);
-            }
-        }
-        else if (CpatViewAvailable)
-        {
-            DrawPatternBankGrid(Renderer, CpatPatternBank, Palette);
+            TownMapScene.Draw(Renderer);
         }
 
         SDL_RenderPresent(Renderer);
