@@ -1,6 +1,7 @@
 #include "town_mdt.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace Mdt
 {
@@ -14,6 +15,8 @@ constexpr std::size_t TownTransitionEntrySize = 4;
 constexpr std::uint16_t TownEntityHeadLevelRow = 5;
 constexpr std::size_t TownNpcPatrolBoundariesPointerOffset = 0x11;
 constexpr std::size_t TownNpcPatrolBoundaryByteCount = 4;
+constexpr std::size_t TownNameRenderingInfoPointerOffset = 0x04;
+constexpr std::size_t TownNameRenderingInfoHeaderByteCount = 4;
 
 std::size_t GetTownPointerOffset(std::uint16_t Pointer, std::size_t DataSize)
 {
@@ -118,6 +121,43 @@ void ParseTownTransitionData(const std::vector<std::uint8_t>& Data, std::uint16_
         Output.TransitionData.push_back(Transition);
     }
 }
+
+void ParseTownNameRenderingInfo(const std::vector<std::uint8_t>& Data, TownMapInfo& Output)
+{
+    Output.TownNameInfo = {};
+
+    if (Data.size() <= TownNameRenderingInfoPointerOffset + 1)
+    {
+        return;
+    }
+
+    const std::uint16_t NamePointer = static_cast<std::uint16_t>(Data[TownNameRenderingInfoPointerOffset]
+        | (static_cast<std::uint16_t>(Data[TownNameRenderingInfoPointerOffset + 1]) << 8));
+    const std::size_t NameOffset = GetTownPointerOffset(NamePointer, Data.size());
+    if (NameOffset + TownNameRenderingInfoHeaderByteCount > Data.size())
+    {
+        return;
+    }
+
+    const std::size_t CharacterCountOffset = NameOffset + 3;
+    const std::size_t TextOffset = NameOffset + TownNameRenderingInfoHeaderByteCount;
+    const std::uint8_t CharacterCount = Data[CharacterCountOffset];
+    if (TextOffset + CharacterCount > Data.size())
+    {
+        return;
+    }
+
+    TownNameRenderingInfo NameInfo{};
+    NameInfo.IsValid = true;
+    NameInfo.Pointer = NamePointer;
+    NameInfo.LeftMargin = Data[NameOffset];
+    NameInfo.TopMargin = Data[NameOffset + 1];
+    NameInfo.FineXOffset = Data[NameOffset + 2];
+    NameInfo.CharacterCount = CharacterCount;
+    NameInfo.Text.assign(reinterpret_cast<const char*>(Data.data() + static_cast<std::ptrdiff_t>(TextOffset)),
+        reinterpret_cast<const char*>(Data.data() + static_cast<std::ptrdiff_t>(TextOffset + CharacterCount)));
+    Output.TownNameInfo = std::move(NameInfo);
+}
 }
 
 bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, std::string& ErrorMessage)
@@ -163,6 +203,7 @@ bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, st
     Output.TownPatternGroupId = 0;
     Output.TownTransitionTablePointer = static_cast<std::uint16_t>(Data[0x07]
         | (static_cast<std::uint16_t>(Data[0x08]) << 8));
+    Output.TownNameInfo = {};
     Output.HasNpcPatrolBoundaries = false;
     Output.NpcPatrolBoundaries = {};
 
@@ -192,6 +233,7 @@ bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, st
     }
 
     ParseTownTransitionData(Data, Output.TownTransitionTablePointer, DoorsPointer, Output);
+    ParseTownNameRenderingInfo(Data, Output);
     ParseTownEntityMarkers(Data, DoorsPointer, NpcPointer, Output);
 
     ErrorMessage.clear();

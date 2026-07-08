@@ -9,6 +9,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "../grp/font_grp.h"
 #include "../grp/pat_grp.h"
 #include "../grp/man_grp.h"
 #include "../mdt/town_mdt.h"
@@ -216,6 +217,7 @@ private:
     bool TownMoleTopTearsBaseLoaded = false;
     bool TownMoleBottomStatusBaseLoaded = false;
     bool TownTearsOverlayIconsLoaded = false;
+    bool TownHudFontsLoaded = false;
     std::size_t TownBackgroundStripScrollOffsetPixels = 0;
     mutable std::vector<std::uint8_t> TownRuntimeCells;
     bool TownEdgeTransitionQueued = false;
@@ -231,6 +233,8 @@ private:
     std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight> TownMoleRightDecorationPanelPixels{};
     std::array<std::uint8_t, TownMoleTopTearsBaseWidth * TownMoleTopTearsBaseHeight> TownMoleTopTearsBasePixels{};
     std::array<std::uint8_t, TownMoleBottomStatusBaseWidth * TownMoleBottomStatusBaseHeight> TownMoleBottomStatusBasePixels{};
+    Grp::FontGroup TownThinFontGroup;
+    Grp::FontGroup TownDigitFontGroup;
     Hud::TearsOverlayIconPixels TownTearsOverlaySmallIconPixels{};
     Hud::TearsOverlayIconPixels TownTearsOverlayLargeIconPixels{};
     mutable bool TownTearsOverlayStateLogInitialized = false;

@@ -365,6 +365,33 @@ In MCGA terms that means:
 
 The lower base panel is therefore `224 x 42` pixels at `x = 48`, `y = 158`. It is MOLE base art only; the later HUD contents are drawn separately by `game.asm` and `gmmcga.asm`.
 
+## Bottom HUD bars and text
+
+After the MOLE bottom/status base panel, town startup calls `gmmcga.asm` `Clear_HUD_Bar` from `town.asm` with these parameters:
+
+- `bx = 0204h`, `ch = 21h` for the LIFE strip.
+- `bx = 021Ch`, `ch = 42h` for the GOLD strip.
+- `bx = 481Ch`, `ch = 42h` for the ALMAS strip.
+- `Clear_Place_Enemy_Bar`, which uses `bx = 0210h`, `ch = 88h` for the PLACE/name strip.
+
+`Clear_HUD_Bar` maps those bytes to `x = 48 + BH`, `y = 158 + BL`, writes a black lead column, then writes `CH` columns with a black top row, palette index `5` body rows, and palette index `0x2D` bottom row.
+
+`town.asm` `render_life_almas_gold_place` renders the fixed labels through `gmmcga.asm` `Render_Pascal_String_0`, which uses `font.grp` `thin_font`, primary color `0x1B`, shadow color `0x12`, four pixel columns per glyph, and five pixels of glyph advance. The proven label positions are:
+
+- LIFE: `0E A3 00 04`, so `x = 56`, `y = 163`.
+- ALMAS: `1E BB 03 05`, so `x = 123`, `y = 187`.
+- GOLD: `0D BB 01 04`, so `x = 53`, `y = 187`.
+- PLACE: `0D AF 01 05`, so `x = 53`, `y = 175`.
+
+The current C++ path renders Gold and Almas as zero only. The zero display matches the `gmmcga.asm` digit path for the proven positions: Gold uses `Print_Gold_Decimal` at `x = 78`, `y = 187`, six digits, and Almas uses `Print_Almas_Decimal` at `x = 154`, `y = 187`, five digits. Full live gold/almas state and the full 24-bit decimal conversion path are not wired yet.
+
+The place name comes from the MDT/runtime `town_name_rendering_info` pointer at offset `0x04` / runtime `0C004h`, then renders through `Render_Pascal_String_1` with `thin_font`, primary color `9`, and shadow color `0x2D`.
+
+Remaining unresolved lower-HUD work:
+
+- Training Sword rendering is not implemented. The assembly draws a sword item sprite through `Render_Sword_Item_Sprite_20x18` from relocated `seg1:sword_item_gfx`, but the exact C++ `itemp.grp` source offset for the Training Sword has not been proven.
+- Startup HP/max HP are not implemented. The assembly calls `Draw_Hero_Max_Health` and `Draw_Hero_Health`, but the C++ startup values are not proven from the runtime/save-state source yet.
+
 ## Full top Tears bar render order
 
 `DrawDecorationsAroundCanvas` first decodes the MOLE Tears placeholder top bar from the raw assembly labels `title_logo_data` and `title_demo_text_data`, then calls `DecompressToVRAM` with `bp = 0x960`, `bx = 0x0C00`, and `cx = 0x380D`. In the MCGA path that means:

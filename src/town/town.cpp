@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "../grp/font_grp.h"
+#include "../grp/grp_unpack.h"
 
 std::uint8_t TearsOfEsmesantiCount = 0;
 
@@ -1538,6 +1539,199 @@ void DrawFontText(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup, float
     }
 }
 
+bool LoadTownHudFontGroups(const std::filesystem::path& FontGrpPath, Grp::FontGroup& ThinFontOutput,
+    Grp::FontGroup& DigitFontOutput, std::string& ErrorMessage)
+{
+    constexpr std::size_t DigitFontGroupIndex = 1;
+    constexpr std::size_t ThinFontGroupIndex = 2;
+
+    std::vector<std::uint8_t> Unpacked;
+    if (!Grp::UnpackFile(FontGrpPath, Unpacked, ErrorMessage))
+    {
+        return false;
+    }
+
+    std::string DigitWarningMessage;
+    if (!Grp::DecodeFontGroup(Unpacked, DigitFontGroupIndex, DigitFontOutput, ErrorMessage, &DigitWarningMessage))
+    {
+        return false;
+    }
+
+    if (!DigitWarningMessage.empty())
+    {
+        std::cerr << DigitWarningMessage << '\n';
+    }
+
+    std::string ThinWarningMessage;
+    if (!Grp::DecodeFontGroup(Unpacked, ThinFontGroupIndex, ThinFontOutput, ErrorMessage, &ThinWarningMessage))
+    {
+        return false;
+    }
+
+    if (!ThinWarningMessage.empty())
+    {
+        std::cerr << ThinWarningMessage << '\n';
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+
+void FillTownHudRect(SDL_Renderer* Renderer, const Main64Palette& Palette, std::uint8_t PaletteIndex,
+    float X, float Y, float Width, float Height)
+{
+    if (PaletteIndex >= Palette.size())
+    {
+        return;
+    }
+
+    const SDL_Color& Color = Palette[PaletteIndex];
+    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+    const SDL_FRect Rect{ X, Y, Width, Height };
+    SDL_RenderFillRect(Renderer, &Rect);
+}
+
+void DrawTownPixel(SDL_Renderer* Renderer, const Main64Palette& Palette, std::uint8_t PaletteIndex, float X, float Y)
+{
+    if (PaletteIndex >= Palette.size())
+    {
+        return;
+    }
+
+    const SDL_Color& Color = Palette[PaletteIndex];
+    SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
+    const SDL_FRect Rect{ X, Y, 1.0f, 1.0f };
+    SDL_RenderFillRect(Renderer, &Rect);
+}
+
+void DrawTownThinFontGlyph(SDL_Renderer* Renderer, const Main64Palette& Palette, const Grp::FontGroup& FontGroup,
+    float StartX, float StartY, std::uint8_t PrimaryColorIndex, std::uint8_t ShadowColorIndex, char Character)
+{
+    const unsigned char CharacterIndex = static_cast<unsigned char>(Character);
+    if (CharacterIndex < 32)
+    {
+        return;
+    }
+
+    const std::size_t GlyphIndex = static_cast<std::size_t>(CharacterIndex - 32);
+    if (GlyphIndex >= FontGroup.Glyphs.size())
+    {
+        return;
+    }
+
+    const Grp::FontGlyph& Glyph = FontGroup.Glyphs[GlyphIndex];
+
+    for (std::size_t Row = 0; Row < 8 && Row < Glyph.Rows.size(); ++Row)
+    {
+        const std::uint8_t Bits = Glyph.Rows[Row];
+        for (std::size_t Column = 0; Column < 4; ++Column)
+        {
+            if (((Bits >> (7 - Column)) & 1) == 0)
+            {
+                continue;
+            }
+
+            DrawTownPixel(Renderer, Palette, ShadowColorIndex, StartX + static_cast<float>(Column + 1),
+                StartY + static_cast<float>(Row));
+            DrawTownPixel(Renderer, Palette, PrimaryColorIndex, StartX + static_cast<float>(Column),
+                StartY + static_cast<float>(Row));
+        }
+    }
+}
+
+void DrawTownThinFontText(SDL_Renderer* Renderer, const Main64Palette& Palette, const Grp::FontGroup& FontGroup,
+    float StartX, float StartY, std::uint8_t PrimaryColorIndex, std::uint8_t ShadowColorIndex,
+    const std::string& Text)
+{
+    float CursorX = StartX;
+    for (char Character : Text)
+    {
+        if (Character == '\n')
+        {
+            CursorX = StartX;
+            StartY += 8.0f;
+            continue;
+        }
+
+        DrawTownThinFontGlyph(Renderer, Palette, FontGroup, CursorX, StartY, PrimaryColorIndex, ShadowColorIndex,
+            Character);
+        CursorX += 5.0f;
+    }
+}
+
+void DrawTownDecimalDigitGlyph(SDL_Renderer* Renderer, const Main64Palette& Palette, const Grp::FontGroup& FontGroup,
+    float StartX, float StartY, std::uint8_t DigitValue)
+{
+    FillTownHudRect(Renderer, Palette, 5, StartX, StartY, 6.0f, 7.0f);
+
+    if (DigitValue == 0xFF || DigitValue >= FontGroup.Glyphs.size())
+    {
+        return;
+    }
+
+    const Grp::FontGlyph& Glyph = FontGroup.Glyphs[DigitValue];
+    for (std::size_t Row = 0; Row < 7 && Row < Glyph.Rows.size(); ++Row)
+    {
+        const std::uint8_t Bits = Glyph.Rows[Row];
+        for (std::size_t Column = 0; Column < 6; ++Column)
+        {
+            if (((Bits >> (5 - Column)) & 1) == 0)
+            {
+                continue;
+            }
+
+            DrawTownPixel(Renderer, Palette, 9, StartX + static_cast<float>(Column),
+                StartY + static_cast<float>(Row));
+        }
+    }
+}
+
+void DrawTownDecimalZeroField(SDL_Renderer* Renderer, const Main64Palette& Palette, const Grp::FontGroup& FontGroup,
+    float StartX, float StartY, std::size_t FirstDigitBufferIndex, std::size_t DigitCount)
+{
+    constexpr std::array<std::uint8_t, 7> ZeroDigitBuffer{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0 };
+
+    for (std::size_t DigitIndex = 0; DigitIndex < DigitCount; ++DigitIndex)
+    {
+        const std::size_t BufferIndex = FirstDigitBufferIndex + DigitIndex;
+        if (BufferIndex >= ZeroDigitBuffer.size())
+        {
+            return;
+        }
+
+        DrawTownDecimalDigitGlyph(Renderer, Palette, FontGroup, StartX + static_cast<float>(DigitIndex * 6),
+            StartY, ZeroDigitBuffer[BufferIndex]);
+    }
+}
+
+void DrawTownHudBar(SDL_Renderer* Renderer, const Main64Palette& Palette, std::uint8_t PaddingLeft,
+    std::uint8_t PaddingTop, std::uint8_t ColumnCount)
+{
+    const float StartX = 48.0f + static_cast<float>(PaddingLeft);
+    const float StartY = 158.0f + static_cast<float>(PaddingTop);
+
+    FillTownHudRect(Renderer, Palette, 0, StartX, StartY, 1.0f, 10.0f);
+    if (ColumnCount == 0)
+    {
+        return;
+    }
+
+    const float FillX = StartX + 1.0f;
+    const float FillWidth = static_cast<float>(ColumnCount);
+    FillTownHudRect(Renderer, Palette, 0, FillX, StartY, FillWidth, 1.0f);
+    FillTownHudRect(Renderer, Palette, 5, FillX, StartY + 1.0f, FillWidth, 8.0f);
+    FillTownHudRect(Renderer, Palette, 0x2D, FillX, StartY + 9.0f, FillWidth, 1.0f);
+}
+
+void DrawTownHudBars(SDL_Renderer* Renderer, const Main64Palette& Palette)
+{
+    DrawTownHudBar(Renderer, Palette, 0x02, 0x04, 0x21);
+    DrawTownHudBar(Renderer, Palette, 0x02, 0x1C, 0x42);
+    DrawTownHudBar(Renderer, Palette, 0x48, 0x1C, 0x42);
+    DrawTownHudBar(Renderer, Palette, 0x02, 0x10, 0x88);
+}
+
 }
 
 void TownScene::TownNpcSpriteShadowBuffer::FlushForMapColumn(SDL_Renderer* Renderer, const Main64Palette& Palette,
@@ -2303,6 +2497,7 @@ void TownScene::ResetTownSceneState(std::optional<TownHeroRuntimeState> Transiti
     TownMoleTopTearsBaseLoaded = false;
     TownMoleBottomStatusBaseLoaded = false;
     TownTearsOverlayIconsLoaded = false;
+    TownHudFontsLoaded = false;
     TownBackgroundStripScrollOffsetPixels = 0;
     TownRuntimeCells.clear();
     TownNpcArray.clear();
@@ -2314,6 +2509,8 @@ void TownScene::ResetTownSceneState(std::optional<TownHeroRuntimeState> Transiti
     TownNpcSpriteFrameWarningPrinted = false;
     TownBackgroundMountainLayerPixels.fill(0);
     TownBackgroundStripPixels.fill(0);
+    TownThinFontGroup.Glyphs.clear();
+    TownDigitFontGroup.Glyphs.clear();
 }
 
 void TownScene::ReloadTownState()
@@ -2414,6 +2611,16 @@ void TownScene::ReloadTownState(std::optional<TownHeroRuntimeState> TransitionHe
     {
         std::cerr << TownGmmcgaBinPath.filename().string() << " collected Tears icon load failed: "
             << TownTearsOverlayIconsErrorMessage << '\n';
+    }
+
+    const std::filesystem::path TownFontGrpPath = ActorSpriteGrpPath.parent_path() / "font.grp";
+    std::string TownHudFontErrorMessage;
+    TownHudFontsLoaded = LoadTownHudFontGroups(TownFontGrpPath, TownThinFontGroup, TownDigitFontGroup,
+        TownHudFontErrorMessage);
+    if (!TownHudFontsLoaded)
+    {
+        std::cerr << TownFontGrpPath.filename().string() << " HUD font load failed: "
+            << TownHudFontErrorMessage << '\n';
     }
 
     ActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
@@ -2562,6 +2769,27 @@ void TownScene::Draw(SDL_Renderer* Renderer) const
     {
         DrawTownMolePanel(Renderer, TownMoleBottomStatusBasePixels.data(), TownMoleBottomStatusBaseWidth,
             TownMoleBottomStatusBaseHeight, Palette, TownMoleBottomStatusBaseLeftX, TownMoleBottomStatusBaseTopY);
+    }
+
+    DrawTownHudBars(Renderer, Palette);
+
+    if (TownHudFontsLoaded && !TownThinFontGroup.Glyphs.empty() && !TownDigitFontGroup.Glyphs.empty())
+    {
+        DrawTownThinFontText(Renderer, Palette, TownThinFontGroup, 56.0f, 163.0f, 0x1B, 0x12, "LIFE");
+        DrawTownThinFontText(Renderer, Palette, TownThinFontGroup, 123.0f, 187.0f, 0x1B, 0x12, "ALMAS");
+        DrawTownThinFontText(Renderer, Palette, TownThinFontGroup, 53.0f, 187.0f, 0x1B, 0x12, "GOLD");
+        DrawTownThinFontText(Renderer, Palette, TownThinFontGroup, 53.0f, 175.0f, 0x1B, 0x12, "PLACE");
+
+        DrawTownDecimalZeroField(Renderer, Palette, TownDigitFontGroup, 78.0f, 187.0f, 1, 6);
+        DrawTownDecimalZeroField(Renderer, Palette, TownDigitFontGroup, 154.0f, 187.0f, 2, 5);
+
+        if (TownMap.TownNameInfo.IsValid)
+        {
+            DrawTownThinFontText(Renderer, Palette, TownThinFontGroup,
+                static_cast<float>(TownMap.TownNameInfo.LeftMargin * 4 + TownMap.TownNameInfo.FineXOffset),
+                static_cast<float>(TownMap.TownNameInfo.TopMargin),
+                9, 0x2D, TownMap.TownNameInfo.Text);
+        }
     }
 
     LogTearsCollectedOverlayState(TearsOfEsmesantiCount,

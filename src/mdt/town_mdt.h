@@ -52,6 +52,17 @@ struct TownTransitionData
     std::uint8_t PatternGroupId = 0;
 };
 
+struct TownNameRenderingInfo
+{
+    bool IsValid = false;
+    std::uint16_t Pointer = 0;
+    std::uint8_t LeftMargin = 0;
+    std::uint8_t TopMargin = 0;
+    std::uint8_t FineXOffset = 0;
+    std::uint8_t CharacterCount = 0;
+    std::string Text;
+};
+
 struct TownMapInfo
 {
     std::uint16_t Width = 0;
@@ -64,6 +75,7 @@ struct TownMapInfo
     std::uint8_t TownId = 0;
     std::uint8_t TownPatternGroupId = 0;
     std::uint16_t TownTransitionTablePointer = 0;
+    TownNameRenderingInfo TownNameInfo{};
     bool HasNpcPatrolBoundaries = false;
     TownNpcPatrolBoundaries NpcPatrolBoundaries{};
     std::vector<std::uint8_t> Cells;
