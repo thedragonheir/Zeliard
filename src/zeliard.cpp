@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iomanip>
 #include <iostream>
 #include <optional>
@@ -102,6 +103,24 @@ bool ReadWholeFile(const std::filesystem::path& Path, std::vector<std::uint8_t>&
     return true;
 }
 
+std::filesystem::path ResolveFirstExistingPath(std::initializer_list<std::filesystem::path> CandidatePaths)
+{
+    for (const std::filesystem::path& CandidatePath : CandidatePaths)
+    {
+        if (!CandidatePath.empty() && std::filesystem::exists(CandidatePath))
+        {
+            return CandidatePath;
+        }
+    }
+
+    if (CandidatePaths.size() == 0)
+    {
+        return {};
+    }
+
+    return *CandidatePaths.begin();
+}
+
 bool ParseHexByte(const std::string& Text, std::size_t Offset, std::uint8_t& Value)
 {
     auto HexDigit = [](char Ch) -> int
@@ -159,7 +178,10 @@ std::string StripJsonLineComments(const std::string& Text)
 
 bool LoadMain64Palette(Main64Palette& Palette, std::string& ErrorMessage)
 {
-    const std::filesystem::path PalettePath = ProjectRoot / "tools" / "grpviewer" / "v15" / "PALETTE.json";
+    const std::filesystem::path PalettePath = ResolveFirstExistingPath({
+        ProjectRoot / "assets" / "grpviewer" / "v15" / "PALETTE.json",
+        ProjectRoot / "tools" / "grpviewer" / "v15" / "PALETTE.json"
+    });
     std::vector<std::uint8_t> FileBytes;
     if (!ReadWholeFile(PalettePath, FileBytes))
     {
@@ -251,6 +273,7 @@ bool LoadMain64Palette(Main64Palette& Palette, std::string& ErrorMessage)
     }
 
     ErrorMessage.clear();
+    std::cout << "cpat.grp palette loaded from " << PalettePath.string() << " main_64." << '\n';
     return true;
 }
 
@@ -502,7 +525,10 @@ bool LoadPatternBank(Grp::PatternBank& PatternBank)
 {
     std::vector<std::uint8_t> Unpacked;
     std::string ErrorMessage;
-    const std::filesystem::path GrpPath = ProjectRoot / "tools" / "grpviewer" / "cpat.grp";
+    const std::filesystem::path GrpPath = ResolveFirstExistingPath({
+        ProjectRoot / "game" / "0" / "cpat.grp",
+        ProjectRoot / "tools" / "grpviewer" / "cpat.grp"
+    });
 
     if (!Grp::UnpackFile(GrpPath, Unpacked, ErrorMessage))
     {
@@ -529,13 +555,22 @@ std::filesystem::path GetTownPatternBankPath(std::uint8_t PatternGroupId)
     switch (PatternGroupId)
     {
     case 0:
-        return ProjectRoot / "tools" / "grpviewer" / "cpat.grp";
+        return ResolveFirstExistingPath({
+            ProjectRoot / "game" / "0" / "cpat.grp",
+            ProjectRoot / "tools" / "grpviewer" / "cpat.grp"
+        });
 
     case 1:
-        return ProjectRoot / "tools" / "grpviewer" / "mpat.grp";
+        return ResolveFirstExistingPath({
+            ProjectRoot / "game" / "0" / "mpat.grp",
+            ProjectRoot / "tools" / "grpviewer" / "mpat.grp"
+        });
 
     case 2:
-        return ProjectRoot / "tools" / "grpviewer" / "dpat.grp";
+        return ResolveFirstExistingPath({
+            ProjectRoot / "game" / "0" / "dpat.grp",
+            ProjectRoot / "tools" / "grpviewer" / "dpat.grp"
+        });
     }
 
     return {};
@@ -1007,10 +1042,6 @@ void LoadZeliardContent(ZeliardApp& App)
     if (!App.PaletteLoaded)
     {
         std::cerr << "cpat.grp palette load failed: " << PaletteErrorMessage << '\n';
-    }
-    else
-    {
-        std::cout << "cpat.grp palette loaded from tools/grpviewer/v15/PALETTE.json main_64." << '\n';
     }
 
     App.TownActorSpriteGrpPath = ProjectRoot / "game" / "0" / "tman.grp";

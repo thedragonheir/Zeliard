@@ -29,5 +29,6 @@ It compiles the app for the browser and bundles `game/` and `assets/` into `Zeli
 - The web build uses the same 320x200 logical rendering path.
 - Desktop x64 debug and release presets are unchanged.
 - The browser package bundles the original game data in `Zeliard.data`.
+- Runtime data that the browser build loads must live under `game/` or `assets/`, not `tools/`.
 - The web build uses a larger stack because the default 64 KB Emscripten stack overflows during startup.
 - The web build uses fixed WebAssembly memory so browser file-path decoding does not hit resizable-`ArrayBuffer` `TextDecoder` issues.
