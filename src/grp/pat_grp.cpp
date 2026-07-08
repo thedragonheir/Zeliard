@@ -1,4 +1,4 @@
-#include "grp_pattern_bank.h"
+#include "pat_grp.h"
 
 #include <algorithm>
 #include <cstddef>

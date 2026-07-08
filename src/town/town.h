@@ -9,11 +9,11 @@
 
 #include <SDL3/SDL.h>
 
-#include "../grp/grp_font.h"
-#include "../grp/grp_pattern_bank.h"
-#include "../grp/grp_sprite_sheet.h"
-#include "../mdt/mdt_map.h"
-#include "../hud/hud_tears_overlay.h"
+#include "../grp/font_grp.h"
+#include "../grp/pat_grp.h"
+#include "../grp/man_grp.h"
+#include "../mdt/town_mdt.h"
+#include "../hud/tears.h"
 
 using Main64Palette = std::array<SDL_Color, 64>;
 

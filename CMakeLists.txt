@@ -34,13 +34,13 @@ FetchContent_MakeAvailable(SDL3)
 
 add_executable(Zeliard
   src/zeliard.cpp
-  src/hud/hud_tears_overlay.cpp
-  src/town/town_scene.cpp
-  src/mdt/mdt_map.cpp
-  src/grp/grp_font.cpp
-  src/grp/grp_sprite_sheet.cpp
-  src/grp/grp_pattern_bank.cpp
-  src/grp/grp_unpacker.cpp
+  src/hud/tears.cpp
+  src/town/town.cpp
+  src/mdt/town_mdt.cpp
+  src/grp/font_grp.cpp
+  src/grp/man_grp.cpp
+  src/grp/pat_grp.cpp
+  src/grp/grp_unpack.cpp
 )
 target_compile_definitions(Zeliard PRIVATE
   ZELIARD_PROJECT_ROOT="${CMAKE_SOURCE_DIR}"

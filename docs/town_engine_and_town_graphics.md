@@ -399,7 +399,7 @@ The complete startup render order is:
 | State class | Global save/global-state byte, not town-local and not hero-local. |
 | Written where | Only `rokademo.asm` writes it: `inc byte ptr ds:Tears_of_Esmesanti_count` then clamps to `9` (`rokademo.asm:32..36`). That routine is the intro/demo/test path, confirming the byte is seeded by global/demo state rather than town state. |
 | Read where | `game.asm` `render_tears_collected` tests and loads it (`game.asm:317`, `game.asm:323`) but never writes it; `rokademo.asm` also reads it at `:99` and `:285`. |
-| C++ source today | `src/town/town_scene.cpp` reads the project-owned `TearsOfEsmesantiCount` byte. It defaults to `0`, the overlay clamps to `9`, and the optional debug-only override can display all nine collected Tears for visual testing without changing gameplay state. |
+| C++ source today | `src/town/town.cpp` reads the project-owned `TearsOfEsmesantiCount` byte. It defaults to `0`, the overlay clamps to `9`, and the optional debug-only override can display all nine collected Tears for visual testing without changing gameplay state. |
 
 | Order | `tears_order_coords` | Screen position |
 |---:|---:|---|
@@ -441,7 +441,7 @@ The current C++ town scene now draws the collected Tears overlay from the real `
   - `0x0F00 -> x=60`, `0x3D00 -> x=244`, `0x1500 -> x=84`, `0x3700 -> x=220`, `0x1B00 -> x=108`, `0x3100 -> x=196`, `0x2100 -> x=132`, `0x2B00 -> x=172`, `0x2600 -> x=152`; all `y = 0`.
 - Icon selection: for loop index `dx < 8` `AL = 0` (small blue), for `dx == 8` `AL = 1` (large red) (`game.asm:333..336`).
 - Pixel copy: `gmmcga.asm` `Render_Icon_16x13` (`gmmcga.asm:1722..1763`); `0x80` skips, all other bytes overwrite VRAM.
-- C++ status: implemented in `src/town/town_scene.cpp` from the real `TearsOfEsmesantiCount` value. Keep the debug-only override off by default and never synthesize collected Tears in normal runtime.
+- C++ status: implemented in `src/town/town.cpp` from the real `TearsOfEsmesantiCount` value. Keep the debug-only override off by default and never synthesize collected Tears in normal runtime.
 
 ## Town pattern loading
 

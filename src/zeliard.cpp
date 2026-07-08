@@ -1,10 +1,10 @@
 #include <SDL3/SDL.h>
 
-#include "grp/grp_font.h"
-#include "grp/grp_pattern_bank.h"
-#include "grp/grp_sprite_sheet.h"
-#include "grp/grp_unpacker.h"
-#include "mdt/mdt_map.h"
+#include "grp/font_grp.h"
+#include "grp/pat_grp.h"
+#include "grp/man_grp.h"
+#include "grp/grp_unpack.h"
+#include "mdt/town_mdt.h"
 
 #include <algorithm>
 #include <array>
@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-#include "town/town_scene.h"
+#include "town/town.h"
 
 namespace
 {

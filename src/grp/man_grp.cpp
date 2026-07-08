@@ -1,6 +1,6 @@
-#include "grp_sprite_sheet.h"
+#include "man_grp.h"
 
-#include "grp_unpacker.h"
+#include "grp_unpack.h"
 
 #include <algorithm>
 #include <array>
