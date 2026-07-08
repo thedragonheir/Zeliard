@@ -73,11 +73,11 @@ Town transition data is also stored in the MDT header block. The 1-based `town_i
 - byte 2: NPC sprite-group selector
 - byte 3: pattern-group selector
 
-The transition table ends where the door table starts. Current startup loads `game/0/cmap.mdt` through `StartingTownId = 0`; its transition table pointer is `C3C6` (`0x03C6`) and its door table pointer is `C3CA` (`0x03CA`), leaving exactly one 4-byte record: `00 01 00 01`. That right-edge town record selects destination town id `1` (`MRMP.MDT`) and pattern group `1` (`mpat.grp`). `MRMP.MDT` has transition pointer `C6E8` (`0x06E8`) and door table pointer `C6EC` (`0x06EC`), leaving exactly one matching left-edge record: `01 00 00 00` back to destination id `0` (`CMAP.MDT`).
+The transition table ends where the door table starts. Current startup loads `game/0/cmap.mdt` through `StartingTownId = 0` (`stdply.bin` `place_map_id = 0x80`); its transition table pointer is `C3C6` (`0x03C6`) and its door table pointer is `C3CA` (`0x03CA`), leaving exactly one 4-byte record: `00 01 00 01`. That right-edge town record selects destination town id `1` (`MRMP.MDT`) and pattern group `1` (`mpat.grp`). `MRMP.MDT` has transition pointer `C6E8` (`0x06E8`) and door table pointer `C6EC` (`0x06EC`), leaving exactly one matching left-edge record: `01 00 00 00` back to destination id `0` (`CMAP.MDT`).
 The current native edge path rebuilds the destination town NPC runtime records from the loaded map before movement resumes, so CMAP restores its own NPCs after a round-trip from MRMP without carrying blockers forward. MRMP parses 9 NPC records and now uses the same runtime AI table as CMAP. The destination visual reload still needs to accept all town pattern banks (`cpat.grp`, `mpat.grp`, and `dpat.grp`); the `CMAP.MDT -> MRMP.MDT` handoff needs the 242-tile, 11872-byte unpacked `mpat.grp` bank.
 Normal startup now opens directly in town gameplay mode (`M`) instead of the font viewer, with the existing debug overlays still behind the explicit `D`, `T`, `O`, and `Y` controls.
-Muralla's startup seed uses `HeroXInViewport = 12`, `ProximityMapLeftColumnX = 4`, `FacingDirection = 0` (right), and `HeroAnimationPhase = 0`.
-The far-edge transition reloads still force `FacingDirection = 0` and `HeroAnimationPhase = 0`; only the startup seed uses the Muralla entry position above.
+The normal CMAP startup seed comes from `stdply.bin`: `HeroXInViewport = 0x0A`, `ProximityMapLeftColumnX = 0x001E`, `FacingDirection = 0` (right), and `HeroAnimationPhase = 0`. Those are the real startup values, not the Falter warp back to Dorado (`0x84` / `0x0D`).
+The far-edge transition reloads still force `FacingDirection = 0` and `HeroAnimationPhase = 0`; only the startup seed uses the CMAP entry values above.
 
 ## Town NPC structure
 

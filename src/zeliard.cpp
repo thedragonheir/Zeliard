@@ -335,7 +335,7 @@ namespace
     void LoadZeliardContent(ZeliardApp& App)
     {
         App.TownNpcSpriteGrpPath = ProjectRoot / "game" / "0" / "mman.grp";
-        constexpr std::uint8_t StartingTownId = 0;
+        constexpr std::uint8_t StartingTownId = 0; // CMAP / stdply.bin place_map_id 0x80 start.
         App.TownMapLoaded = LoadTownMap(StartingTownId, App.TownMap, App.TownNpcSpriteGrpPath);
         if (!App.TownMapLoaded)
         {

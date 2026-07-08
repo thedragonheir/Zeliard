@@ -18,7 +18,7 @@ The parsed `tools/cmap.mdt` town data confirms NPC ID `2` uses AI type `3` with 
 NPC runtime animation now advances from `TownScene::Update` instead of `Draw`, so rendering stays read-only. The previous logic-tick placement was still too fast because native `Update` is not the DOS `frame_timer` cadence; the town NPC gate now mirrors the assembly-proven standard town interval from PIT reload `0x13B1` and `speed_const = 5`.
 The DOS town loop advances NPC AI once per town-loop tick through `update_npcs`, and the movement / bobbing cadence is still the per-NPC `n_anim_phase` step inside each AI routine. The native town loop no longer caps catch-up steps, so brief stalls do not under-run NPC updates relative to DOS.
 Town-facing NPCs now resync from Duke's post-move position on the same town tick, and left/right town reloads refresh those facing bits before the first rendered frame.
-The MDT parser now also surfaces the town transition table as 4-byte records, so edge reloads can stay data-driven instead of hard-coding a destination map. Current startup loads `game/0/cmap.mdt` (`StartingTownId = 0`); its transition table is `C3C6..C3CA`, exposing the single right-edge record `00 01 00 01`, selecting `MRMP.MDT` and `mpat.grp`. `MRMP.MDT` has `C6E8..C6EC`, exposing only the matching left-edge record `01 00 00 00`. The native transition reload now rebuilds the destination NPC runtime records from the loaded map, so CMAP gets its own NPCs back when returning from MRMP while MRMP now brings back its 9 parsed NPC records and uses the same DOS AI table for patrols, facing, and bobbing.
+The MDT parser now also surfaces the town transition table as 4-byte records, so edge reloads can stay data-driven instead of hard-coding a destination map. Current startup loads `game/0/cmap.mdt` (`StartingTownId = 0`, the `stdply.bin` `place_map_id = 0x80` equivalent); its transition table is `C3C6..C3CA`, exposing the single right-edge record `00 01 00 01`, selecting `MRMP.MDT` and `mpat.grp`. `MRMP.MDT` has `C6E8..C6EC`, exposing only the matching left-edge record `01 00 00 00`. The native transition reload now rebuilds the destination NPC runtime records from the loaded map, so CMAP gets its own NPCs back when returning from MRMP while MRMP now brings back its 9 parsed NPC records and uses the same DOS AI table for patrols, facing, and bobbing.
 
 ## Canonical Horizontal Model
 - `TownHeroRuntimeState.HeroXInViewport` maps to `hero_x_in_viewport`.
@@ -26,12 +26,13 @@ The MDT parser now also surfaces the town transition table as 4-byte records, so
 - `TownHeroRuntimeState.FacingDirection` maps to `facing_direction`, and bit 0 still means `0=right, 1=left`.
 - `TownHeroRuntimeState.HeroAnimationPhase` maps to `hero_animation_phase`.
 - `GetTownHeroAbsoluteX()` remains the canonical absolute X helper: `ProximityMapLeftColumnX + HeroXInViewport + 4`.
-- Muralla startup now uses the assembly-backed town-entry seed:
-  - `HeroXInViewport = 12`
-  - `ProximityMapLeftColumnX = 4`
+- CMAP startup now uses the `stdply.bin` town-entry seed:
+  - `HeroXInViewport = 0x0A`
+  - `ProximityMapLeftColumnX = 0x001E`
   - `FacingDirection = 0`
   - `HeroAnimationPhase = 0`
-- The far-edge transition reloads still force `FacingDirection = 0` and `HeroAnimationPhase = 0`; only the startup seed uses the Muralla entry position above.
+- These are the normal start values from `stdply.bin`, not the Falter warp back to Dorado (`0x84` / `0x0D`).
+- The far-edge transition reloads still force `FacingDirection = 0` and `HeroAnimationPhase = 0`; only the startup seed uses the CMAP entry values above.
 - Normal startup now opens directly in town gameplay mode (`M`) instead of the font viewer, with the existing debug overlays still behind the explicit `D`, `T`, `O`, and `Y` controls.
 - The old town camera-follow toggle was removed; the town view now projects from the canonical horizontal hero state only.
 
@@ -78,7 +79,7 @@ The MDT parser now also surfaces the town transition table as 4-byte records, so
 - The projection clamps scroll to the current map bounds, so the visible hero stays tied to the canonical horizontal state.
 - The exact edge-transition wrap at the far left/right map boundary now follows the parsed town transition records. `hero_x_in_viewport + 1 == 28` is the DOS right-edge transition check, and the native path now lets Duke reach `hero_x_in_viewport = 27` before queueing a town reload when a matching right-edge entry exists. Source/data validation for current startup reaches `HeroXInViewport = 27` with `ProximityMapLeftColumnX = 78`, then selects `CMAP.MDT` record `00 01 00 01`. The prior missing visual transition was a reload failure: the destination `mpat.grp` bank unpacked to 11872 bytes, but the native pattern decoder still required the 7792-byte `cpat.grp` size.
 - The left-edge sentinel is the assembly byte wrap: left movement decrements `hero_x_in_viewport = 0` to `0xFF`, then `handle_edge_screen_transition` increments it and branches on zero. A left town record has bit `0` set; `MRMP.MDT` record `01 00 00 00` selects destination id `0` (`CMAP.MDT`) and pattern group `0` (`cpat.grp`). After the reload, assembly sets `hero_x_in_viewport = 26` and `proximity_map_left_col_x = mapWidth - 36`, which is `78` for CMAP.
-- Normal startup keeps the Muralla seed `HeroXInViewport = 12` and `ProximityMapLeftColumnX = 4` state. Confirmed right-edge transition reloads apply `HeroXInViewport = 0` and `ProximityMapLeftColumnX = 0`; confirmed left-edge transition reloads apply `HeroXInViewport = 26` and `ProximityMapLeftColumnX = mapWidth - 36`. Transition reloads now rebuild the destination NPC runtime records from the loaded map, so skipped MRMP NPCs do not become fake blockers and CMAP NPCs come back on return.
+- Normal startup keeps the CMAP `stdply.bin` seed `HeroXInViewport = 0x0A` and `ProximityMapLeftColumnX = 0x001E` state. Confirmed right-edge transition reloads apply `HeroXInViewport = 0` and `ProximityMapLeftColumnX = 0`; confirmed left-edge transition reloads apply `HeroXInViewport = 26` and `ProximityMapLeftColumnX = mapWidth - 36`. Transition reloads now rebuild the destination NPC runtime records from the loaded map, so skipped MRMP NPCs do not become fake blockers and CMAP NPCs come back on return.
 
 ## Removed From Normal Town Mode
 - The free 4-way pixel movement path no longer drives normal town updates.

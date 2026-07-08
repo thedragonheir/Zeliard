@@ -45,8 +45,9 @@ public:
     std::uint16_t GetProximityMapLeftColumnX() const noexcept;
 
 private:
-    static constexpr std::uint8_t TownHeroStartupHeroXInViewport = 12;
-    static constexpr std::uint16_t TownHeroStartupProximityMapLeftColumnX = 4;
+    // stdply.bin seeds the normal CMAP startup here; do not reuse the Falter warp back to Dorado values.
+    static constexpr std::uint8_t TownHeroStartupHeroXInViewport = 0x0A;
+    static constexpr std::uint16_t TownHeroStartupProximityMapLeftColumnX = 0x001E;
     static constexpr std::uint8_t TownHeroStartupFacingDirection = 0;
     static constexpr std::uint8_t TownHeroStartupHeroAnimationPhase = 0;
 
