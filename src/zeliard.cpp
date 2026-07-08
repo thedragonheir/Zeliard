@@ -1073,6 +1073,9 @@ bool InitializeZeliardApp(ZeliardApp& App)
         return false;
     }
 
+    const char* RendererName = SDL_GetRendererName(App.Renderer);
+    std::cout << "SDL renderer selected: " << (RendererName != nullptr ? RendererName : "unknown") << '\n';
+
     if (!SDL_SetRenderLogicalPresentation(App.Renderer, 320, 200, SDL_LOGICAL_PRESENTATION_LETTERBOX))
     {
         std::cerr << "SDL_SetRenderLogicalPresentation failed: " << SDL_GetError() << '\n';
