@@ -4,25 +4,18 @@ Unofficial C++23 + SDL3 port/reimplementation of **Zeliard**, focused on faithfu
 
 This project is preservation-focused. The goal is not to modernize the game randomly, but to understand how the original works and rebuild it cleanly with accurate behavior.
 
-## Live Web Preview
+## Current State
 
-An experimental C++23 + SDL3 WebAssembly build is available at:
+The current runtime is a town-first SDL3 build. The app boots, loads the original data files, decodes town GRP/MDT content, renders the town viewport at a 320x200 logical resolution, and drives the Muralla town flow with assembly-backed horizontal movement, scrolling, edge transitions, and NPC behavior.
 
-https://thedragonheir.github.io/Zeliard/
-
-The preview is part of the work-in-progress port and does not represent a complete game.
-
-## Current status
-
-Work in progress.
-
-The current playable focus is the Muralla town flow. The project now has a working SDL3 startup path, 320x200 internal rendering, original data decoding work, town rendering, town movement, edge transitions and assembly-backed Muralla NPC behavior.
+The native entry point is [`src/zeliard.cpp`](src/zeliard.cpp), with the town scene split across `src/town/`, MDT parsing in `src/mdt/`, GRP handling in `src/grp/`, and HUD / MCGA helpers in `src/hud/` and `src/mcga/`.
 
 Implemented or partially implemented:
 
 - SDL3 startup and rendering
 - 320x200 internal logical resolution
-- 960x600 window output
+- 960x600 desktop output in the default square-pixel mode
+- Experimental 960x720 desktop mode for 4:3-style presentation
 - Original GRP decoding
 - Palette handling
 - Town pattern-bank decoding for `cpat.grp`, `mpat.grp` and `dpat.grp`
@@ -33,7 +26,9 @@ Implemented or partially implemented:
 - Transition-specific hero and scroll reset behavior
 - Muralla NPC runtime rebuild after town transitions
 - Muralla NPC animation, movement and blocking behavior based on parsed MDT data and original assembly behavior
+- HUD / border rendering backed by the original data files
 - Documentation of original data formats, town rendering and town engine behavior
+- Experimental WebAssembly build and GitHub Pages preview
 
 Not implemented yet:
 
@@ -46,6 +41,14 @@ Not implemented yet:
 - Save/load behavior
 - Music and sound integration
 
+## Live Web Preview
+
+An experimental C++23 + SDL3 WebAssembly build is available at:
+
+https://thedragonheir.github.io/Zeliard/
+
+The preview is part of the work-in-progress port and does not represent a complete game.
+
 ## Goals
 
 - Recreate the original DOS gameplay behavior as faithfully as possible
@@ -55,21 +58,25 @@ Not implemented yet:
 - Document findings while reverse engineering the original data and assembly
 - Prefer accuracy first, polish later
 
-## Project structure
+## Project Structure
 
 ```text
+AGENTS.md   Repo workflow and documentation guidance
 asm/        Original assembly sources and reverse engineering references
-assets/     Extracted or converted game assets
+assets/     Converted music and sound assets
 docs/       Project notes and format documentation
 game/       Original game data and binaries used for analysis
 src/        C++23 source code
 tools/      Python tools for inspecting and extracting game data
+web/        Browser shell used by the WebAssembly build
 out/        Generated CMake build output
 ```
 
 `out/` is generated build output and should not be edited manually.
 
 ## Build
+
+### Windows desktop
 
 Configure debug build:
 
@@ -101,26 +108,41 @@ Build release:
 cmake --build --preset x64-release
 ```
 
+The checked-in presets also include `x86-debug`, `x86-release`, `linux-debug`, `macos-debug`, and `web-debug`.
+
+### Web build
+
+```cmd
+emcmake cmake --preset web-debug
+cmake --build --preset web-debug
+```
+
+The generated browser build lands under `out/build/web-debug/` and uses the shell in `web/zeliard_shell.html`.
+
 ## Requirements
 
 - C++23 compatible compiler
 - CMake
 - SDL3
-- Windows development environment
+- Windows development environment for the main desktop preset
+- Emscripten for the web build
 
-## Development notes
+## Development Notes
 
 The port is intentionally built in small verified steps. Original assembly and original data files are used as references before behavior is recreated in C++.
 
-Important current references:
+Current high-value references:
 
 - `asm/town.asm`
 - `asm/stick.asm`
 - `asm/gtmcga.asm`
+- `asm/ympd.asm`
 - `docs/town_engine_and_town_graphics.md`
 - `docs/town_fidelity_audit.md`
+- `docs/runtime_architecture_and_build.md`
+- `docs/web_build.md`
 
-## Original assets
+## Original Assets
 
 This port uses original Zeliard game assets and data files for compatibility, preservation, research and faithful reimplementation purposes.
 
