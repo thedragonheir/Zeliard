@@ -108,6 +108,20 @@ constexpr std::size_t TownSwordItemGroup0SpriteCount = 6;
 constexpr std::size_t TownSwordItemSpritePixelCount = TownSwordItemSpriteWidth * TownSwordItemSpriteHeight;
 constexpr std::size_t TownSwordItemHudScreenX = 0x18 * 8;
 constexpr std::size_t TownSwordItemHudScreenY = 0xAB;
+constexpr std::size_t TownScreenStride = 320;
+constexpr std::size_t TownHeroHealthDestinationOffset = 0xCC14;
+constexpr std::size_t TownHeroHealthBarX = TownHeroHealthDestinationOffset % TownScreenStride;
+constexpr std::size_t TownHeroHealthBarY = TownHeroHealthDestinationOffset / TownScreenStride;
+constexpr std::size_t TownHeroHealthBarMaximumPixels = 100;
+constexpr std::size_t TownHeroMaxHealthBarHeight = 6;
+constexpr std::size_t TownHeroHealthBarHeight = 5;
+constexpr std::uint16_t TownHeroHealthClampValue = 0x0320;
+constexpr std::uint8_t TownHeroMaxHealthColor = 0x12;
+constexpr std::uint8_t TownHeroMaxHealthMask = 0x2D;
+constexpr std::uint8_t TownHeroHealthColor = 9;
+constexpr std::uint8_t TownHeroHealthMask = 0x12;
+constexpr std::uint8_t TownHeroEmptyHealthColor = 0;
+constexpr std::uint8_t TownHeroEmptyHealthMask = 0x12;
 constexpr std::size_t YmpdMountainPlaneByteWidth = 56;
 constexpr std::size_t YmpdMountainPlaneHeight = 88;
 constexpr std::size_t YmpdMountainPlaneDecodedByteCount = YmpdMountainPlaneByteWidth * YmpdMountainPlaneHeight;
@@ -1908,6 +1922,80 @@ void DrawTownHudBars(SDL_Renderer* Renderer, const Main64Palette& Palette)
     DrawTownHudBar(Renderer, Palette, 0x02, 0x10, 0x88);
 }
 
+std::size_t NormalizeTownHeroHealthTo100(std::uint16_t Value)
+{
+    if (Value > TownHeroHealthClampValue)
+    {
+        return TownHeroHealthBarMaximumPixels;
+    }
+
+    return Value >> 3;
+}
+
+void ApplyTownHeroHealthVerticalLine(std::array<std::uint8_t,
+    TownHeroHealthBarMaximumPixels * TownHeroMaxHealthBarHeight>& Pixels,
+    std::size_t Column, std::size_t Height, std::uint8_t Color, std::uint8_t Mask)
+{
+    for (std::size_t Row = 0; Row < Height; ++Row)
+    {
+        std::uint8_t& Pixel = Pixels[Row * TownHeroHealthBarMaximumPixels + Column];
+        Pixel = static_cast<std::uint8_t>((Pixel & Mask) | Color);
+    }
+}
+
+void DrawTownHeroHealthBar(SDL_Renderer* Renderer, const Main64Palette& Palette,
+    const std::array<std::uint8_t, TownMoleBottomStatusBaseWidth * TownMoleBottomStatusBaseHeight>& BottomStatusBasePixels,
+    bool BottomStatusBaseLoaded, std::uint16_t HeroMaxHp, std::uint16_t HeroHp)
+{
+    std::array<std::uint8_t, TownHeroHealthBarMaximumPixels * TownHeroMaxHealthBarHeight> Pixels{};
+    for (std::size_t Row = 0; Row < TownHeroMaxHealthBarHeight; ++Row)
+    {
+        for (std::size_t Column = 0; Column < TownHeroHealthBarMaximumPixels; ++Column)
+        {
+            if (!BottomStatusBaseLoaded)
+            {
+                continue;
+            }
+
+            const std::size_t SourceX = TownHeroHealthBarX + Column - TownMoleBottomStatusBaseLeftX;
+            const std::size_t SourceY = TownHeroHealthBarY + Row - TownMoleBottomStatusBaseTopY;
+            Pixels[Row * TownHeroHealthBarMaximumPixels + Column] =
+                BottomStatusBasePixels[SourceY * TownMoleBottomStatusBaseWidth + SourceX];
+        }
+    }
+
+    const std::size_t MaxHealthPixels = NormalizeTownHeroHealthTo100(HeroMaxHp);
+    for (std::size_t Column = 0; Column < MaxHealthPixels; ++Column)
+    {
+        ApplyTownHeroHealthVerticalLine(Pixels, Column, TownHeroMaxHealthBarHeight,
+            TownHeroMaxHealthColor, TownHeroMaxHealthMask);
+    }
+
+    const std::size_t CurrentHealthPixels = NormalizeTownHeroHealthTo100(HeroHp);
+    for (std::size_t Column = 0; Column < CurrentHealthPixels; ++Column)
+    {
+        ApplyTownHeroHealthVerticalLine(Pixels, Column, TownHeroHealthBarHeight,
+            TownHeroHealthColor, TownHeroHealthMask);
+    }
+
+    for (std::size_t Column = CurrentHealthPixels; Column < TownHeroHealthBarMaximumPixels; ++Column)
+    {
+        ApplyTownHeroHealthVerticalLine(Pixels, Column, TownHeroHealthBarHeight,
+            TownHeroEmptyHealthColor, TownHeroEmptyHealthMask);
+    }
+
+    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
+    for (std::size_t Row = 0; Row < TownHeroMaxHealthBarHeight; ++Row)
+    {
+        for (std::size_t Column = 0; Column < TownHeroHealthBarMaximumPixels; ++Column)
+        {
+            DrawTownPixel(Renderer, Palette, Pixels[Row * TownHeroHealthBarMaximumPixels + Column],
+                static_cast<float>(TownHeroHealthBarX + Column),
+                static_cast<float>(TownHeroHealthBarY + Row));
+        }
+    }
+}
+
 }
 
 void TownScene::TownNpcSpriteShadowBuffer::FlushForMapColumn(SDL_Renderer* Renderer, const Main64Palette& Palette,
@@ -2964,6 +3052,8 @@ void TownScene::Draw(SDL_Renderer* Renderer) const
     }
 
     DrawTownHudBars(Renderer, Palette);
+    DrawTownHeroHealthBar(Renderer, Palette, TownMoleBottomStatusBasePixels, TownMoleBottomStatusBaseLoaded,
+        TownHudHealth.HeroMaxHp, TownHudHealth.HeroHp);
 
     if (TownHudFontsLoaded && !TownThinFontGroup.Glyphs.empty() && !TownDigitFontGroup.Glyphs.empty())
     {

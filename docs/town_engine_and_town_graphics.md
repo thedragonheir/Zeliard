@@ -383,6 +383,10 @@ After the MOLE bottom/status base panel, town startup calls `gmmcga.asm` `Clear_
 - GOLD: `0D BB 01 04`, so `x = 53`, `y = 187`.
 - PLACE: `0D AF 01 05`, so `x = 53`, `y = 175`.
 
+The LIFE health bar comes from the startup save/global-state area. `common.inc` defines `hero_HP` at `0x90` as a word and `heroMaxHp` at `0xB2`; `heroMaxHp` is word-sized because the next field starts at `0xB4` and the health routines read it as a word. On non-restore startup, `zeliard.asm` loads `stdply.bin` into `game_cseg:0000` before entering `game.bin`, and `game.asm` enters the opening/restart path with `AX = 0`. In `game/0/stdply.bin`, bytes `0x90..0x91` are `50 00` and bytes `0xB2..0xB3` are `50 00`, so both startup current HP and startup max HP are `80`.
+
+`town.asm` calls `Draw_Hero_Max_Health` and then `Draw_Hero_Health` after `render_life_almas_gold_place`. The MCGA health routines both start at `DI = 0xCC14`, so the destination is `x = 84`, `y = 163`. `gmmcga.asm` normalizes HP by clamping values above `0x0320` to `100` pixels and otherwise dividing by eight. The proven startup value `80` therefore renders as `10` pixels for max HP and `10` pixels for current HP.
+
 The current C++ path renders Gold and Almas as zero only. The zero display matches the `gmmcga.asm` digit path for the proven positions: Gold uses `Print_Gold_Decimal` at `x = 78`, `y = 187`, six digits, and Almas uses `Print_Almas_Decimal` at `x = 154`, `y = 187`, five digits. Full live gold/almas state and the full 24-bit decimal conversion path are not wired yet.
 
 The place name comes from the MDT/runtime `town_name_rendering_info` pointer at offset `0x04` / runtime `0C004h`, then renders through `Render_Pascal_String_1` with `thin_font`, primary color `9`, and shadow color `0x2D`.
@@ -390,7 +394,7 @@ The place name comes from the MDT/runtime `town_name_rendering_info` pointer at 
 Remaining unresolved lower-HUD work:
 
 - Training Sword rendering is proven and implemented from unpacked `itemp.grp`. The file starts with 7 little-endian group offsets; group 0 starts at `0x000E` and ends at `0x0662`, giving six sword item sprites. Each sword sprite is `18 * 15 = 270` source bytes and decodes to `20 x 18` pixels. `SWORD_TRAINING = 1`, and `gmmcga.asm` `Render_Sword_Item_Sprite_20x18` does `dec al` before multiplying by `270`, so Training Sword uses group 0 sprite index `0`: `0x000E + (SwordType - 1) * 270`.
-- Startup HP/max HP are not implemented. The assembly calls `Draw_Hero_Max_Health` and `Draw_Hero_Health`, but the C++ startup values are not proven from the runtime/save-state source yet.
+- Live damage, healing, leveling, savegame updates, and full player-state wiring are not implemented yet; the current native town HUD uses only the proven `stdply.bin` startup `hero_HP` / `heroMaxHp` values.
 
 ## Full top Tears bar render order
 

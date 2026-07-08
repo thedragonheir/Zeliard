@@ -82,7 +82,11 @@ This routine is heavily used by dialogs, shops, inventory windows, and save/rest
 
 ## HUD and health bars
 
-The health routines normalize HP values to a display width. `normalize_health_to_100` converts current/max values into a 0..100 display scale. Then the bar routines draw vertical/horizontal segments.
+The health routines normalize HP values to a display width. `normalize_health_to_100` compares `BX` with `0x0320`; values above `0x0320` clamp to `100` pixels, and all other values are divided by eight with three `shr bx, 1` instructions. A value of `0x0320` therefore becomes exactly `100`.
+
+Hero health draws at `DI = 0xCC14`, which maps through the MCGA 320-byte stride to `x = 84`, `y = 163`. `Draw_Hero_Max_Health` loads `BX` from `heroMaxHp`, normalizes it, then draws that many one-pixel columns. Each max-health column is six pixels tall with `BH = 6`, `AL = 0x12`, and `AH = 0x2D`, so each destination byte becomes `(old & 0x2D) | 0x12`.
+
+`Draw_Hero_Health` loads `BX` from `hero_HP`, normalizes it, draws the current-health span first, then clears the remaining `100 - normalized` columns. The current span is five pixels tall with `BH = 5`, `AL = 9`, and `AH = 0x12`; the empty span is also five pixels tall with `BH = 5`, `AL = 0`, and `AH = 0x12`. Both paths call the shared `draw_vertical_line`, which applies `and es:[di], ah`, `or es:[di], al`, advances `DI` by `0x0140`, decrements `BH`, and loops until the vertical column is complete.
 
 The boss HP paths reuse the same visual logic as the hero HP paths but draw into the enemy/status bar region.
 

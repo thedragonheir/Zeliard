@@ -87,6 +87,12 @@ private:
         std::uint8_t HeroAnimationPhase = TownHeroStartupHeroAnimationPhase;
     };
 
+    struct TownHudHealthState
+    {
+        std::uint16_t HeroHp = 80;
+        std::uint16_t HeroMaxHp = 80;
+    };
+
     struct TownNpcRuntimeRecord
     {
         std::uint16_t X = 0;
@@ -242,5 +248,6 @@ private:
     mutable bool TownTearsOverlayStateLogInitialized = false;
     mutable std::uint8_t TownTearsOverlayLastLoggedRawCount = 0;
     mutable std::size_t TownTearsOverlayLastLoggedDrawCount = 0;
+    TownHudHealthState TownHudHealth;
     Grp::NpcSpriteFrame ActorFrame;
 };
