@@ -327,6 +327,9 @@ namespace
             return false;
         }
 
+        App.TownMapTimingLastTicksNs = SDL_GetTicksNS();
+        App.TownMapTimingAccumulatorNs = 0;
+
         App.Running = true;
         return true;
     }
@@ -353,7 +356,7 @@ namespace
             if (App.TownMapTimingLastTicksNs == 0)
             {
                 App.TownMapTimingLastTicksNs = CurrentTicksNs;
-                App.TownMapTimingAccumulatorNs = TownScene::TownDosTownLoopIntervalNanoseconds;
+                App.TownMapTimingAccumulatorNs = 0;
             }
             else
             {
