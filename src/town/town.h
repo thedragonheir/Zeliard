@@ -183,6 +183,7 @@ private:
     TownHeadLevelTiles SaveHeadLevelTilesInNpcs() const;
     void RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles) const;
     static std::vector<TownNpcRuntimeRecord> BuildTownNpcRuntimeRecords(const Mdt::TownMapInfo& TownMap);
+    void SyncTownNpcFacingTowardHeroRecords() const;
     void UpdateTownNpcRuntimeRecordsShell() const;
     static std::size_t GetTownNpcSpriteFrameIndex(std::uint8_t SpriteSelector, std::uint8_t AnimationPhase);
     static std::uint8_t GetTownNpcRuntimeRecordSpriteColumnMatch(const TownNpcRuntimeRecord& RuntimeRecord,

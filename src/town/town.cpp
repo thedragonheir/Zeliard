@@ -2199,6 +2199,35 @@ void TownScene::UpdateTownNpcRuntimeRecordsShell() const
     }
 }
 
+void TownScene::SyncTownNpcFacingTowardHeroRecords() const
+{
+    const std::size_t HeroAbsoluteX = TownHeroState.HeroXInViewport + TownVisibleViewportColumnOffset
+        + TownHeroState.ProximityMapLeftColumnX;
+
+    const auto SyncTownNpcFacing = [HeroAbsoluteX](TownNpcRuntimeRecord& RuntimeRecord)
+    {
+        const bool FaceLeft = HeroAbsoluteX < RuntimeRecord.X;
+        RuntimeRecord.Facing = FaceLeft ? 1 : 0;
+        if (FaceLeft)
+        {
+            RuntimeRecord.SpriteSelector |= 0x80;
+        }
+        else
+        {
+            RuntimeRecord.SpriteSelector &= 0x7F;
+        }
+    };
+
+    for (TownNpcRuntimeRecord& TownNpcRuntimeRecord : TownNpcArray)
+    {
+        if (TownNpcRuntimeRecord.NpcAiType == NpcAiTypeLookAtHeroAndBob
+            || TownNpcRuntimeRecord.NpcAiType == NpcAiTypeFaceHero)
+        {
+            SyncTownNpcFacing(TownNpcRuntimeRecord);
+        }
+    }
+}
+
 const TownScene::TownNpcRuntimeRecord* TownScene::FindFirstTownNpcRuntimeRecordForColumn(
     const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t MapColumn)
 {
@@ -2482,6 +2511,7 @@ void TownScene::ReloadTownState(std::optional<TownHeroRuntimeState> TransitionHe
     {
         // Rebuild the active town NPC runtime records from the loaded map.
         TownNpcArray = BuildTownNpcRuntimeRecords(TownMap);
+        SyncTownNpcFacingTowardHeroRecords();
     }
     TownBackgroundStripUsesCkpd = TownMap.HasMiddleLayer;
     const std::filesystem::path TownBackgroundBinPath = ActorSpriteGrpPath.parent_path()
@@ -2601,9 +2631,9 @@ std::optional<Mdt::TownTransitionData> TownScene::Update(const bool* KeyboardSta
         return Transition;
     }
 
+    UpdateTownHeroRuntimeState(KeyboardState);
     UpdateTownNpcRuntimeRecordsShell();
     AdvanceTownPatternAnimations(TownRuntimeCells, TownMap, PatternBank);
-    UpdateTownHeroRuntimeState(KeyboardState);
 
     if (const std::optional<Mdt::TownTransitionData> Transition = GetEdgeTownTransition(true))
     {
