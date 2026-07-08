@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <initializer_list>
 #include <iomanip>
 #include <iostream>
@@ -1200,26 +1201,28 @@ void RunZeliardMainLoop(void* UserData)
 
 int main()
 {
-    ZeliardApp App;
-    if (!InitializeZeliardApp(App))
+    auto App = std::make_unique<ZeliardApp>();
+
+    if (!InitializeZeliardApp(*App))
     {
-        ShutdownZeliardApp(App);
+        ShutdownZeliardApp(*App);
         return 1;
     }
 
 #ifdef __EMSCRIPTEN__
-    emscripten_set_main_loop_arg(RunZeliardMainLoop, &App, 0, true);
+    emscripten_set_main_loop_arg(RunZeliardMainLoop, App.get(), 0, true);
+    App.release();
     return 0;
 #else
-    while (App.Running)
+    while (App->Running)
     {
-        if (!RunZeliardFrame(App))
+        if (!RunZeliardFrame(*App))
         {
             break;
         }
     }
-#endif
 
-    ShutdownZeliardApp(App);
+    ShutdownZeliardApp(*App);
     return 0;
+#endif
 }
