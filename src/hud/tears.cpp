@@ -1,9 +1,88 @@
 #include "tears.h"
 
 #include <algorithm>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <vector>
+
+std::uint8_t TearsOfEsmesantiCount = 0;
 
 namespace Hud
 {
+namespace
+{
+bool ReadWholeFile(const std::filesystem::path& Path, std::vector<std::uint8_t>& Output,
+    std::string& ErrorMessage)
+{
+    std::ifstream Input(Path, std::ios::binary | std::ios::ate);
+    if (!Input)
+    {
+        ErrorMessage = "failed to open " + Path.string();
+        return false;
+    }
+
+    const std::streamsize FileSize = Input.tellg();
+    if (FileSize < 0)
+    {
+        ErrorMessage = "failed to get size for " + Path.string();
+        return false;
+    }
+
+    Output.resize(static_cast<std::size_t>(FileSize));
+    Input.seekg(0, std::ios::beg);
+    if (FileSize > 0 && !Input.read(reinterpret_cast<char*>(Output.data()), FileSize))
+    {
+        ErrorMessage = "failed to read " + Path.string();
+        return false;
+    }
+
+    ErrorMessage.clear();
+    return true;
+}
+
+std::string FormatHexOffset(std::size_t Offset)
+{
+    std::ostringstream Output;
+    Output << "0x" << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << Offset;
+    return Output.str();
+}
+}
+
+bool LoadTearsOverlayIcons(const std::filesystem::path& GmmcgaBinPath,
+    TearsOverlayIconPixels& SmallBlueIconPixels, TearsOverlayIconPixels& LargeRedIconPixels,
+    std::string& ErrorMessage)
+{
+    std::vector<std::uint8_t> FileBytes;
+    if (!ReadWholeFile(GmmcgaBinPath, FileBytes, ErrorMessage))
+    {
+        return false;
+    }
+
+    if (FileBytes.size() < TearsOverlayLargeIconFileOffset + TearsOverlayIconByteCount)
+    {
+        ErrorMessage = GmmcgaBinPath.filename().string()
+            + " is too small to contain the collected Tears icons";
+        return false;
+    }
+
+    std::copy_n(FileBytes.begin() + static_cast<std::ptrdiff_t>(TearsOverlaySmallIconFileOffset),
+        TearsOverlayIconByteCount, SmallBlueIconPixels.begin());
+    std::copy_n(FileBytes.begin() + static_cast<std::ptrdiff_t>(TearsOverlayLargeIconFileOffset),
+        TearsOverlayIconByteCount, LargeRedIconPixels.begin());
+
+    std::cerr << GmmcgaBinPath.filename().string() << " collected Tears icons: "
+        << "AL=0 source span " << FormatHexOffset(TearsOverlaySmallIconFileOffset) << ".."
+        << FormatHexOffset(TearsOverlaySmallIconFileOffset + TearsOverlayIconByteCount)
+        << ", AL=1 source span " << FormatHexOffset(TearsOverlayLargeIconFileOffset) << ".."
+        << FormatHexOffset(TearsOverlayLargeIconFileOffset + TearsOverlayIconByteCount)
+        << ", icon size " << TearsOverlayIconWidth << " x " << TearsOverlayIconHeight << '\n';
+
+    ErrorMessage.clear();
+    return true;
+}
+
 void DrawTearsOverlayIcon(SDL_Renderer* Renderer, const std::array<SDL_Color, 64>& Palette,
     const TearsOverlayIconPixels& IconPixels, std::size_t ScreenX, std::size_t ScreenY)
 {

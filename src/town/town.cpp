@@ -11,18 +11,14 @@
 #include <sstream>
 #include <span>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "../grp/font_grp.h"
 #include "../grp/grp_unpack.h"
-
-std::uint8_t TearsOfEsmesantiCount = 0;
-
-namespace Grp
-{
-bool LoadTownHeroSpriteFrame(const std::filesystem::path& Path, std::size_t FrameIndex, NpcSpriteFrame& Output, std::string& ErrorMessage);
-}
+#include "../mcga/mcga_draw.h"
+#include "town_npc.h"
+#include "town_render.h"
+#include "town_transitions.h"
 
 namespace
 {
@@ -37,14 +33,6 @@ constexpr std::size_t TownMovementTileAheadRow = 7;
 constexpr std::size_t TownHeroViewportLeftThreshold = 10;
 constexpr std::size_t TownHeroViewportRightThreshold = 16;
 constexpr std::size_t TownHeroRightEdgeTransitionSentinel = 27;
-constexpr std::uint8_t TownHeroLeftEdgeTransitionSentinel = 0xFF;
-constexpr std::size_t TownHeroProximityMapWidthColumns = 36;
-constexpr std::size_t TownEntityProximityRadiusPixels = 20;
-constexpr std::size_t TownMapActorAnimationPhaseCount = 4;
-constexpr std::size_t TownHeroLeftFacingFrameStart = 0;
-constexpr std::size_t TownHeroRightFacingFrameStart = 5;
-constexpr std::size_t TownNpcSpriteFramesPerBlock = 8;
-constexpr std::size_t TownNpcSpriteFamilyCount = 5;
 constexpr std::uint8_t TownNpcPatrolStepPhaseMaskOneBit = 0x10;
 constexpr std::uint8_t TownNpcPatrolStepPhaseMaskTwoBit = 0x30;
 constexpr std::uint8_t TownNpcPatrolBounceTurnMask = 0x07;
@@ -53,8 +41,6 @@ constexpr std::uint8_t TownHeadLevelNpcMarkerTile = 0xFD;
 constexpr std::size_t TownBackgroundStripWidth = 224;
 constexpr std::size_t TownBackgroundStripHeight = 16;
 constexpr std::size_t TownBackgroundStripLeftWidth = TownBackgroundStripWidth / 2;
-constexpr std::size_t TownBackgroundStripLeftX = 48;
-constexpr std::size_t TownBackgroundStripLeftY = 14 + 16 * 8;
 constexpr std::size_t TownMoleDecorationPanelWidth = TownScene::TownMoleDecorationPanelWidth;
 constexpr std::size_t TownMoleDecorationPanelHeight = TownScene::TownMoleDecorationPanelHeight;
 constexpr std::size_t TownMoleDecorationPanelPlaneWidthBytes = TownMoleDecorationPanelWidth / 4;
@@ -93,8 +79,6 @@ constexpr std::size_t TownMoleBottomStatusBaseRleMarkerHigh = 0x50;
 constexpr std::size_t TownMoleBottomStatusBaseSecondPlaneFillWordCount = 0x4B0;
 constexpr std::size_t TownMoleBottomStatusBaseSecondPlaneFillByteCount =
     TownMoleBottomStatusBaseSecondPlaneFillWordCount * sizeof(std::uint16_t);
-constexpr std::size_t TownTearsOverlaySmallIconFileOffset = TownScene::TownTearsOverlaySmallIconFileOffset;
-constexpr std::size_t TownTearsOverlayLargeIconFileOffset = TownScene::TownTearsOverlayLargeIconFileOffset;
 constexpr std::uint8_t TownTrainingSwordType = 1;
 constexpr std::size_t TownItempGroupOffsetCount = 7;
 constexpr std::size_t TownItempGroupOffsetTableByteCount = TownItempGroupOffsetCount * sizeof(std::uint16_t);
@@ -125,8 +109,6 @@ constexpr std::uint8_t TownHeroEmptyHealthMask = 0x12;
 constexpr std::size_t YmpdMountainPlaneByteWidth = 56;
 constexpr std::size_t YmpdMountainPlaneHeight = 88;
 constexpr std::size_t YmpdMountainPlaneDecodedByteCount = YmpdMountainPlaneByteWidth * YmpdMountainPlaneHeight;
-constexpr std::size_t TownBackgroundMountainLeftX = 48;
-constexpr std::size_t TownBackgroundMountainTopY = 14;
 constexpr std::size_t TownSpriteBandPixelY = TownHeadLevelRow * TownMapTileSize;
 constexpr std::size_t YmpdMountain0Offset = 0x5E7;
 constexpr std::size_t YmpdMountain0Length = 0xE72;
@@ -137,7 +119,6 @@ constexpr std::size_t YmpdGroundLength = 0x153;
 constexpr std::size_t YmpdGround1Offset = 0x23F1;
 constexpr std::size_t YmpdGround1Length = 0x174;
 constexpr std::size_t CkpdGroundOffset = 0x1C25;
-constexpr std::size_t CkpdGroundLength = 0x1C0;
 constexpr std::size_t CkpdGround1Offset = 0x1DE5;
 constexpr std::size_t CkpdGround1Length = 0x1C0;
 constexpr std::array<std::uint8_t, 16> TownMoleUnpackTable =
@@ -1034,129 +1015,6 @@ bool LoadTownBackgroundMountainLayerPixels(const std::filesystem::path& TownBack
     return true;
 }
 
-void DrawTownBackgroundStrip(SDL_Renderer* Renderer,
-    const std::array<std::uint8_t, TownBackgroundStripWidth * TownBackgroundStripHeight>& Pixels,
-    const Main64Palette& Palette, std::size_t ScrollOffsetPixels)
-{
-    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
-    for (std::size_t Row = 0; Row < TownBackgroundStripHeight; ++Row)
-    {
-        for (std::size_t Column = 0; Column < TownBackgroundStripWidth; ++Column)
-        {
-            // Mirror the DOS floor-band scroll by sampling the decoded strip
-            // with a cyclic 8px phase instead of moving the strip rectangle.
-            const std::size_t SourceColumn = (Column + TownBackgroundStripWidth - ScrollOffsetPixels)
-                % TownBackgroundStripWidth;
-            const std::uint8_t PaletteIndex = Pixels[Row * TownBackgroundStripWidth + SourceColumn];
-            if (PaletteIndex >= Palette.size())
-            {
-                continue;
-            }
-
-            const SDL_Color& Color = Palette[PaletteIndex];
-            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
-
-            const SDL_FRect PixelRect{
-                static_cast<float>(TownBackgroundStripLeftX + Column),
-                static_cast<float>(TownBackgroundStripLeftY + Row),
-                1.0f,
-                1.0f
-            };
-            SDL_RenderFillRect(Renderer, &PixelRect);
-        }
-    }
-}
-
-void DrawTownBackgroundMountainLayer(SDL_Renderer* Renderer,
-    const std::array<std::uint8_t, TownScene::TownBackgroundMountainWidth * TownScene::TownBackgroundMountainHeight>& Pixels,
-    const Main64Palette& Palette)
-{
-    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
-    for (std::size_t Row = 0; Row < TownScene::TownBackgroundMountainHeight; ++Row)
-    {
-        for (std::size_t Column = 0; Column < TownScene::TownBackgroundMountainWidth; ++Column)
-        {
-            const std::uint8_t PaletteIndex = Pixels[Row * TownScene::TownBackgroundMountainWidth + Column];
-            if (PaletteIndex >= Palette.size())
-            {
-                continue;
-            }
-
-            const SDL_Color& Color = Palette[PaletteIndex];
-            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
-
-            const SDL_FRect PixelRect{
-                static_cast<float>(TownBackgroundMountainLeftX + Column),
-                static_cast<float>(TownBackgroundMountainTopY + Row),
-                1.0f,
-                1.0f
-            };
-            SDL_RenderFillRect(Renderer, &PixelRect);
-        }
-    }
-}
-
-void DrawTownMolePanel(SDL_Renderer* Renderer, const std::uint8_t* Pixels, std::size_t PanelWidthPixels,
-    std::size_t PanelHeightPixels, const Main64Palette& Palette, std::size_t ScreenX, std::size_t ScreenY)
-{
-    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
-    for (std::size_t Row = 0; Row < PanelHeightPixels; ++Row)
-    {
-        for (std::size_t Column = 0; Column < PanelWidthPixels; ++Column)
-        {
-            const std::uint8_t PaletteIndex = Pixels[Row * PanelWidthPixels + Column];
-            if (PaletteIndex >= Palette.size())
-            {
-                continue;
-            }
-
-            const SDL_Color& Color = Palette[PaletteIndex];
-            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
-
-            const SDL_FRect PixelRect{
-                static_cast<float>(ScreenX + Column),
-                static_cast<float>(ScreenY + Row),
-                1.0f,
-                1.0f
-            };
-            SDL_RenderFillRect(Renderer, &PixelRect);
-        }
-    }
-}
-
-bool LoadTownTearsCollectedOverlayIcons(const std::filesystem::path& GmmcgaBinPath,
-    Hud::TearsOverlayIconPixels& SmallBlueIconPixels,
-    Hud::TearsOverlayIconPixels& LargeRedIconPixels,
-    std::string& ErrorMessage)
-{
-    std::vector<std::uint8_t> FileBytes;
-    if (!ReadWholeFile(GmmcgaBinPath, FileBytes, ErrorMessage))
-    {
-        return false;
-    }
-
-    if (FileBytes.size() < TownTearsOverlayLargeIconFileOffset + Hud::TearsOverlayIconByteCount)
-    {
-        ErrorMessage = GmmcgaBinPath.filename().string() + " is too small to contain the collected Tears icons";
-        return false;
-    }
-
-    std::copy_n(FileBytes.begin() + static_cast<std::ptrdiff_t>(TownTearsOverlaySmallIconFileOffset),
-        Hud::TearsOverlayIconByteCount, SmallBlueIconPixels.begin());
-    std::copy_n(FileBytes.begin() + static_cast<std::ptrdiff_t>(TownTearsOverlayLargeIconFileOffset),
-        Hud::TearsOverlayIconByteCount, LargeRedIconPixels.begin());
-
-    std::cerr << GmmcgaBinPath.filename().string() << " collected Tears icons: "
-        << "AL=0 source span " << FormatHexOffset(TownTearsOverlaySmallIconFileOffset) << ".."
-        << FormatHexOffset(TownTearsOverlaySmallIconFileOffset + Hud::TearsOverlayIconByteCount)
-        << ", AL=1 source span " << FormatHexOffset(TownTearsOverlayLargeIconFileOffset) << ".."
-        << FormatHexOffset(TownTearsOverlayLargeIconFileOffset + Hud::TearsOverlayIconByteCount)
-        << ", icon size " << Hud::TearsOverlayIconWidth << " x " << Hud::TearsOverlayIconHeight << '\n';
-
-    ErrorMessage.clear();
-    return true;
-}
-
 bool DecodeTownSwordItemSprite(const std::vector<std::uint8_t>& Unpacked, std::size_t SpriteOffset,
     std::array<std::uint8_t, TownSwordItemSpritePixelCount>& Output, std::string& ErrorMessage)
 {
@@ -1268,68 +1126,6 @@ bool LoadTownTrainingSwordItemSprite(const std::filesystem::path& ItempGrpPath,
     return true;
 }
 
-const char* GetTownMapActorFacingDirectionName(TownMapActorFacingDirection FacingDirection)
-{
-    switch (FacingDirection)
-    {
-    case TownMapActorFacingDirection::Right:
-        return "RIGHT";
-
-    case TownMapActorFacingDirection::Left:
-        return "LEFT";
-
-    case TownMapActorFacingDirection::Up:
-        return "UP";
-
-    case TownMapActorFacingDirection::Down:
-        return "DOWN";
-    }
-
-    return "UNKNOWN";
-}
-
-std::size_t GetTownMapMaximumProximityMapLeftColumn(const Mdt::TownMapInfo& TownMap)
-{
-    return TownMap.Width > TownHeroProximityMapWidthColumns ? TownMap.Width - TownHeroProximityMapWidthColumns : 0;
-}
-
-std::size_t GetTownMapActorFrameStartIndex(TownMapActorFacingDirection FacingDirection)
-{
-    switch (FacingDirection)
-    {
-    case TownMapActorFacingDirection::Right:
-        return TownHeroRightFacingFrameStart;
-
-    case TownMapActorFacingDirection::Left:
-        return TownHeroLeftFacingFrameStart;
-
-    case TownMapActorFacingDirection::Up:
-    case TownMapActorFacingDirection::Down:
-        // tman.grp has confirmed left/right town hero poses. Keep vertical
-        // movement visible with the right-facing set until that mapping is known.
-        return TownHeroRightFacingFrameStart;
-    }
-
-    return TownHeroRightFacingFrameStart;
-}
-
-std::size_t GetTownMapActorFrameIndex(TownMapActorFacingDirection FacingDirection, [[maybe_unused]] bool ActorIsMoving,
-    std::size_t AnimationPhase)
-{
-    const std::size_t FrameStartIndex = GetTownMapActorFrameStartIndex(FacingDirection);
-    const std::size_t FramePhase = AnimationPhase % TownMapActorAnimationPhaseCount;
-    return FrameStartIndex + FramePhase;
-}
-
-std::size_t GetTownNpcSpriteFrameIndexFromFields(std::uint8_t SpriteSelector, std::uint8_t AnimationPhase)
-{
-    const std::size_t SpriteFamily = static_cast<std::size_t>(SpriteSelector & 0x0F);
-    const std::size_t FacingOffset = (SpriteSelector & 0x80) == 0 ? 4 : 0;
-    const std::size_t FramePhase = static_cast<std::size_t>(AnimationPhase & 3);
-
-    return (SpriteFamily * TownNpcSpriteFramesPerBlock) + FacingOffset + FramePhase;
-}
-
 constexpr std::uint8_t NpcAiTypeLookAtHeroAndBob = 0;
 constexpr std::uint8_t NpcAiTypePatrol1BitPhase = 1;
 constexpr std::uint8_t NpcAiTypePatrol2BitPhase = 2;
@@ -1338,64 +1134,6 @@ constexpr std::uint8_t NpcAiTypeBobInPlace = 4;
 constexpr std::uint8_t NpcAiTypePatrolBounce1Bit = 5;
 constexpr std::uint8_t NpcAiTypePatrolBounce2Bit = 6;
 constexpr std::uint8_t NpcAiTypeStatic = 7;
-
-std::size_t GetTownNpcSpriteFrameIndex(const Mdt::TownEntityMarker& EntityMarker)
-{
-    return GetTownNpcSpriteFrameIndexFromFields(EntityMarker.NpcSpriteSelector, EntityMarker.NpcAnimationPhase);
-}
-
-std::string FormatTownSpriteByte(std::uint8_t Value)
-{
-    std::ostringstream Stream;
-    Stream << "0X" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
-        << static_cast<unsigned int>(Value);
-    return Stream.str();
-}
-
-bool IsConfirmedTownNpcSpriteFamily(std::size_t SpriteFamily)
-{
-    // The checked town data uses selector families 0 through 4, and the sprite
-    // viewer now confirms the same 8-frame block arithmetic for those families.
-    return SpriteFamily < TownNpcSpriteFamilyCount;
-}
-
-bool IsNpcSpriteFrameVisible(const Grp::NpcSpriteFrame& SpriteFrame)
-{
-    return std::any_of(SpriteFrame.DrawModes.begin(), SpriteFrame.DrawModes.end(),
-        [](std::uint8_t DrawMode)
-        {
-            return DrawMode != Grp::TransparentDrawMode;
-        });
-}
-
-const char* GetTownMapActorSpriteStatusName(bool ActorFrameLoaded, bool ActorFrameVisible)
-{
-    if (!ActorFrameLoaded)
-    {
-        return "MISS";
-    }
-
-    return ActorFrameVisible ? "OK" : "EMPTY";
-}
-
-std::string GetTownNpcSpriteDebugSummary(const Mdt::TownEntityMarker& EntityMarker)
-{
-    const std::size_t SpriteFamily = static_cast<std::size_t>(EntityMarker.NpcSpriteSelector & 0x0F);
-    std::string Summary = "NPC ID " + std::to_string(static_cast<unsigned int>(EntityMarker.NpcId))
-        + " SEL " + FormatTownSpriteByte(EntityMarker.NpcSpriteSelector)
-        + " PH " + FormatTownSpriteByte(EntityMarker.NpcAnimationPhase);
-
-    if (IsConfirmedTownNpcSpriteFamily(SpriteFamily))
-    {
-        Summary += " FR " + std::to_string(GetTownNpcSpriteFrameIndex(EntityMarker));
-    }
-    else
-    {
-        Summary += " FR ?";
-    }
-
-    return Summary;
-}
 
 const Grp::PatternTile& GetFallbackPatternTile()
 {
@@ -1414,34 +1152,6 @@ const Grp::PatternTile& GetFallbackPatternTile()
     }();
 
     return FallbackTile;
-}
-
-void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile, const Main64Palette& Palette,
-    float TileX, float TileY, float PixelSize, bool UseTransparencyMask)
-{
-    for (std::size_t Row = 0; Row < 8; ++Row)
-    {
-        const std::uint8_t TransparencyMaskRow = UseTransparencyMask ? Tile.TransparencyMaskRows[Row] : 0;
-        for (std::size_t Column = 0; Column < 8; ++Column)
-        {
-            if ((TransparencyMaskRow & static_cast<std::uint8_t>(0x80 >> Column)) != 0)
-            {
-                continue;
-            }
-
-            const std::uint8_t PaletteIndex = Tile.Pixels[Row * 8 + Column];
-            const SDL_Color& Color = Palette[PaletteIndex];
-            SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
-
-            const SDL_FRect PixelRect{
-                TileX + static_cast<float>(Column) * PixelSize,
-                TileY + static_cast<float>(Row) * PixelSize,
-                PixelSize,
-                PixelSize
-            };
-            SDL_RenderFillRect(Renderer, &PixelRect);
-        }
-    }
 }
 
 const Grp::PatternAnimationReplacement* FindPatternAnimationReplacement(const Grp::PatternBank& PatternBank,
@@ -1483,96 +1193,6 @@ void AdvanceTownPatternAnimations(std::vector<std::uint8_t>& TownRuntimeCells, c
     }
 }
 
-void DrawNpcSpriteFrameColumnSliceOnTownMap(SDL_Renderer* Renderer, const Grp::NpcSpriteFrame& SpriteFrame,
-    const Main64Palette& Palette, std::size_t MapPixelX, std::size_t MapPixelY,
-    std::size_t ScrollOffsetPixels, std::size_t MapColumn)
-{
-    constexpr float SpritePixelSize = 1.0f;
-    const std::size_t ColumnLeftPixel = MapColumn * TownMapTileSize;
-    const std::size_t ColumnRightPixel = ColumnLeftPixel + TownMapTileSize;
-    const std::size_t SpriteRightPixel = MapPixelX + Grp::NpcSpriteFrame::FrameWidth;
-    if (SpriteRightPixel <= ColumnLeftPixel || MapPixelX >= ColumnRightPixel)
-    {
-        return;
-    }
-
-    const std::size_t FirstSpriteColumn = ColumnLeftPixel > MapPixelX ? ColumnLeftPixel - MapPixelX : 0;
-    const std::size_t LastSpriteColumn = std::min<std::size_t>(Grp::NpcSpriteFrame::FrameWidth,
-        ColumnRightPixel - MapPixelX);
-
-    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
-    for (std::size_t Row = 0; Row < Grp::NpcSpriteFrame::FrameHeight; ++Row)
-    {
-        for (std::size_t Column = FirstSpriteColumn; Column < LastSpriteColumn; ++Column)
-        {
-            const std::size_t PixelIndex = Row * Grp::NpcSpriteFrame::FrameWidth + Column;
-            const std::uint8_t DrawMode = SpriteFrame.DrawModes[PixelIndex];
-            if (DrawMode == Grp::TransparentDrawMode)
-            {
-                continue;
-            }
-
-            if (DrawMode == Grp::BlackDrawMode)
-            {
-                SDL_SetRenderDrawColor(Renderer, 0, 0, 0, 255);
-            }
-            else
-            {
-                const std::uint8_t PaletteIndex = SpriteFrame.Pixels[PixelIndex];
-                const SDL_Color& Color = Palette[PaletteIndex];
-                SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
-            }
-
-            const SDL_FRect PixelRect{
-                static_cast<float>(TownMapViewportLeftPixelX + MapPixelX + Column) - static_cast<float>(ScrollOffsetPixels),
-                static_cast<float>(TownMapViewportTopPixelY + MapPixelY) + static_cast<float>(Row) * SpritePixelSize,
-                SpritePixelSize,
-                SpritePixelSize
-            };
-            SDL_RenderFillRect(Renderer, &PixelRect);
-        }
-    }
-}
-
-void DrawTownMapActorFallbackMarker(SDL_Renderer* Renderer, float MapPixelX, float MapPixelY, std::size_t ScrollOffsetPixels)
-{
-    constexpr float MarkerSize = 10.0f;
-    constexpr float LineSize = 2.0f;
-    const float ScreenX = static_cast<float>(TownMapViewportLeftPixelX) + MapPixelX - static_cast<float>(ScrollOffsetPixels)
-        + (static_cast<float>(Grp::NpcSpriteFrame::FrameWidth) - MarkerSize) * 0.5f;
-    const float ScreenY = static_cast<float>(TownMapViewportTopPixelY) + MapPixelY
-        + (static_cast<float>(Grp::NpcSpriteFrame::FrameHeight) - MarkerSize) * 0.5f;
-
-    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(Renderer, 255, 64, 224, 232);
-    const SDL_FRect MarkerRect{
-        ScreenX,
-        ScreenY,
-        MarkerSize,
-        MarkerSize
-    };
-    SDL_RenderFillRect(Renderer, &MarkerRect);
-
-    SDL_SetRenderDrawColor(Renderer, 255, 255, 255, 255);
-    SDL_RenderRect(Renderer, &MarkerRect);
-
-    const SDL_FRect HorizontalLine{
-        ScreenX + 2.0f,
-        ScreenY + (MarkerSize - LineSize) * 0.5f,
-        MarkerSize - 4.0f,
-        LineSize
-    };
-    SDL_RenderFillRect(Renderer, &HorizontalLine);
-
-    const SDL_FRect VerticalLine{
-        ScreenX + (MarkerSize - LineSize) * 0.5f,
-        ScreenY + 2.0f,
-        LineSize,
-        MarkerSize - 4.0f
-    };
-    SDL_RenderFillRect(Renderer, &VerticalLine);
-}
-
 std::size_t GetTownMapMaximumScrollOffset(const Mdt::TownMapInfo& TownMap)
 {
     const std::size_t MapWidthPixels = static_cast<std::size_t>(TownMap.Width) * TownMapTileSize;
@@ -1583,21 +1203,6 @@ bool IsTownMapBlockedTileIndex(const Grp::PatternBank& PatternBank, std::uint8_t
 {
     return std::find(PatternBank.SpecialTileIndices.begin(), PatternBank.SpecialTileIndices.end(), TileIndex)
         != PatternBank.SpecialTileIndices.end();
-}
-
-bool IsTownToTownEdgeTransition(const Mdt::TownTransitionData& Transition, bool IsLeftEdgeTransition)
-{
-    const bool TransitionIsLeftEdge = (Transition.Flags & 1) != 0;
-    return TransitionIsLeftEdge == IsLeftEdgeTransition && (Transition.Flags & 0xFE) == 0;
-}
-
-bool HasTownToTownEdgeTransition(const Mdt::TownMapInfo& TownMap, bool IsLeftEdgeTransition)
-{
-    return std::any_of(TownMap.TransitionData.begin(), TownMap.TransitionData.end(),
-        [IsLeftEdgeTransition](const Mdt::TownTransitionData& Transition)
-        {
-            return IsTownToTownEdgeTransition(Transition, IsLeftEdgeTransition);
-        });
 }
 
 bool TryGetTownMapTileIndexAtCell(const Mdt::TownMapInfo& TownMap, std::size_t Column, std::size_t Row,
@@ -1653,66 +1258,6 @@ const char* GetTownMapCollisionStatusName(bool ActorCollisionBlocked)
     return ActorCollisionBlocked ? "COL BLOCK" : "COL OK";
 }
 
-void DrawFontText(SDL_Renderer* Renderer, const Grp::FontGroup& FontGroup, float StartX, float StartY, float Scale, const std::string& Text)
-{
-    constexpr std::size_t GlyphWidth = 8;
-    constexpr std::size_t GlyphHeight = 8;
-
-    SDL_SetRenderDrawColor(Renderer, 255, 255, 255, 255);
-
-    float CursorX = StartX;
-    float CursorY = StartY;
-    const float GlyphAdvance = static_cast<float>(GlyphWidth) * Scale;
-    const float LineAdvance = static_cast<float>(GlyphHeight) * Scale;
-
-    for (char Ch : Text)
-    {
-        if (Ch == '\n')
-        {
-            CursorX = StartX;
-            CursorY += LineAdvance;
-            continue;
-        }
-
-        const unsigned char Character = static_cast<unsigned char>(Ch);
-        if (Character < 32)
-        {
-            CursorX += GlyphAdvance;
-            continue;
-        }
-
-        const std::size_t GlyphIndex = static_cast<std::size_t>(Character - 32);
-        if (GlyphIndex >= FontGroup.Glyphs.size())
-        {
-            CursorX += GlyphAdvance;
-            continue;
-        }
-
-        const Grp::FontGlyph& Glyph = FontGroup.Glyphs[GlyphIndex];
-        for (std::size_t Row = 0; Row < GlyphHeight; ++Row)
-        {
-            const std::uint8_t Bits = Glyph.Rows[Row];
-            for (std::size_t Column = 0; Column < GlyphWidth; ++Column)
-            {
-                if (((Bits >> (7 - Column)) & 1) == 0)
-                {
-                    continue;
-                }
-
-                const SDL_FRect PixelRect{
-                    CursorX + static_cast<float>(Column) * Scale,
-                    CursorY + static_cast<float>(Row) * Scale,
-                    Scale,
-                    Scale
-                };
-                SDL_RenderFillRect(Renderer, &PixelRect);
-            }
-        }
-
-        CursorX += GlyphAdvance;
-    }
-}
-
 bool LoadTownHudFontGroups(const std::filesystem::path& FontGrpPath, Grp::FontGroup& ThinFontOutput,
     Grp::FontGroup& DigitFontOutput, std::string& ErrorMessage)
 {
@@ -1766,19 +1311,6 @@ void FillTownHudRect(SDL_Renderer* Renderer, const Main64Palette& Palette, std::
     SDL_RenderFillRect(Renderer, &Rect);
 }
 
-void DrawTownPixel(SDL_Renderer* Renderer, const Main64Palette& Palette, std::uint8_t PaletteIndex, float X, float Y)
-{
-    if (PaletteIndex >= Palette.size())
-    {
-        return;
-    }
-
-    const SDL_Color& Color = Palette[PaletteIndex];
-    SDL_SetRenderDrawColor(Renderer, Color.r, Color.g, Color.b, Color.a);
-    const SDL_FRect Rect{ X, Y, 1.0f, 1.0f };
-    SDL_RenderFillRect(Renderer, &Rect);
-}
-
 void DrawTownTrainingSwordItemSprite(SDL_Renderer* Renderer, const Main64Palette& Palette,
     const std::array<std::uint8_t, TownSwordItemSpritePixelCount>& Pixels)
 {
@@ -1788,7 +1320,7 @@ void DrawTownTrainingSwordItemSprite(SDL_Renderer* Renderer, const Main64Palette
         for (std::size_t Column = 0; Column < TownSwordItemSpriteWidth; ++Column)
         {
             const std::uint8_t PaletteIndex = Pixels[Row * TownSwordItemSpriteWidth + Column];
-            DrawTownPixel(Renderer, Palette, PaletteIndex,
+            Mcga::DrawIndexedPixel(Renderer, Palette, PaletteIndex,
                 static_cast<float>(TownSwordItemHudScreenX + Column),
                 static_cast<float>(TownSwordItemHudScreenY + Row));
         }
@@ -1822,9 +1354,9 @@ void DrawTownThinFontGlyph(SDL_Renderer* Renderer, const Main64Palette& Palette,
                 continue;
             }
 
-            DrawTownPixel(Renderer, Palette, ShadowColorIndex, StartX + static_cast<float>(Column + 1),
+            Mcga::DrawIndexedPixel(Renderer, Palette, ShadowColorIndex, StartX + static_cast<float>(Column + 1),
                 StartY + static_cast<float>(Row));
-            DrawTownPixel(Renderer, Palette, PrimaryColorIndex, StartX + static_cast<float>(Column),
+            Mcga::DrawIndexedPixel(Renderer, Palette, PrimaryColorIndex, StartX + static_cast<float>(Column),
                 StartY + static_cast<float>(Row));
         }
     }
@@ -1871,7 +1403,7 @@ void DrawTownDecimalDigitGlyph(SDL_Renderer* Renderer, const Main64Palette& Pale
                 continue;
             }
 
-            DrawTownPixel(Renderer, Palette, 9, StartX + static_cast<float>(Column),
+            Mcga::DrawIndexedPixel(Renderer, Palette, 9, StartX + static_cast<float>(Column),
                 StartY + static_cast<float>(Row));
         }
     }
@@ -1989,7 +1521,7 @@ void DrawTownHeroHealthBar(SDL_Renderer* Renderer, const Main64Palette& Palette,
     {
         for (std::size_t Column = 0; Column < TownHeroHealthBarMaximumPixels; ++Column)
         {
-            DrawTownPixel(Renderer, Palette, Pixels[Row * TownHeroHealthBarMaximumPixels + Column],
+            Mcga::DrawIndexedPixel(Renderer, Palette, Pixels[Row * TownHeroHealthBarMaximumPixels + Column],
                 static_cast<float>(TownHeroHealthBarX + Column),
                 static_cast<float>(TownHeroHealthBarY + Row));
         }
@@ -2009,7 +1541,7 @@ void TownScene::TownNpcSpriteShadowBuffer::FlushForMapColumn(SDL_Renderer* Rende
             continue;
         }
 
-        DrawNpcSpriteFrameColumnSliceOnTownMap(Renderer, *SliceIterator->SpriteFrame, Palette,
+        TownRender::DrawNpcSpriteFrameColumnSlice(Renderer, *SliceIterator->SpriteFrame, Palette,
             SliceIterator->MapPixelX, SliceIterator->MapPixelY, SliceIterator->ScrollOffsetPixels,
             SliceIterator->MapColumn);
 
@@ -2020,87 +1552,6 @@ void TownScene::TownNpcSpriteShadowBuffer::FlushForMapColumn(SDL_Renderer* Rende
 
         SliceIterator = Slices.erase(SliceIterator);
     }
-}
-
-std::size_t TownScene::GetTownNpcSpriteFrameIndex(std::uint8_t SpriteSelector, std::uint8_t AnimationPhase)
-{
-    return GetTownNpcSpriteFrameIndexFromFields(SpriteSelector, AnimationPhase);
-}
-
-std::uint8_t TownScene::GetTownNpcRuntimeRecordSpriteColumnMatch(const TownNpcRuntimeRecord& RuntimeRecord,
-    std::size_t MapColumn)
-{
-    const std::size_t NpcColumn = static_cast<std::size_t>(RuntimeRecord.X);
-    if (NpcColumn == MapColumn)
-    {
-        // Mirror sprite_x_coordinate_lookup: 2 means the current column, 1 means the next column.
-        return 2;
-    }
-
-    if (NpcColumn == MapColumn + 1)
-    {
-        return 1;
-    }
-
-    return 0;
-}
-
-const TownScene::TownNpcRuntimeRecord* TownScene::FindNonPassableTownNpcAtXPos(
-    const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t TargetX) noexcept
-{
-    for (const TownNpcRuntimeRecord& RuntimeRecord : TownNpcArray)
-    {
-        if (static_cast<std::size_t>(RuntimeRecord.X) != TargetX)
-        {
-            continue;
-        }
-
-        if ((RuntimeRecord.NpcFlags & 0x40) == 0)
-        {
-            continue;
-        }
-
-        return &RuntimeRecord;
-    }
-
-    return nullptr;
-}
-
-bool TownScene::TryGetTownNpcSpriteFrame(std::size_t FrameIndex, const Grp::NpcSpriteFrame*& SpriteFrame) const
-{
-    if (FrameIndex >= TownNpcSpriteFrameCount)
-    {
-        return false;
-    }
-
-    if (!TownNpcSpriteFrameLoaded[FrameIndex])
-    {
-        Grp::NpcSpriteFrame LoadedFrame;
-        std::string LoadErrorMessage;
-        if (!Grp::LoadNpcSpriteFrame(TownNpcSpriteGrpPath, FrameIndex, LoadedFrame, LoadErrorMessage))
-        {
-            if (!TownNpcSpriteFrameWarningPrinted)
-            {
-                std::cerr << TownNpcSpriteGrpPath.filename().string() << " town NPC frame " << FrameIndex
-                    << " load failed: " << LoadErrorMessage << '\n';
-                TownNpcSpriteFrameWarningPrinted = true;
-            }
-
-            return false;
-        }
-
-        TownNpcSpriteFrames[FrameIndex] = std::move(LoadedFrame);
-        TownNpcSpriteFrameLoaded[FrameIndex] = true;
-        TownNpcSpriteFrameVisible[FrameIndex] = IsNpcSpriteFrameVisible(TownNpcSpriteFrames[FrameIndex]);
-    }
-
-    if (!TownNpcSpriteFrameVisible[FrameIndex])
-    {
-        return false;
-    }
-
-    SpriteFrame = &TownNpcSpriteFrames[FrameIndex];
-    return true;
 }
 
 TownScene::TownHeadLevelTiles TownScene::SaveHeadLevelTilesInNpcs() const
@@ -2198,7 +1649,8 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
 
     const bool LeftPressed = KeyboardState[SDL_SCANCODE_LEFT] && !KeyboardState[SDL_SCANCODE_RIGHT];
     const bool RightPressed = KeyboardState[SDL_SCANCODE_RIGHT] && !KeyboardState[SDL_SCANCODE_LEFT];
-    const std::size_t MaximumProximityMapLeftColumn = GetTownMapMaximumProximityMapLeftColumn(TownMap);
+    const std::size_t MaximumProximityMapLeftColumn =
+        TownActors::GetMaximumProximityMapLeftColumn(TownMap);
 
     if (LeftPressed)
     {
@@ -2254,7 +1706,7 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
             TownHeroState.FacingDirection |= 1;
             --TownHeroState.HeroXInViewport;
         }
-        else if (HasTownToTownEdgeTransition(TownMap, true))
+        else if (TownTransitions::HasEdgeTransition(TownMap, true))
         {
             TownHeroState.HeroAnimationPhase = static_cast<std::uint8_t>((TownHeroState.HeroAnimationPhase + 1) & 3);
             TownHeroState.FacingDirection |= 1;
@@ -2607,7 +2059,9 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
             RuntimeRecord->AnimationPhase);
         const Grp::NpcSpriteFrame* SpriteFrame = nullptr;
 
-        const bool HasSpriteFrame = IsConfirmedTownNpcSpriteFamily(SpriteFamily) && TryGetTownNpcSpriteFrame(FrameIndex, SpriteFrame);
+        const bool HasSpriteFrame =
+            TownNpc::IsConfirmedSpriteFamily(SpriteFamily)
+            && TryGetTownNpcSpriteFrame(FrameIndex, SpriteFrame);
 
         if (ColumnMatch == 2)
         {
@@ -2704,7 +2158,7 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
         }
 
         const bool UseTransparencyMask = Row < 3;
-        DrawPatternTile(Renderer, *Tile, Palette,
+        TownRender::DrawPatternTile(Renderer, *Tile, Palette,
             static_cast<float>(TownMapViewportLeftPixelX) + ScreenTileX,
             static_cast<float>(TownMapViewportTopPixelY + Row * TownMapTileSize), 1.0f, UseTransparencyMask);
 
@@ -2722,7 +2176,8 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
 
     if (ActorFrameLoaded && ActorFrameVisible)
     {
-        DrawNpcSpriteFrameColumnSliceOnTownMap(Renderer, ActorFrame, Palette, ActorMapPixelX, ActorMapPixelY,
+        TownRender::DrawNpcSpriteFrameColumnSlice(Renderer, ActorFrame, Palette,
+            ActorMapPixelX, ActorMapPixelY,
             ScrollOffsetPixels, MapColumn);
     }
 }
@@ -2776,33 +2231,6 @@ void TownScene::ResetTownSceneState(std::optional<TownHeroRuntimeState> Transiti
     TownBackgroundStripPixels.fill(0);
     TownThinFontGroup.Glyphs.clear();
     TownDigitFontGroup.Glyphs.clear();
-}
-
-void TownScene::ReloadTownState()
-{
-    ReloadTownState(std::nullopt, true);
-}
-
-void TownScene::ReloadTownStateAfterRightEdgeTransition()
-{
-    TownHeroRuntimeState TransitionHeroState{};
-    TransitionHeroState.HeroXInViewport = 0;
-    TransitionHeroState.ProximityMapLeftColumnX = 0;
-    TransitionHeroState.FacingDirection = 0;
-    TransitionHeroState.HeroAnimationPhase = 0;
-    ReloadTownState(TransitionHeroState, true);
-}
-
-void TownScene::ReloadTownStateAfterLeftEdgeTransition()
-{
-    TownHeroRuntimeState TransitionHeroState{};
-    TransitionHeroState.HeroXInViewport = 26;
-    TransitionHeroState.ProximityMapLeftColumnX = TownMap.Width > TownHeroProximityMapWidthColumns
-        ? static_cast<std::uint16_t>(TownMap.Width - TownHeroProximityMapWidthColumns)
-        : 0;
-    TransitionHeroState.FacingDirection = 0;
-    TransitionHeroState.HeroAnimationPhase = 0;
-    ReloadTownState(TransitionHeroState, true);
 }
 
 void TownScene::ReloadTownState(std::optional<TownHeroRuntimeState> TransitionHeroState, bool LoadTownNpcRecords)
@@ -2870,7 +2298,7 @@ void TownScene::ReloadTownState(std::optional<TownHeroRuntimeState> TransitionHe
 
     const std::filesystem::path TownGmmcgaBinPath = ActorSpriteGrpPath.parent_path().parent_path() / "gmmcga.bin";
     std::string TownTearsOverlayIconsErrorMessage;
-    TownTearsOverlayIconsLoaded = LoadTownTearsCollectedOverlayIcons(TownGmmcgaBinPath,
+    TownTearsOverlayIconsLoaded = Hud::LoadTearsOverlayIcons(TownGmmcgaBinPath,
         TownTearsOverlaySmallIconPixels, TownTearsOverlayLargeIconPixels, TownTearsOverlayIconsErrorMessage);
     if (!TownTearsOverlayIconsLoaded)
     {
@@ -2898,41 +2326,9 @@ void TownScene::ReloadTownState(std::optional<TownHeroRuntimeState> TransitionHe
             << TownHudFontErrorMessage << '\n';
     }
 
-    ActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
+    ActorFrameIndex = TownActors::GetActorFrameIndex(ActorFacingDirection, false, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(ActorFrameIndex);
     SyncTownHeroRuntimeProjection();
-}
-
-std::optional<Mdt::TownTransitionData> TownScene::GetEdgeTownTransition(bool IsLeftEdgeTransition) const
-{
-    if (TownEdgeTransitionQueued)
-    {
-        return std::nullopt;
-    }
-
-    if (IsLeftEdgeTransition)
-    {
-        if (TownHeroState.HeroXInViewport != TownHeroLeftEdgeTransitionSentinel)
-        {
-            return std::nullopt;
-        }
-    }
-    else if (TownHeroState.HeroXInViewport != TownHeroRightEdgeTransitionSentinel)
-    {
-        return std::nullopt;
-    }
-
-    for (const Mdt::TownTransitionData& Transition : TownMap.TransitionData)
-    {
-        if (!IsTownToTownEdgeTransition(Transition, IsLeftEdgeTransition))
-        {
-            continue;
-        }
-
-        return Transition;
-    }
-
-    return std::nullopt;
 }
 
 std::optional<Mdt::TownTransitionData> TownScene::Update(const bool* KeyboardState)
@@ -2970,7 +2366,8 @@ std::optional<Mdt::TownTransitionData> TownScene::Update(const bool* KeyboardSta
         return Transition;
     }
 
-    const std::size_t DesiredTownMapActorFrameIndex = GetTownMapActorFrameIndex(ActorFacingDirection, true, ActorAnimationPhase);
+    const std::size_t DesiredTownMapActorFrameIndex =
+        TownActors::GetActorFrameIndex(ActorFacingDirection, true, ActorAnimationPhase);
     (void)UpdateTownMapActorFrame(DesiredTownMapActorFrameIndex);
     return std::nullopt;
 }
@@ -3002,16 +2399,17 @@ void TownScene::Draw(SDL_Renderer* Renderer) const
 
     if (TownMoleDecorationPanelsLoaded)
     {
-        DrawTownMolePanel(Renderer, TownMoleLeftDecorationPanelPixels.data(), TownMoleDecorationPanelWidth,
-            TownMoleDecorationPanelHeight, Palette, TownMoleDecorationPanelLeftX, 0);
-        DrawTownMolePanel(Renderer, TownMoleRightDecorationPanelPixels.data(), TownMoleDecorationPanelWidth,
-            TownMoleDecorationPanelHeight, Palette, TownMoleDecorationPanelRightX, 0);
+        Hud::DrawMolePanel(Renderer, Palette, TownMoleLeftDecorationPanelPixels,
+            TownMoleDecorationPanelWidth, TownMoleDecorationPanelHeight, TownMoleDecorationPanelLeftX, 0);
+        Hud::DrawMolePanel(Renderer, Palette, TownMoleRightDecorationPanelPixels,
+            TownMoleDecorationPanelWidth, TownMoleDecorationPanelHeight, TownMoleDecorationPanelRightX, 0);
     }
 
     if (TownMoleTopTearsBaseLoaded)
     {
-        DrawTownMolePanel(Renderer, TownMoleTopTearsBasePixels.data(), TownMoleTopTearsBaseWidth,
-            TownMoleTopTearsBaseHeight, Palette, TownMoleTopTearsBaseLeftX, TownMoleTopTearsBaseTopY);
+        Hud::DrawMolePanel(Renderer, Palette, TownMoleTopTearsBasePixels,
+            TownMoleTopTearsBaseWidth, TownMoleTopTearsBaseHeight,
+            TownMoleTopTearsBaseLeftX, TownMoleTopTearsBaseTopY);
     }
 
     if (TownTearsOverlayIconsLoaded)
@@ -3022,7 +2420,7 @@ void TownScene::Draw(SDL_Renderer* Renderer) const
 
     if (TownBackgroundMountainLayerLoaded)
     {
-        DrawTownBackgroundMountainLayer(Renderer, TownBackgroundMountainLayerPixels, Palette);
+        TownRender::DrawBackgroundMountainLayer(Renderer, TownBackgroundMountainLayerPixels, Palette);
     }
 
     for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
@@ -3037,13 +2435,15 @@ void TownScene::Draw(SDL_Renderer* Renderer) const
 
     if (TownBackgroundStripLoaded)
     {
-        DrawTownBackgroundStrip(Renderer, TownBackgroundStripPixels, Palette, TownBackgroundStripScrollOffsetPixels);
+        TownRender::DrawBackgroundStrip(Renderer, TownBackgroundStripPixels, Palette,
+            TownBackgroundStripScrollOffsetPixels);
     }
 
     if (TownMoleBottomStatusBaseLoaded)
     {
-        DrawTownMolePanel(Renderer, TownMoleBottomStatusBasePixels.data(), TownMoleBottomStatusBaseWidth,
-            TownMoleBottomStatusBaseHeight, Palette, TownMoleBottomStatusBaseLeftX, TownMoleBottomStatusBaseTopY);
+        Hud::DrawMolePanel(Renderer, Palette, TownMoleBottomStatusBasePixels,
+            TownMoleBottomStatusBaseWidth, TownMoleBottomStatusBaseHeight,
+            TownMoleBottomStatusBaseLeftX, TownMoleBottomStatusBaseTopY);
     }
 
     if (TownTrainingSwordItemSpriteLoaded)
@@ -3079,7 +2479,7 @@ void TownScene::Draw(SDL_Renderer* Renderer) const
 
     if (!(ActorFrameLoaded && ActorFrameVisible))
     {
-        DrawTownMapActorFallbackMarker(Renderer, static_cast<float>(ActorMapPixelX),
+        TownRender::DrawActorFallbackMarker(Renderer, static_cast<float>(ActorMapPixelX),
             static_cast<float>(ActorMapPixelY), ClampedScrollOffset);
     }
 }
@@ -3096,36 +2496,4 @@ void TownScene::LogTearsCollectedOverlayState(std::uint8_t RawTearsCount, std::s
         TownTearsOverlayLastLoggedRawCount = RawTearsCount;
         TownTearsOverlayLastLoggedDrawCount = DrawCount;
     }
-}
-
-bool TownScene::UpdateTownMapActorFrame(std::size_t DesiredActorFrameIndex)
-{
-    if (DesiredActorFrameIndex == ActorFrameIndex && ActorFrameLoaded)
-    {
-        return ActorFrameVisible;
-    }
-
-    Grp::NpcSpriteFrame RequestedActorFrame;
-    std::string RequestedActorFrameErrorMessage;
-    if (!Grp::LoadTownHeroSpriteFrame(ActorSpriteGrpPath, DesiredActorFrameIndex, RequestedActorFrame, RequestedActorFrameErrorMessage))
-    {
-        if (!ActorFrameWarningPrinted)
-        {
-            std::cerr << ActorSpriteGrpPath.filename().string() << " actor sprite frame " << DesiredActorFrameIndex
-                << " load failed: " << RequestedActorFrameErrorMessage << '\n';
-            ActorFrameWarningPrinted = true;
-        }
-
-        ActorFrameIndex = DesiredActorFrameIndex;
-        ActorFrameLoaded = false;
-        ActorFrameVisible = false;
-        return false;
-    }
-
-    ActorFrameIndex = DesiredActorFrameIndex;
-    ActorFrame = std::move(RequestedActorFrame);
-    ActorFrameLoaded = true;
-    ActorFrameVisible = IsNpcSpriteFrameVisible(ActorFrame);
-    ActorAnimationTickCount = 0;
-    return ActorFrameVisible;
 }

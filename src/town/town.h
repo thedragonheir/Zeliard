@@ -13,38 +13,22 @@
 #include "../grp/pat_grp.h"
 #include "../grp/man_grp.h"
 #include "../mdt/town_mdt.h"
+#include "../hud/mole_panels.h"
 #include "../hud/tears.h"
-
-using Main64Palette = std::array<SDL_Color, 64>;
-
-// Mirrors the global Tear-count byte until the save/global-state wiring lands.
-extern std::uint8_t TearsOfEsmesantiCount;
-
-enum class TownMapActorFacingDirection
-{
-    Right,
-    Left,
-    Up,
-    Down
-};
+#include "../mcga/mcga_palette.h"
+#include "town_actors.h"
 
 class TownScene
 {
 public:
     static constexpr std::size_t TownBackgroundMountainWidth = 224;
     static constexpr std::size_t TownBackgroundMountainHeight = 88;
-    static constexpr std::size_t TownMoleDecorationPanelWidth = 48;
-    static constexpr std::size_t TownMoleDecorationPanelHeight = 200;
-    static constexpr std::size_t TownMoleTopTearsBaseWidth = 224;
-    static constexpr std::size_t TownMoleTopTearsBaseHeight = 13;
-    static constexpr std::size_t TownMoleBottomStatusBaseWidth = 224;
-    static constexpr std::size_t TownMoleBottomStatusBaseHeight = 42;
-    static constexpr std::size_t TownTearsOverlayIconWidth = Hud::TearsOverlayIconWidth;
-    static constexpr std::size_t TownTearsOverlayIconHeight = Hud::TearsOverlayIconHeight;
-    static constexpr std::size_t TownTearsOverlayIconByteCount = Hud::TearsOverlayIconByteCount;
-    static constexpr std::size_t TownTearsOverlayMaxCollectedCount = Hud::TearsOverlayMaximumCount;
-    static constexpr std::size_t TownTearsOverlaySmallIconFileOffset = 0x0A61;
-    static constexpr std::size_t TownTearsOverlayLargeIconFileOffset = 0x0B31;
+    static constexpr std::size_t TownMoleDecorationPanelWidth = Hud::MoleDecorationPanelWidth;
+    static constexpr std::size_t TownMoleDecorationPanelHeight = Hud::MoleDecorationPanelHeight;
+    static constexpr std::size_t TownMoleTopTearsBaseWidth = Hud::MoleTopTearsBaseWidth;
+    static constexpr std::size_t TownMoleTopTearsBaseHeight = Hud::MoleTopTearsBaseHeight;
+    static constexpr std::size_t TownMoleBottomStatusBaseWidth = Hud::MoleBottomStatusBaseWidth;
+    static constexpr std::size_t TownMoleBottomStatusBaseHeight = Hud::MoleBottomStatusBaseHeight;
     // 20 PIT ticks at reload 0x13B1 and 1193182 Hz.
     static constexpr std::uint64_t TownDosTownLoopIntervalNanoseconds = 84'496'749;
 

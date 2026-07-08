@@ -34,8 +34,15 @@ FetchContent_MakeAvailable(SDL3)
 
 add_executable(Zeliard
   src/zeliard.cpp
+  src/hud/mole_panels.cpp
   src/hud/tears.cpp
+  src/mcga/mcga_draw.cpp
+  src/mcga/mcga_palette.cpp
+  src/town/town_actors.cpp
   src/town/town.cpp
+  src/town/town_npc.cpp
+  src/town/town_render.cpp
+  src/town/town_transitions.cpp
   src/mdt/town_mdt.cpp
   src/grp/font_grp.cpp
   src/grp/man_grp.cpp
