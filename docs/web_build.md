@@ -1,7 +1,7 @@
 # Web build
 
 This repository has an experimental Emscripten/WebAssembly path for the Zeliard C++ build.
-It compiles the app for the browser, but it does not bundle the original game data files into the public Pages artifact.
+It compiles the app for the browser and bundles `game/` and `assets/` into `Zeliard.data`.
 
 ## Local setup
 
@@ -14,7 +14,7 @@ It compiles the app for the browser, but it does not bundle the original game da
    ```bash
    cmake --build --preset web-debug
    ```
-4. Open the generated `out/build/web-debug/Zeliard.html` through a local static server if you want to inspect the browser wrapper.
+4. Open the generated `out/build/web-debug/Zeliard.html` through a local static server if you want to inspect the browser wrapper and `Zeliard.data`.
 
 ## GitHub Pages
 
@@ -27,4 +27,4 @@ It compiles the app for the browser, but it does not bundle the original game da
 
 - The web build uses the same 320x200 logical rendering path.
 - Desktop x64 debug and release presets are unchanged.
-- If you want the browser build to load the game data, you will need to provide those files separately outside the public Pages artifact.
+- The browser package bundles the original game data in `Zeliard.data`.

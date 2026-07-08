@@ -40,6 +40,16 @@ jobs:
           cp "$BuildDir/Zeliard.html" "$PagesDir/index.html"
           cp "$BuildDir/Zeliard.js" "$PagesDir/"
           cp "$BuildDir/Zeliard.wasm" "$PagesDir/"
+          cp "$BuildDir/Zeliard.data" "$PagesDir/"
+          for SupportFile in "$BuildDir"/Zeliard.*; do
+            FileName=$(basename "$SupportFile")
+            case "$FileName" in
+              Zeliard.html|Zeliard.js|Zeliard.wasm|Zeliard.data)
+                continue
+                ;;
+            esac
+            cp "$SupportFile" "$PagesDir/"
+          done
           touch "$PagesDir/.nojekyll"
 
       - name: Configure Pages

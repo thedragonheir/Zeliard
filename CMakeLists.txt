@@ -60,6 +60,8 @@ if (EMSCRIPTEN)
   set_target_properties(Zeliard PROPERTIES SUFFIX ".html")
   target_link_options(Zeliard PRIVATE
     "SHELL:--shell-file=\"${CMAKE_SOURCE_DIR}/web/zeliard_shell.html\""
+    "SHELL:--preload-file \"${CMAKE_SOURCE_DIR}/game@/game\""
+    "SHELL:--preload-file \"${CMAKE_SOURCE_DIR}/assets@/assets\""
   )
 endif()
 
