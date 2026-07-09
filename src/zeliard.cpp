@@ -27,76 +27,13 @@
 namespace
 {
     const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
-
-    enum class DisplayAspectMode
-    {
-        SquarePixels,
-        DosFourThree
-    };
-
-    constexpr DisplayAspectMode SelectedDisplayAspectMode = DisplayAspectMode::SquarePixels;
     constexpr int InternalWidth = 320;
     constexpr int InternalHeight = 200;
-    constexpr int SquarePixelWindowWidth = 960;
-    constexpr int SquarePixelWindowHeight = 600;
-    constexpr int DosAspectWindowWidth = 960;
-    constexpr int DosAspectWindowHeight = 720;
+    constexpr int WindowWidth = 960;
+    constexpr int WindowHeight = 720;
+    constexpr SDL_RendererLogicalPresentation LogicalPresentation = SDL_LOGICAL_PRESENTATION_STRETCH;
 
-    constexpr const char* GetDisplayAspectModeName(DisplayAspectMode Mode)
-    {
-        switch (Mode)
-        {
-        case DisplayAspectMode::SquarePixels:
-            return "SquarePixels";
-
-        case DisplayAspectMode::DosFourThree:
-            return "DosFourThree";
-        }
-
-        return "Unknown";
-    }
-
-    constexpr int GetWindowWidth(DisplayAspectMode Mode)
-    {
-        switch (Mode)
-        {
-        case DisplayAspectMode::SquarePixels:
-            return SquarePixelWindowWidth;
-
-        case DisplayAspectMode::DosFourThree:
-            return DosAspectWindowWidth;
-        }
-
-        return SquarePixelWindowWidth;
-    }
-
-    constexpr int GetWindowHeight(DisplayAspectMode Mode)
-    {
-        switch (Mode)
-        {
-        case DisplayAspectMode::SquarePixels:
-            return SquarePixelWindowHeight;
-
-        case DisplayAspectMode::DosFourThree:
-            return DosAspectWindowHeight;
-        }
-
-        return SquarePixelWindowHeight;
-    }
-
-    constexpr SDL_RendererLogicalPresentation GetLogicalPresentation(DisplayAspectMode Mode)
-    {
-        switch (Mode)
-        {
-        case DisplayAspectMode::SquarePixels:
-            return SDL_LOGICAL_PRESENTATION_LETTERBOX;
-
-        case DisplayAspectMode::DosFourThree:
-            return SDL_LOGICAL_PRESENTATION_STRETCH;
-        }
-
-        return SDL_LOGICAL_PRESENTATION_LETTERBOX;
-    }
+    constexpr int MaximumTownTicksPerFrame = 5;
 
     bool ReadWholeFile(const std::filesystem::path& Path, std::vector<std::uint8_t>& Output)
     {
