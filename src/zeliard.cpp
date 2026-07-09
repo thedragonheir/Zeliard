@@ -265,8 +265,8 @@ namespace
         bool PaletteLoaded = false;
         bool TownReady = false;
         bool Running = false;
-        std::uint64_t TownMapTimingLastTicksNs = 0;
-        std::uint64_t TownMapTimingAccumulatorNs = 0;
+        std::uint64_t LastTownTickTimeNs = 0;
+        std::uint64_t TownTickAccumulatorNs = 0;
     };
 
     void LoadZeliardContent(ZeliardApp& App)
@@ -312,10 +312,6 @@ namespace
             return false;
         }
 
-        const DisplayAspectMode DisplayMode = SelectedDisplayAspectMode;
-        constexpr int WindowWidth = GetWindowWidth(SelectedDisplayAspectMode);
-        constexpr int WindowHeight = GetWindowHeight(SelectedDisplayAspectMode);
-
         App.Window = SDL_CreateWindow("Zeliard", WindowWidth, WindowHeight, 0);
         if (!App.Window)
         {
@@ -333,7 +329,7 @@ namespace
         const char* RendererName = SDL_GetRendererName(App.Renderer);
         std::cout << "SDL renderer selected: " << (RendererName != nullptr ? RendererName : "unknown") << '\n';
 
-        if (!SDL_SetRenderLogicalPresentation(App.Renderer, InternalWidth, InternalHeight, GetLogicalPresentation(DisplayMode)))
+        if (!SDL_SetRenderLogicalPresentation(App.Renderer, InternalWidth, InternalHeight, LogicalPresentation))
         {
             std::cerr << "SDL_SetRenderLogicalPresentation failed: " << SDL_GetError() << '\n';
             return false;
@@ -342,12 +338,12 @@ namespace
         int ActualWindowWidth = 0;
         int ActualWindowHeight = 0;
         SDL_GetWindowSize(App.Window, &ActualWindowWidth, &ActualWindowHeight);
-        std::cout << "display aspect mode: " << GetDisplayAspectModeName(DisplayMode)
+        std::cout << "display: 4:3"
             << ", window " << ActualWindowWidth << "x" << ActualWindowHeight
             << ", logical " << InternalWidth << "x" << InternalHeight << '\n';
 
-        App.TownMapTimingLastTicksNs = SDL_GetTicksNS();
-        App.TownMapTimingAccumulatorNs = 0;
+        App.LastTownTickTimeNs = SDL_GetTicksNS();
+        App.TownTickAccumulatorNs = 0;
 
         App.Running = true;
         return true;
@@ -372,52 +368,65 @@ namespace
         if (App.TownReady && App.TownMapScene.has_value())
         {
             const bool* KeyboardState = SDL_GetKeyboardState(nullptr);
-            if (App.TownMapTimingLastTicksNs == 0)
+            if (App.LastTownTickTimeNs == 0)
             {
-                App.TownMapTimingLastTicksNs = CurrentTicksNs;
-                App.TownMapTimingAccumulatorNs = 0;
+                App.LastTownTickTimeNs = CurrentTicksNs;
+                App.TownTickAccumulatorNs = 0;
             }
             else
             {
-                App.TownMapTimingAccumulatorNs += CurrentTicksNs - App.TownMapTimingLastTicksNs;
-                App.TownMapTimingLastTicksNs = CurrentTicksNs;
+                App.TownTickAccumulatorNs += CurrentTicksNs - App.LastTownTickTimeNs;
+                App.LastTownTickTimeNs = CurrentTicksNs;
             }
 
-            while (App.TownMapTimingAccumulatorNs >= TownScene::TownDosTownLoopIntervalNanoseconds)
+            int TownUpdatesThisFrame = 0;
+            while (App.TownTickAccumulatorNs >= TownScene::TownLoopIntervalNanoseconds
+                && TownUpdatesThisFrame < MaximumTownTicksPerFrame)
             {
-                if (const std::optional<Mdt::TownTransitionData> TownTransition = App.TownMapScene->Update(KeyboardState))
-                {
-                    const bool IsLeftEdgeTransition = (TownTransition->Flags & 1) != 0;
-                    Mdt::TownMapInfo DestinationTownMap;
-                    std::filesystem::path DestinationTownNpcSpriteGrpPath = App.TownNpcSpriteGrpPath;
-                    Grp::PatternBank DestinationTownPatternBank;
-                    if (LoadTownMap(TownTransition->DestinationMapId, DestinationTownMap, DestinationTownNpcSpriteGrpPath)
-                        && LoadTownPatternBank(TownTransition->PatternGroupId, DestinationTownPatternBank))
-                    {
-                        App.TownMap = std::move(DestinationTownMap);
-                        App.TownNpcSpriteGrpPath = std::move(DestinationTownNpcSpriteGrpPath);
-                        App.TownPatternBank = std::move(DestinationTownPatternBank);
-                        if (IsLeftEdgeTransition)
-                        {
-                            App.TownMapScene->ReloadTownStateAfterLeftEdgeTransition();
-                        }
-                        else
-                        {
-                            App.TownMapScene->ReloadTownStateAfterRightEdgeTransition();
-                        }
+                App.TownTickAccumulatorNs -= TownScene::TownLoopIntervalNanoseconds;
+                ++TownUpdatesThisFrame;
 
-                        App.TownMapTimingAccumulatorNs = 0;
-                        App.TownMapTimingLastTicksNs = CurrentTicksNs;
+                const std::optional<Mdt::TownTransitionData> TownTransition = App.TownMapScene->Update(KeyboardState);
+                if (!TownTransition.has_value())
+                {
+                    continue;
+                }
+
+                const bool IsLeftEdgeTransition = (TownTransition->Flags & 1) != 0;
+                Mdt::TownMapInfo DestinationTownMap;
+                std::filesystem::path DestinationTownNpcSpriteGrpPath = App.TownNpcSpriteGrpPath;
+                Grp::PatternBank DestinationTownPatternBank;
+
+                if (LoadTownMap(TownTransition->DestinationMapId, DestinationTownMap, DestinationTownNpcSpriteGrpPath)
+                    && LoadTownPatternBank(TownTransition->PatternGroupId, DestinationTownPatternBank))
+                {
+                    App.TownMap = std::move(DestinationTownMap);
+                    App.TownNpcSpriteGrpPath = std::move(DestinationTownNpcSpriteGrpPath);
+                    App.TownPatternBank = std::move(DestinationTownPatternBank);
+
+                    if (IsLeftEdgeTransition)
+                    {
+                        App.TownMapScene->ReloadTownStateAfterLeftEdgeTransition();
                     }
                     else
                     {
-                        std::cerr << "town transition reload failed; staying on the current town." << '\n';
+                        App.TownMapScene->ReloadTownStateAfterRightEdgeTransition();
                     }
-
-                    break;
+                }
+                else
+                {
+                    std::cerr << "town transition reload failed; staying on the current town." << '\n';
                 }
 
-                App.TownMapTimingAccumulatorNs -= TownScene::TownDosTownLoopIntervalNanoseconds;
+                // Drop pending catch-up ticks after a transition attempt.
+                App.TownTickAccumulatorNs = 0;
+                App.LastTownTickTimeNs = CurrentTicksNs;
+                break;
+            }
+
+            if (TownUpdatesThisFrame == MaximumTownTicksPerFrame)
+            {
+                App.TownTickAccumulatorNs = 0;
             }
         }
 

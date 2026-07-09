@@ -30,7 +30,7 @@ public:
     static constexpr std::size_t TownMoleBottomStatusBaseWidth = Hud::MoleBottomStatusBaseWidth;
     static constexpr std::size_t TownMoleBottomStatusBaseHeight = Hud::MoleBottomStatusBaseHeight;
     // 20 PIT ticks at reload 0x13B1 and 1193182 Hz.
-    static constexpr std::uint64_t TownDosTownLoopIntervalNanoseconds = 84'496'749;
+    static constexpr std::uint64_t TownLoopIntervalNanoseconds = 84'496'749;
 
     TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std::filesystem::path& TownNpcSpriteGrpPath,
         const Mdt::TownMapInfo& TownMap,
