@@ -80,6 +80,8 @@ struct TownMapInfo
     TownNpcPatrolBoundaries NpcPatrolBoundaries{};
     std::vector<std::uint8_t> Cells;
     std::vector<TownEntityMarker> EntityMarkers;
+    // npc_conversations_addr points to this table of FF-terminated dialog bytes.
+    std::vector<std::vector<std::uint8_t>> NpcConversations;
     std::vector<TownTransitionData> TransitionData;
 };
 

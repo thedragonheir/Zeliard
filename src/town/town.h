@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -161,6 +162,19 @@ private:
     void SyncTownHeroRuntimeProjection() noexcept;
     void SyncTownHeroStartupActorFrame() noexcept;
     void UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept;
+    bool StartTownDialogForNpc(std::size_t NpcRuntimeIndex, bool RestoreNpcState);
+    bool TryOpenTownDialog();
+    bool TryOpenTownSpecialDialog();
+    bool BuildTownDialogPage();
+    void InitializeTownDialogOverlay();
+    void ClearTownDialogOverlayRect(std::size_t Left, std::size_t Top, std::size_t Width, std::size_t Height);
+    void ScrollTownDialogTextAreaOnePixel();
+    void RenderTownDialogTextToOverlay();
+    void DrawTownDialogGlyphToOverlay(std::size_t StartX, std::size_t StartY, std::uint8_t ColorSelector,
+        char Character);
+    void AdvanceTownDialog();
+    void UpdateTownDialogTownFrame();
+    void DrawTownDialog(SDL_Renderer* Renderer) const;
     void LogTearsCollectedOverlayState(std::uint8_t RawTearsCount, std::size_t DrawCount) const;
     void RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, float ScreenTileX,
         const TownHeadLevelTiles& HeadLevelTiles, const std::vector<TownNpcRuntimeRecord>& TownNpcArray,
@@ -227,6 +241,29 @@ private:
     mutable std::array<bool, TownNpcSpriteFrameCount> TownNpcSpriteFrameVisible{};
     mutable bool TownNpcSpriteFrameWarningPrinted = false;
     mutable std::vector<TownNpcRuntimeRecord> TownNpcArray;
+    bool TownDialogOpen = false;
+    bool TownDialogHasMorePages = false;
+    bool TownSpaceWasDown = false;
+    bool TownAltWasDown = false;
+    bool TownDialogControlWarningPrinted = false;
+    bool TownDialogRestoreNpcState = false;
+    std::size_t TownDialogNpcRuntimeIndex = 0;
+    std::uint8_t TownDialogNpcOriginalFacing = 0;
+    std::uint8_t TownDialogNpcOriginalSpriteSelector = 0;
+    std::uint8_t TownDialogNpcOriginalAiType = 0;
+    std::size_t TownDialogConversationIndex = 0;
+    std::size_t TownDialogByteOffset = 0;
+    std::size_t TownDialogLineCount = 0;
+    bool TownDialogContinuationCursorVisible = false;
+    std::size_t TownDialogBoxLeftX = 0;
+    std::size_t TownDialogBoxTopY = 0;
+    std::size_t TownDialogBoxHeight = 0;
+    std::size_t TownDialogCharX = 0;
+    std::size_t TownDialogCharY = 0;
+    std::size_t TownDialogLinesRendered = 0;
+    std::size_t TownDialogRenderTextOffset = 0;
+    std::string TownDialogPageText;
+    std::vector<std::uint8_t> TownDialogOverlayPixels;
     std::array<std::uint8_t, TownBackgroundMountainWidth * TownBackgroundMountainHeight> TownBackgroundMountainLayerPixels{};
     std::array<std::uint8_t, 224 * 16> TownBackgroundStripPixels{};
     std::array<std::uint8_t, TownMoleDecorationPanelWidth * TownMoleDecorationPanelHeight> TownMoleLeftDecorationPanelPixels{};
@@ -234,6 +271,7 @@ private:
     std::array<std::uint8_t, TownMoleTopTearsBaseWidth * TownMoleTopTearsBaseHeight> TownMoleTopTearsBasePixels{};
     std::array<std::uint8_t, TownMoleBottomStatusBaseWidth * TownMoleBottomStatusBaseHeight> TownMoleBottomStatusBasePixels{};
     std::array<std::uint8_t, 20 * 18> TownTrainingSwordItemSpritePixels{};
+    Grp::FontGroup TownBoldFontGroup;
     Grp::FontGroup TownThinFontGroup;
     Grp::FontGroup TownDigitFontGroup;
     Hud::TearsOverlayIconPixels TownTearsOverlaySmallIconPixels{};

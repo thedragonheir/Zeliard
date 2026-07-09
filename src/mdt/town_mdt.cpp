@@ -13,10 +13,17 @@ constexpr std::size_t TownDoorEntrySize = 3;
 constexpr std::size_t TownNpcEntrySize = 8;
 constexpr std::size_t TownTransitionEntrySize = 4;
 constexpr std::uint16_t TownEntityHeadLevelRow = 5;
+constexpr std::size_t TownNpcConversationsPointerOffset = 0x0D;
 constexpr std::size_t NpcPatrolBoundsPointerOffset = 0x11;
 constexpr std::size_t NpcPatrolBoundsByteCount = 4;
 constexpr std::size_t TownNameInfoPointerOffset = 0x04;
 constexpr std::size_t TownNameRenderingInfoHeaderByteCount = 4;
+
+std::uint16_t ReadTownWord(const std::vector<std::uint8_t>& Data, std::size_t Offset)
+{
+    return static_cast<std::uint16_t>(Data[Offset]
+        | (static_cast<std::uint16_t>(Data[Offset + 1]) << 8));
+}
 
 std::size_t GetTownPointerOffset(std::uint16_t Pointer, std::size_t DataSize)
 {
@@ -158,6 +165,69 @@ void ParseTownNameRenderingInfo(const std::vector<std::uint8_t>& Data, TownMapIn
         reinterpret_cast<const char*>(Data.data() + static_cast<std::ptrdiff_t>(TextOffset + CharacterCount)));
     Output.TownNameInfo = std::move(NameInfo);
 }
+
+bool ParseTownNpcConversations(const std::vector<std::uint8_t>& Data, std::uint16_t ConversationsPointer,
+    TownMapInfo& Output, std::string& ErrorMessage)
+{
+    Output.NpcConversations.clear();
+
+    if (ConversationsPointer == 0 || ConversationsPointer == 0xFFFF)
+    {
+        return true;
+    }
+
+    const std::size_t TableOffset = GetTownPointerOffset(ConversationsPointer, Data.size());
+    if (TableOffset + sizeof(std::uint16_t) > Data.size())
+    {
+        ErrorMessage = "town MDT NPC conversation pointer table is outside the file";
+        return false;
+    }
+
+    const std::uint16_t FirstTextPointer = ReadTownWord(Data, TableOffset);
+    const std::size_t FirstTextOffset = GetTownPointerOffset(FirstTextPointer, Data.size());
+    if (FirstTextOffset <= TableOffset || FirstTextOffset > Data.size()
+        || (FirstTextOffset - TableOffset) % sizeof(std::uint16_t) != 0)
+    {
+        ErrorMessage = "town MDT NPC conversation table has an invalid first text pointer";
+        return false;
+    }
+
+    const std::size_t ConversationCount = (FirstTextOffset - TableOffset) / sizeof(std::uint16_t);
+    Output.NpcConversations.reserve(ConversationCount);
+    for (std::size_t ConversationIndex = 0; ConversationIndex < ConversationCount; ++ConversationIndex)
+    {
+        const std::size_t PointerOffset = TableOffset + ConversationIndex * sizeof(std::uint16_t);
+        const std::uint16_t TextPointer = ReadTownWord(Data, PointerOffset);
+        const std::size_t TextOffset = GetTownPointerOffset(TextPointer, Data.size());
+        if (TextOffset >= Data.size())
+        {
+            ErrorMessage = "town MDT NPC conversation text pointer is outside the file";
+            return false;
+        }
+
+        std::vector<std::uint8_t> DialogBytes;
+        bool HasTerminator = false;
+        for (std::size_t Offset = TextOffset; Offset < Data.size(); ++Offset)
+        {
+            DialogBytes.push_back(Data[Offset]);
+            if (Data[Offset] == 0xFF)
+            {
+                HasTerminator = true;
+                break;
+            }
+        }
+
+        if (!HasTerminator)
+        {
+            ErrorMessage = "town MDT NPC conversation text is missing its FF terminator";
+            return false;
+        }
+
+        Output.NpcConversations.push_back(std::move(DialogBytes));
+    }
+
+    return true;
+}
 }
 
 bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, std::string& ErrorMessage)
@@ -208,6 +278,7 @@ bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, st
     Output.NpcPatrolBoundaries = {};
 
     Output.EntityMarkers.clear();
+    Output.NpcConversations.clear();
     const std::uint16_t DoorsPointer = static_cast<std::uint16_t>(Data[0x09]
         | (static_cast<std::uint16_t>(Data[0x0A]) << 8));
     const std::uint16_t NpcPatrolBoundariesPointer = static_cast<std::uint16_t>(Data[NpcPatrolBoundsPointerOffset]
@@ -234,6 +305,11 @@ bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, st
 
     ParseTownTransitionData(Data, Output.TransitionTablePointer, DoorsPointer, Output);
     ParseTownNameRenderingInfo(Data, Output);
+    const std::uint16_t NpcConversationsPointer = ReadTownWord(Data, TownNpcConversationsPointerOffset);
+    if (!ParseTownNpcConversations(Data, NpcConversationsPointer, Output, ErrorMessage))
+    {
+        return false;
+    }
     ParseTownEntityMarkers(Data, DoorsPointer, NpcPointer, Output);
 
     ErrorMessage.clear();
