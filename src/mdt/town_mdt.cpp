@@ -13,9 +13,9 @@ constexpr std::size_t TownDoorEntrySize = 3;
 constexpr std::size_t TownNpcEntrySize = 8;
 constexpr std::size_t TownTransitionEntrySize = 4;
 constexpr std::uint16_t TownEntityHeadLevelRow = 5;
-constexpr std::size_t TownNpcPatrolBoundariesPointerOffset = 0x11;
-constexpr std::size_t TownNpcPatrolBoundaryByteCount = 4;
-constexpr std::size_t TownNameRenderingInfoPointerOffset = 0x04;
+constexpr std::size_t NpcPatrolBoundsPointerOffset = 0x11;
+constexpr std::size_t NpcPatrolBoundsByteCount = 4;
+constexpr std::size_t TownNameInfoPointerOffset = 0x04;
 constexpr std::size_t TownNameRenderingInfoHeaderByteCount = 4;
 
 std::size_t GetTownPointerOffset(std::uint16_t Pointer, std::size_t DataSize)
@@ -126,13 +126,13 @@ void ParseTownNameRenderingInfo(const std::vector<std::uint8_t>& Data, TownMapIn
 {
     Output.TownNameInfo = {};
 
-    if (Data.size() <= TownNameRenderingInfoPointerOffset + 1)
+    if (Data.size() <= TownNameInfoPointerOffset + 1)
     {
         return;
     }
 
-    const std::uint16_t NamePointer = static_cast<std::uint16_t>(Data[TownNameRenderingInfoPointerOffset]
-        | (static_cast<std::uint16_t>(Data[TownNameRenderingInfoPointerOffset + 1]) << 8));
+    const std::uint16_t NamePointer = static_cast<std::uint16_t>(Data[TownNameInfoPointerOffset]
+        | (static_cast<std::uint16_t>(Data[TownNameInfoPointerOffset + 1]) << 8));
     const std::size_t NameOffset = GetTownPointerOffset(NamePointer, Data.size());
     if (NameOffset + TownNameRenderingInfoHeaderByteCount > Data.size())
     {
@@ -201,7 +201,7 @@ bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, st
     Output.HasMiddleLayer = (Data[0x03] & 1) != 0;
     Output.TownId = Data[0x06];
     Output.TownPatternGroupId = 0;
-    Output.TownTransitionTablePointer = static_cast<std::uint16_t>(Data[0x07]
+    Output.TransitionTablePointer = static_cast<std::uint16_t>(Data[0x07]
         | (static_cast<std::uint16_t>(Data[0x08]) << 8));
     Output.TownNameInfo = {};
     Output.HasNpcPatrolBoundaries = false;
@@ -210,8 +210,8 @@ bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, st
     Output.EntityMarkers.clear();
     const std::uint16_t DoorsPointer = static_cast<std::uint16_t>(Data[0x09]
         | (static_cast<std::uint16_t>(Data[0x0A]) << 8));
-    const std::uint16_t NpcPatrolBoundariesPointer = static_cast<std::uint16_t>(Data[TownNpcPatrolBoundariesPointerOffset]
-        | (static_cast<std::uint16_t>(Data[TownNpcPatrolBoundariesPointerOffset + 1]) << 8));
+    const std::uint16_t NpcPatrolBoundariesPointer = static_cast<std::uint16_t>(Data[NpcPatrolBoundsPointerOffset]
+        | (static_cast<std::uint16_t>(Data[NpcPatrolBoundsPointerOffset + 1]) << 8));
     const std::uint16_t NpcPointer = static_cast<std::uint16_t>(Data[0x0F]
         | (static_cast<std::uint16_t>(Data[0x10]) << 8));
     const std::uint16_t DescriptorPointer = static_cast<std::uint16_t>(Data[0x00]
@@ -223,7 +223,7 @@ bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, st
     }
 
     if (const std::size_t NpcPatrolBoundariesOffset = GetTownPointerOffset(NpcPatrolBoundariesPointer, Data.size());
-        NpcPatrolBoundariesOffset + TownNpcPatrolBoundaryByteCount <= Data.size())
+        NpcPatrolBoundariesOffset + NpcPatrolBoundsByteCount <= Data.size())
     {
         Output.NpcPatrolBoundaries.MinimumX = static_cast<std::uint16_t>(Data[NpcPatrolBoundariesOffset]
             | (static_cast<std::uint16_t>(Data[NpcPatrolBoundariesOffset + 1]) << 8));
@@ -232,7 +232,7 @@ bool ParseTownMap(const std::vector<std::uint8_t>& Data, TownMapInfo& Output, st
         Output.HasNpcPatrolBoundaries = true;
     }
 
-    ParseTownTransitionData(Data, Output.TownTransitionTablePointer, DoorsPointer, Output);
+    ParseTownTransitionData(Data, Output.TransitionTablePointer, DoorsPointer, Output);
     ParseTownNameRenderingInfo(Data, Output);
     ParseTownEntityMarkers(Data, DoorsPointer, NpcPointer, Output);
 

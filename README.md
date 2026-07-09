@@ -2,11 +2,11 @@
 
 Unofficial C++23 + SDL3 port/reimplementation of **Zeliard**.
 
-The project focuses on faithfully recreating the original DOS behavior, rendering, data formats and gameplay systems using the original game assets. The goal is preservation and understanding first, not random modernization.
+The project focuses on faithfully recreating the original DOS behavior, rendering, data formats and gameplay systems using the original game assets. The goal is preservation and understanding first, not modernization for its own sake.
 
 ## Status
 
-The current build is town-first. It boots through SDL3, loads the original data files, decodes town GRP/MDT content, renders at a 320x200 internal resolution, and runs the Muralla town flow with assembly-backed movement, scrolling, town transitions, NPC behavior and HUD rendering.
+The current build focuses on the town flow. It boots through SDL3, loads the original data files, decodes town GRP/MDT content, renders at a 320x200 internal resolution, and runs the Muralla town flow with assembly-backed movement, scrolling, town transitions, NPC behavior and HUD rendering.
 
 The game is presented in a fixed 4:3 corrected desktop layout at 960x720, matching the intended DOS/CRT proportions instead of stretching to widescreen.
 

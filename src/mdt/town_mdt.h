@@ -74,7 +74,7 @@ struct TownMapInfo
     bool HasMiddleLayer = false;
     std::uint8_t TownId = 0;
     std::uint8_t TownPatternGroupId = 0;
-    std::uint16_t TownTransitionTablePointer = 0;
+    std::uint16_t TransitionTablePointer = 0;
     TownNameRenderingInfo TownNameInfo{};
     bool HasNpcPatrolBoundaries = false;
     TownNpcPatrolBoundaries NpcPatrolBoundaries{};

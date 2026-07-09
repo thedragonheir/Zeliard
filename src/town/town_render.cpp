@@ -10,8 +10,8 @@
 namespace
 {
 constexpr std::size_t TownMapTileSize = 8;
-constexpr std::size_t TownMapViewportLeftPixelX = 48;
-constexpr std::size_t TownMapViewportTopPixelY = 14 + 8 * TownMapTileSize;
+constexpr std::size_t TownViewportLeftX = 48;
+constexpr std::size_t TownViewportTopY = 14 + 8 * TownMapTileSize;
 constexpr std::size_t TownBackgroundStripWidth = 224;
 constexpr std::size_t TownBackgroundStripHeight = 16;
 constexpr std::size_t TownBackgroundStripLeftX = 48;
@@ -55,7 +55,7 @@ void DrawBackgroundStrip(SDL_Renderer* Renderer, std::span<const std::uint8_t> P
     }
 }
 
-void DrawBackgroundMountainLayer(SDL_Renderer* Renderer, std::span<const std::uint8_t> Pixels,
+void DrawMountainLayer(SDL_Renderer* Renderer, std::span<const std::uint8_t> Pixels,
     const Main64Palette& Palette)
 {
     SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_NONE);
@@ -111,7 +111,7 @@ void DrawPatternTile(SDL_Renderer* Renderer, const Grp::PatternTile& Tile,
     }
 }
 
-void DrawNpcSpriteFrameColumnSlice(SDL_Renderer* Renderer,
+void DrawNpcFrameColumnSlice(SDL_Renderer* Renderer,
     const Grp::NpcSpriteFrame& SpriteFrame, const Main64Palette& Palette,
     std::size_t MapPixelX, std::size_t MapPixelY, std::size_t ScrollOffsetPixels,
     std::size_t MapColumn)
@@ -154,9 +154,9 @@ void DrawNpcSpriteFrameColumnSlice(SDL_Renderer* Renderer,
             }
 
             const SDL_FRect PixelRect{
-                static_cast<float>(TownMapViewportLeftPixelX + MapPixelX + Column)
+                static_cast<float>(TownViewportLeftX + MapPixelX + Column)
                     - static_cast<float>(ScrollOffsetPixels),
-                static_cast<float>(TownMapViewportTopPixelY + MapPixelY)
+                static_cast<float>(TownViewportTopY + MapPixelY)
                     + static_cast<float>(Row) * SpritePixelSize,
                 SpritePixelSize,
                 SpritePixelSize
@@ -171,10 +171,10 @@ void DrawActorFallbackMarker(SDL_Renderer* Renderer, float MapPixelX, float MapP
 {
     constexpr float MarkerSize = 10.0f;
     constexpr float LineSize = 2.0f;
-    const float ScreenX = static_cast<float>(TownMapViewportLeftPixelX) + MapPixelX
+    const float ScreenX = static_cast<float>(TownViewportLeftX) + MapPixelX
         - static_cast<float>(ScrollOffsetPixels)
         + (static_cast<float>(Grp::NpcSpriteFrame::FrameWidth) - MarkerSize) * 0.5f;
-    const float ScreenY = static_cast<float>(TownMapViewportTopPixelY) + MapPixelY
+    const float ScreenY = static_cast<float>(TownViewportTopY) + MapPixelY
         + (static_cast<float>(Grp::NpcSpriteFrame::FrameHeight) - MarkerSize) * 0.5f;
 
     SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);

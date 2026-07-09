@@ -2,7 +2,7 @@
   "version": 3,
   "configurePresets": [
     {
-      "name": "WindowsBase",
+      "name": "WindowsNinjaBase",
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/out/build/${presetName}",
@@ -21,7 +21,7 @@
     {
       "name": "Debug",
       "displayName": "Debug",
-      "inherits": "WindowsBase",
+      "inherits": "WindowsNinjaBase",
       "architecture": {
         "value": "x64",
         "strategy": "external"
@@ -33,7 +33,7 @@
     {
       "name": "Release",
       "displayName": "Release",
-      "inherits": "WindowsBase",
+      "inherits": "WindowsNinjaBase",
       "architecture": {
         "value": "x64",
         "strategy": "external"

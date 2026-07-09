@@ -15,15 +15,15 @@ namespace Hud
 {
 constexpr std::size_t TearsOverlayIconWidth = 16;
 constexpr std::size_t TearsOverlayIconHeight = 13;
-constexpr std::size_t TearsOverlayIconByteCount = TearsOverlayIconWidth * TearsOverlayIconHeight;
+constexpr std::size_t TearsIconByteCount = TearsOverlayIconWidth * TearsOverlayIconHeight;
 constexpr std::uint8_t TearsOverlayTransparentIndex = 0x80;
-constexpr std::size_t TearsOverlayMaximumCount = 9;
+constexpr std::size_t MaxTearsOverlayCount = 9;
 constexpr std::size_t TearsOverlaySmallIconFileOffset = 0x0A61;
-constexpr std::size_t TearsOverlayLargeIconFileOffset = 0x0B31;
+constexpr std::size_t LargeTearIconFileOffset = 0x0B31;
 
-using TearsOverlayIconPixels = std::array<std::uint8_t, TearsOverlayIconByteCount>;
+using TearsOverlayIconPixels = std::array<std::uint8_t, TearsIconByteCount>;
 
-constexpr std::array<SDL_Point, TearsOverlayMaximumCount> TearsOverlayPositions{{
+constexpr std::array<SDL_Point, MaxTearsOverlayCount> TearsOverlayPositions{{
     { 60, 0 },
     { 244, 0 },
     { 84, 0 },
@@ -44,5 +44,5 @@ void DrawTearsOverlayIcon(SDL_Renderer* Renderer, const std::array<SDL_Color, 64
 
 void DrawTearsOverlay(SDL_Renderer* Renderer, const std::array<SDL_Color, 64>& Palette,
     const TearsOverlayIconPixels& SmallBlueIconPixels, const TearsOverlayIconPixels& LargeRedIconPixels,
-    std::uint8_t TearsOfEsmesantiCount, bool TearsOverlayDebugOverrideEnabled);
+    std::uint8_t TearsOfEsmesantiCount, bool ShowAllTearsIcons);
 }

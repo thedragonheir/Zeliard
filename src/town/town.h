@@ -29,8 +29,15 @@ public:
     static constexpr std::size_t TownMoleTopTearsBaseHeight = Hud::MoleTopTearsBaseHeight;
     static constexpr std::size_t TownMoleBottomStatusBaseWidth = Hud::MoleBottomStatusBaseWidth;
     static constexpr std::size_t TownMoleBottomStatusBaseHeight = Hud::MoleBottomStatusBaseHeight;
-    // 20 PIT ticks at reload 0x13B1 and 1193182 Hz.
-    static constexpr std::uint64_t TownLoopIntervalNanoseconds = 84'496'749;
+    static constexpr std::uint64_t PitInputFrequencyHz = 1'193'182;
+    static constexpr std::uint64_t PitReloadValue = 0x13B1;
+    static constexpr std::uint64_t DosStandardSpeedConst = 5;
+    static constexpr std::uint64_t DosTownWaitTickMultiplier = 4;
+    static constexpr std::uint64_t DosTownWaitTicks = DosStandardSpeedConst * DosTownWaitTickMultiplier;
+    // Keep native pacing aligned with the assembly-backed DOS wait tick count.
+    static constexpr std::uint64_t NativeTownCalibrationTicks = DosTownWaitTicks;
+    static constexpr std::uint64_t TownTickNs =
+        (1'000'000'000ULL * NativeTownCalibrationTicks * PitReloadValue) / PitInputFrequencyHz;
 
     TownScene(const std::filesystem::path& ActorSpriteGrpPath, const std::filesystem::path& TownNpcSpriteGrpPath,
         const Mdt::TownMapInfo& TownMap,
@@ -46,10 +53,10 @@ public:
 
 private:
     // stdply.bin seeds the normal CMAP startup here; do not reuse the Falter warp back to Dorado values.
-    static constexpr std::uint8_t TownHeroStartupHeroXInViewport = 0x0A;
+    static constexpr std::uint8_t TownHeroStartupXInViewport = 0x0A;
     static constexpr std::uint16_t TownHeroStartupProximityMapLeftColumnX = 0x001E;
     static constexpr std::uint8_t TownHeroStartupFacingDirection = 0;
-    static constexpr std::uint8_t TownHeroStartupHeroAnimationPhase = 0;
+    static constexpr std::uint8_t TownHeroStartupAnimationPhase = 0;
 
     struct TownHeadLevelTiles
     {
@@ -66,10 +73,10 @@ private:
 
     struct TownHeroRuntimeState
     {
-        std::uint8_t HeroXInViewport = TownHeroStartupHeroXInViewport;
+        std::uint8_t HeroXInViewport = TownHeroStartupXInViewport;
         std::uint16_t ProximityMapLeftColumnX = TownHeroStartupProximityMapLeftColumnX;
         std::uint8_t FacingDirection = TownHeroStartupFacingDirection; // bit 0: 0=right, 1=left
-        std::uint8_t HeroAnimationPhase = TownHeroStartupHeroAnimationPhase;
+        std::uint8_t HeroAnimationPhase = TownHeroStartupAnimationPhase;
     };
 
     struct TownHudHealthState
@@ -166,16 +173,16 @@ private:
     TownHeadLevelTiles SaveHeadLevelTilesInNpcs() const;
     void RestoreHeadLevelTilesFromNpcs(TownHeadLevelTiles& HeadLevelTiles) const;
     static std::vector<TownNpcRuntimeRecord> BuildTownNpcRuntimeRecords(const Mdt::TownMapInfo& TownMap);
-    void SyncTownNpcFacingTowardHeroRecords() const;
-    void UpdateTownNpcRuntimeRecordsShell() const;
+    void SyncTownNpcFacingTowardHero() const;
+    void UpdateTownNpcRuntimeRecords() const;
     static std::size_t GetTownNpcSpriteFrameIndex(std::uint8_t SpriteSelector, std::uint8_t AnimationPhase);
     static std::uint8_t GetTownNpcRuntimeRecordSpriteColumnMatch(const TownNpcRuntimeRecord& RuntimeRecord,
         std::size_t MapColumn);
-    static const TownNpcRuntimeRecord* FindNonPassableTownNpcAtXPos(
+    static const TownNpcRuntimeRecord* FindBlockingTownNpcAtX(
         const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t TargetX) noexcept;
     static const TownNpcRuntimeRecord* FindFirstTownNpcRuntimeRecordForColumn(
         const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t MapColumn);
-    static const TownNpcRuntimeRecord* FindFirstTownNpcRuntimeRecordForColumnAfterCurrent(
+    static const TownNpcRuntimeRecord* FindNextTownNpcRuntimeRecordForColumn(
         const std::vector<TownNpcRuntimeRecord>& TownNpcArray, const TownNpcRuntimeRecord* CurrentRuntimeRecord,
         std::size_t MapColumn);
 
@@ -211,7 +218,7 @@ private:
     bool TownTearsOverlayIconsLoaded = false;
     bool TownTrainingSwordItemSpriteLoaded = false;
     bool TownHudFontsLoaded = false;
-    std::size_t TownBackgroundStripScrollOffsetPixels = 0;
+    std::size_t TownBackgroundStripScrollPx = 0;
     mutable std::vector<std::uint8_t> TownRuntimeCells;
     bool TownEdgeTransitionQueued = false;
     mutable bool FallbackWarningPrinted = false;

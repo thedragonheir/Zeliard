@@ -241,7 +241,7 @@ That same row split also controls transparency in the native port: town pattern 
 
 The replacement table is a counted or terminated list of `(old_tile, new_tile)` pairs.
 
-In the native C++ port, that replacement step is advanced from `TownScene::Update()` instead of `Draw()`, and it is gated to the DOS town-loop cadence (`TownDosTownLoopIntervalMilliseconds`, about 84.49 ms at standard speed). Only rows 0, 1, and 2 advance through the replacement table; masked tiles in other rows still render with their masks but stay fixed unless they have an explicit replacement entry.
+In the native C++ port, that replacement step is advanced from `TownScene::Update()` instead of `Draw()`, and it is gated to the DOS town-loop cadence (`TownScene::TownTickNs`, about 84.49 ms at standard speed). Only rows 0, 1, and 2 advance through the replacement table; masked tiles in other rows still render with their masks but stay fixed unless they have an explicit replacement entry.
 
 ## Blit cache
 

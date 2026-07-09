@@ -60,7 +60,7 @@ bool LoadTearsOverlayIcons(const std::filesystem::path& GmmcgaBinPath,
         return false;
     }
 
-    if (FileBytes.size() < TearsOverlayLargeIconFileOffset + TearsOverlayIconByteCount)
+    if (FileBytes.size() < LargeTearIconFileOffset + TearsIconByteCount)
     {
         ErrorMessage = GmmcgaBinPath.filename().string()
             + " is too small to contain the collected Tears icons";
@@ -68,15 +68,15 @@ bool LoadTearsOverlayIcons(const std::filesystem::path& GmmcgaBinPath,
     }
 
     std::copy_n(FileBytes.begin() + static_cast<std::ptrdiff_t>(TearsOverlaySmallIconFileOffset),
-        TearsOverlayIconByteCount, SmallBlueIconPixels.begin());
-    std::copy_n(FileBytes.begin() + static_cast<std::ptrdiff_t>(TearsOverlayLargeIconFileOffset),
-        TearsOverlayIconByteCount, LargeRedIconPixels.begin());
+        TearsIconByteCount, SmallBlueIconPixels.begin());
+    std::copy_n(FileBytes.begin() + static_cast<std::ptrdiff_t>(LargeTearIconFileOffset),
+        TearsIconByteCount, LargeRedIconPixels.begin());
 
     std::cerr << GmmcgaBinPath.filename().string() << " collected Tears icons: "
         << "AL=0 source span " << FormatHexOffset(TearsOverlaySmallIconFileOffset) << ".."
-        << FormatHexOffset(TearsOverlaySmallIconFileOffset + TearsOverlayIconByteCount)
-        << ", AL=1 source span " << FormatHexOffset(TearsOverlayLargeIconFileOffset) << ".."
-        << FormatHexOffset(TearsOverlayLargeIconFileOffset + TearsOverlayIconByteCount)
+        << FormatHexOffset(TearsOverlaySmallIconFileOffset + TearsIconByteCount)
+        << ", AL=1 source span " << FormatHexOffset(LargeTearIconFileOffset) << ".."
+        << FormatHexOffset(LargeTearIconFileOffset + TearsIconByteCount)
         << ", icon size " << TearsOverlayIconWidth << " x " << TearsOverlayIconHeight << '\n';
 
     ErrorMessage.clear();
@@ -113,15 +113,15 @@ void DrawTearsOverlayIcon(SDL_Renderer* Renderer, const std::array<SDL_Color, 64
 
 void DrawTearsOverlay(SDL_Renderer* Renderer, const std::array<SDL_Color, 64>& Palette,
     const TearsOverlayIconPixels& SmallBlueIconPixels, const TearsOverlayIconPixels& LargeRedIconPixels,
-    std::uint8_t TearsOfEsmesantiCount, bool TearsOverlayDebugOverrideEnabled)
+    std::uint8_t TearsOfEsmesantiCount, bool ShowAllTearsIcons)
 {
-    const std::size_t DrawCount = TearsOverlayDebugOverrideEnabled
-        ? TearsOverlayMaximumCount
-        : std::min<std::size_t>(TearsOfEsmesantiCount, TearsOverlayMaximumCount);
+    const std::size_t DrawCount = ShowAllTearsIcons
+        ? MaxTearsOverlayCount
+        : std::min<std::size_t>(TearsOfEsmesantiCount, MaxTearsOverlayCount);
 
     for (std::size_t TearIndex = 0; TearIndex < DrawCount; ++TearIndex)
     {
-        const std::size_t IconIndex = TearIndex == TearsOverlayMaximumCount - 1 ? 1 : 0;
+        const std::size_t IconIndex = TearIndex == MaxTearsOverlayCount - 1 ? 1 : 0;
         const SDL_Point Position = TearsOverlayPositions[TearIndex];
 
         DrawTearsOverlayIcon(Renderer, Palette,

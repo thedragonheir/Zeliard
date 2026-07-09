@@ -60,7 +60,7 @@ std::uint8_t TownScene::GetTownNpcRuntimeRecordSpriteColumnMatch(
     return 0;
 }
 
-const TownScene::TownNpcRuntimeRecord* TownScene::FindNonPassableTownNpcAtXPos(
+const TownScene::TownNpcRuntimeRecord* TownScene::FindBlockingTownNpcAtX(
     const std::vector<TownNpcRuntimeRecord>& TownNpcArray, std::size_t TargetX) noexcept
 {
     for (const TownNpcRuntimeRecord& RuntimeRecord : TownNpcArray)

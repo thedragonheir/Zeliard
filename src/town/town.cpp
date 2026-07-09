@@ -25,8 +25,8 @@ namespace
 constexpr std::size_t TownMapTileSize = 8;
 constexpr std::size_t TownMapVisibleColumns = 28;
 constexpr std::size_t TownMapViewportWidth = TownMapVisibleColumns * TownMapTileSize;
-constexpr std::size_t TownMapViewportLeftPixelX = 48;
-constexpr std::size_t TownMapViewportTopPixelY = 14 + 8 * TownMapTileSize;
+constexpr std::size_t TownViewportLeftX = 48;
+constexpr std::size_t TownViewportTopY = 14 + 8 * TownMapTileSize;
 // The visible viewport starts 4 columns into the proximity window.
 constexpr std::size_t TownVisibleViewportColumnOffset = 4;
 constexpr std::size_t TownMovementTileAheadRow = 7;
@@ -1541,7 +1541,7 @@ void TownScene::TownNpcSpriteShadowBuffer::FlushForMapColumn(SDL_Renderer* Rende
             continue;
         }
 
-        TownRender::DrawNpcSpriteFrameColumnSlice(Renderer, *SliceIterator->SpriteFrame, Palette,
+        TownRender::DrawNpcFrameColumnSlice(Renderer, *SliceIterator->SpriteFrame, Palette,
             SliceIterator->MapPixelX, SliceIterator->MapPixelY, SliceIterator->ScrollOffsetPixels,
             SliceIterator->MapColumn);
 
@@ -1617,14 +1617,14 @@ std::size_t TownScene::GetTownHeroScrollOffsetPixels() const noexcept
 void TownScene::AdvanceTownBackgroundStripScrollOffset(std::ptrdiff_t PixelDelta) noexcept
 {
     const std::ptrdiff_t StripWidth = static_cast<std::ptrdiff_t>(TownBackgroundStripWidth);
-    std::ptrdiff_t NewOffset = static_cast<std::ptrdiff_t>(TownBackgroundStripScrollOffsetPixels) + PixelDelta;
+    std::ptrdiff_t NewOffset = static_cast<std::ptrdiff_t>(TownBackgroundStripScrollPx) + PixelDelta;
     NewOffset %= StripWidth;
     if (NewOffset < 0)
     {
         NewOffset += StripWidth;
     }
 
-    TownBackgroundStripScrollOffsetPixels = static_cast<std::size_t>(NewOffset);
+    TownBackgroundStripScrollPx = static_cast<std::size_t>(NewOffset);
 }
 
 void TownScene::SyncTownHeroRuntimeProjection() noexcept
@@ -1685,7 +1685,7 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
         }
 
         const std::size_t TargetX = GetTownHeroAbsoluteX() - 1;
-        if (FindNonPassableTownNpcAtXPos(TownNpcArray, TargetX) != nullptr)
+        if (FindBlockingTownNpcAtX(TownNpcArray, TargetX) != nullptr)
         {
             SyncTownHeroRuntimeProjection();
             ActorCollisionBlocked = true;
@@ -1732,7 +1732,7 @@ void TownScene::UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept
         }
 
         const std::size_t TargetX = GetTownHeroAbsoluteX() + 1;
-        if (FindNonPassableTownNpcAtXPos(TownNpcArray, TargetX) != nullptr)
+        if (FindBlockingTownNpcAtX(TownNpcArray, TargetX) != nullptr)
         {
             SyncTownHeroRuntimeProjection();
             ActorCollisionBlocked = true;
@@ -1826,7 +1826,7 @@ std::vector<TownScene::TownNpcRuntimeRecord> TownScene::BuildTownNpcRuntimeRecor
     return TownNpcRuntimeRecords;
 }
 
-void TownScene::UpdateTownNpcRuntimeRecordsShell() const
+void TownScene::UpdateTownNpcRuntimeRecords() const
 {
     const auto SetTownNpcFacing = [](TownNpcRuntimeRecord& RuntimeRecord, bool FaceLeft)
     {
@@ -1987,7 +1987,7 @@ void TownScene::UpdateTownNpcRuntimeRecordsShell() const
     }
 }
 
-void TownScene::SyncTownNpcFacingTowardHeroRecords() const
+void TownScene::SyncTownNpcFacingTowardHero() const
 {
     const std::size_t HeroAbsoluteX = TownHeroState.HeroXInViewport + TownVisibleViewportColumnOffset
         + TownHeroState.ProximityMapLeftColumnX;
@@ -2030,7 +2030,7 @@ const TownScene::TownNpcRuntimeRecord* TownScene::FindFirstTownNpcRuntimeRecordF
     return nullptr;
 }
 
-const TownScene::TownNpcRuntimeRecord* TownScene::FindFirstTownNpcRuntimeRecordForColumnAfterCurrent(
+const TownScene::TownNpcRuntimeRecord* TownScene::FindNextTownNpcRuntimeRecordForColumn(
     const std::vector<TownNpcRuntimeRecord>& TownNpcArray, const TownNpcRuntimeRecord* CurrentRuntimeRecord,
     std::size_t MapColumn)
 {
@@ -2099,7 +2099,7 @@ void TownScene::DispatchTownSpecialTile(SDL_Renderer* Renderer, std::size_t MapC
                 SpriteColumn);
         }
 
-        RuntimeRecord = FindFirstTownNpcRuntimeRecordForColumnAfterCurrent(TownNpcArray, RuntimeRecord, MapColumn);
+        RuntimeRecord = FindNextTownNpcRuntimeRecordForColumn(TownNpcArray, RuntimeRecord, MapColumn);
     }
 }
 
@@ -2166,8 +2166,8 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
 
         const bool UseTransparencyMask = Row < 3;
         TownRender::DrawPatternTile(Renderer, *Tile, Palette,
-            static_cast<float>(TownMapViewportLeftPixelX) + ScreenTileX,
-            static_cast<float>(TownMapViewportTopPixelY + Row * TownMapTileSize), 1.0f, UseTransparencyMask);
+            static_cast<float>(TownViewportLeftX) + ScreenTileX,
+            static_cast<float>(TownViewportTopY + Row * TownMapTileSize), 1.0f, UseTransparencyMask);
 
     }
 
@@ -2183,7 +2183,7 @@ void TownScene::RenderTownColumn(SDL_Renderer* Renderer, std::size_t MapColumn, 
 
     if (ActorFrameLoaded && ActorFrameVisible)
     {
-        TownRender::DrawNpcSpriteFrameColumnSlice(Renderer, ActorFrame, Palette,
+        TownRender::DrawNpcFrameColumnSlice(Renderer, ActorFrame, Palette,
             ActorMapPixelX, ActorMapPixelY,
             ScrollOffsetPixels, MapColumn);
     }
@@ -2225,7 +2225,7 @@ void TownScene::ResetTownSceneState(std::optional<TownHeroRuntimeState> Transiti
     TownTearsOverlayIconsLoaded = false;
     TownTrainingSwordItemSpriteLoaded = false;
     TownHudFontsLoaded = false;
-    TownBackgroundStripScrollOffsetPixels = 0;
+    TownBackgroundStripScrollPx = 0;
     TownRuntimeCells.clear();
     TownNpcArray.clear();
     TownEdgeTransitionQueued = false;
@@ -2249,7 +2249,7 @@ void TownScene::ReloadTownState(std::optional<TownHeroRuntimeState> TransitionHe
     {
         // Rebuild the active town NPC runtime records from the loaded map.
         TownNpcArray = BuildTownNpcRuntimeRecords(TownMap);
-        SyncTownNpcFacingTowardHeroRecords();
+        SyncTownNpcFacingTowardHero();
     }
     TownBackgroundStripUsesCkpd = TownMap.HasMiddleLayer;
     const std::filesystem::path TownBackgroundBinPath = ActorSpriteGrpPath.parent_path()
@@ -2365,7 +2365,7 @@ std::optional<Mdt::TownTransitionData> TownScene::Update(const bool* KeyboardSta
     }
 
     UpdateTownHeroRuntimeState(KeyboardState);
-    UpdateTownNpcRuntimeRecordsShell();
+    UpdateTownNpcRuntimeRecords();
     AdvanceTownPatternAnimations(TownRuntimeCells, TownMap, PatternBank);
 
     if (const std::optional<Mdt::TownTransitionData> Transition = GetEdgeTownTransition(true))
@@ -2434,7 +2434,7 @@ void TownScene::Draw(SDL_Renderer* Renderer) const
 
     if (TownBackgroundMountainLayerLoaded)
     {
-        TownRender::DrawBackgroundMountainLayer(Renderer, TownBackgroundMountainLayerPixels, Palette);
+        TownRender::DrawMountainLayer(Renderer, TownBackgroundMountainLayerPixels, Palette);
     }
 
     for (std::size_t Column = 0; Column < ColumnsToRender; ++Column)
@@ -2450,7 +2450,7 @@ void TownScene::Draw(SDL_Renderer* Renderer) const
     if (TownBackgroundStripLoaded)
     {
         TownRender::DrawBackgroundStrip(Renderer, TownBackgroundStripPixels, Palette,
-            TownBackgroundStripScrollOffsetPixels);
+            TownBackgroundStripScrollPx);
     }
 
     if (TownMoleBottomStatusBaseLoaded)
@@ -2489,7 +2489,7 @@ void TownScene::Draw(SDL_Renderer* Renderer) const
     }
 
     LogTearsCollectedOverlayState(TearsOfEsmesantiCount,
-        std::min<std::size_t>(TearsOfEsmesantiCount, Hud::TearsOverlayMaximumCount));
+        std::min<std::size_t>(TearsOfEsmesantiCount, Hud::MaxTearsOverlayCount));
 
     if (!(ActorFrameLoaded && ActorFrameVisible))
     {

@@ -42,7 +42,7 @@ namespace
     constexpr int WindowHeight = 720;
     constexpr SDL_RendererLogicalPresentation LogicalPresentation = SDL_LOGICAL_PRESENTATION_STRETCH;
 
-    constexpr int MaximumTownTicksPerFrame = 5;
+    constexpr int MaxTownTicksPerFrame = 5;
 
     bool ReadWholeFile(const std::filesystem::path& Path, std::vector<std::uint8_t>& Output)
     {
@@ -275,8 +275,8 @@ namespace
         bool TownReady = false;
         bool TownFramePresented = false;
         bool Running = false;
-        std::uint64_t LastTownTickTimeNs = 0;
-        std::uint64_t TownTickAccumulatorNs = 0;
+        std::uint64_t LastTownTickNs = 0;
+        std::uint64_t TownTickAccumNs = 0;
     };
 
     void LoadZeliardContent(ZeliardApp& App)
@@ -357,8 +357,8 @@ namespace
             << ", window " << ActualWindowWidth << "x" << ActualWindowHeight
             << ", logical " << InternalWidth << "x" << InternalHeight << '\n';
 
-        App.LastTownTickTimeNs = SDL_GetTicksNS();
-        App.TownTickAccumulatorNs = 0;
+        App.LastTownTickNs = SDL_GetTicksNS();
+        App.TownTickAccumNs = 0;
 
         App.Running = true;
         return true;
@@ -383,23 +383,23 @@ namespace
         if (App.TownReady && App.TownMapScene.has_value())
         {
             const bool* KeyboardState = SDL_GetKeyboardState(nullptr);
-            if (App.LastTownTickTimeNs == 0)
+            if (App.LastTownTickNs == 0)
             {
-                App.LastTownTickTimeNs = CurrentTicksNs;
-                App.TownTickAccumulatorNs = 0;
+                App.LastTownTickNs = CurrentTicksNs;
+                App.TownTickAccumNs = 0;
             }
             else
             {
-                App.TownTickAccumulatorNs += CurrentTicksNs - App.LastTownTickTimeNs;
-                App.LastTownTickTimeNs = CurrentTicksNs;
+                App.TownTickAccumNs += CurrentTicksNs - App.LastTownTickNs;
+                App.LastTownTickNs = CurrentTicksNs;
             }
 
             int TownUpdatesThisFrame = 0;
             bool TownUpdatedThisFrame = false;
-            while (App.TownTickAccumulatorNs >= TownScene::TownLoopIntervalNanoseconds
-                && TownUpdatesThisFrame < MaximumTownTicksPerFrame)
+            while (App.TownTickAccumNs >= TownScene::TownTickNs
+                && TownUpdatesThisFrame < MaxTownTicksPerFrame)
             {
-                App.TownTickAccumulatorNs -= TownScene::TownLoopIntervalNanoseconds;
+                App.TownTickAccumNs -= TownScene::TownTickNs;
                 ++TownUpdatesThisFrame;
                 TownUpdatedThisFrame = true;
 
@@ -436,14 +436,14 @@ namespace
                 }
 
                 // Drop pending catch-up ticks after a transition attempt.
-                App.TownTickAccumulatorNs = 0;
-                App.LastTownTickTimeNs = CurrentTicksNs;
+                App.TownTickAccumNs = 0;
+                App.LastTownTickNs = CurrentTicksNs;
                 break;
             }
 
-            if (TownUpdatesThisFrame == MaximumTownTicksPerFrame)
+            if (TownUpdatesThisFrame == MaxTownTicksPerFrame)
             {
-                App.TownTickAccumulatorNs = 0;
+                App.TownTickAccumNs = 0;
             }
 
             if (TownUpdatedThisFrame || !App.TownFramePresented)
