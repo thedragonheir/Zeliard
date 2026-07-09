@@ -273,6 +273,7 @@ namespace
         bool TownPatternBankLoaded = false;
         bool PaletteLoaded = false;
         bool TownReady = false;
+        bool TownFramePresented = false;
         bool Running = false;
         std::uint64_t LastTownTickTimeNs = 0;
         std::uint64_t TownTickAccumulatorNs = 0;
@@ -335,6 +336,11 @@ namespace
             return false;
         }
 
+        if (!SDL_SetRenderVSync(App.Renderer, 1))
+        {
+            std::cerr << "SDL_SetRenderVSync failed: " << SDL_GetError() << '\n';
+        }
+
         const char* RendererName = SDL_GetRendererName(App.Renderer);
         std::cout << "SDL renderer selected: " << (RendererName != nullptr ? RendererName : "unknown") << '\n';
 
@@ -389,11 +395,13 @@ namespace
             }
 
             int TownUpdatesThisFrame = 0;
+            bool TownUpdatedThisFrame = false;
             while (App.TownTickAccumulatorNs >= TownScene::TownLoopIntervalNanoseconds
                 && TownUpdatesThisFrame < MaximumTownTicksPerFrame)
             {
                 App.TownTickAccumulatorNs -= TownScene::TownLoopIntervalNanoseconds;
                 ++TownUpdatesThisFrame;
+                TownUpdatedThisFrame = true;
 
                 const std::optional<Mdt::TownTransitionData> TownTransition = App.TownMapScene->Update(KeyboardState);
                 if (!TownTransition.has_value())
@@ -437,20 +445,29 @@ namespace
             {
                 App.TownTickAccumulatorNs = 0;
             }
-        }
 
-        SDL_SetRenderDrawColor(App.Renderer, 12, 18, 12, 255);
-        SDL_RenderClear(App.Renderer);
+            if (TownUpdatedThisFrame || !App.TownFramePresented)
+            {
+                SDL_SetRenderDrawColor(App.Renderer, 12, 18, 12, 255);
+                SDL_RenderClear(App.Renderer);
 
-        if (App.TownReady && App.TownMapScene.has_value())
-        {
-            App.TownMapScene->Draw(App.Renderer);
-        }
-
-        SDL_RenderPresent(App.Renderer);
+                App.TownMapScene->Draw(App.Renderer);
+                SDL_RenderPresent(App.Renderer);
+                App.TownFramePresented = true;
+            }
+            else
+            {
 #ifndef __EMSCRIPTEN__
-        SDL_Delay(1);
+                SDL_Delay(1);
 #endif
+            }
+        }
+        else
+        {
+#ifndef __EMSCRIPTEN__
+            SDL_Delay(1);
+#endif
+        }
         return App.Running;
     }
 
