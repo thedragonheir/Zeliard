@@ -41,6 +41,16 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "Web Debug",
+      "displayName": "Web Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/web-debug",
+      "installDir": "${sourceDir}/out/install/web-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
     }
   ],
   "buildPresets": [
@@ -51,6 +61,10 @@
     {
       "name": "Release",
       "configurePreset": "Release"
+    },
+    {
+      "name": "Web Debug",
+      "configurePreset": "Web Debug"
     }
   ]
 }
