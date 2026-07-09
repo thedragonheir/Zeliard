@@ -28,10 +28,10 @@ jobs:
           version: 5.0.1
 
       - name: Configure
-        run: emcmake cmake --preset web-debug
+        run: emcmake cmake --preset "Web Debug"
 
       - name: Build
-        run: cmake --build --preset web-debug
+        run: cmake --build --preset "Web Debug"
 
       - name: Stage Pages files
         run: |

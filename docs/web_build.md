@@ -13,11 +13,11 @@ needed by the web build must live under one of those directories, not under `too
 1. Install Emscripten and activate its environment.
 2. Configure the web build:
    ```bash
-   emcmake cmake --preset web-debug
+   emcmake cmake --preset "Web Debug"
    ```
 3. Build it:
    ```bash
-   cmake --build --preset web-debug
+   cmake --build --preset "Web Debug"
    ```
 4. Open the generated `out/build/web-debug/Zeliard.html` through a local static server if you want to inspect the browser wrapper and `Zeliard.data`.
 
