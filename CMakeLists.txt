@@ -40,6 +40,7 @@ add_executable(Zeliard
   src/mcga/mcga_palette.cpp
   src/town/town_actors.cpp
   src/town/town.cpp
+  src/town/town_dialog.cpp
   src/town/town_npc.cpp
   src/town/town_render.cpp
   src/town/town_transitions.cpp

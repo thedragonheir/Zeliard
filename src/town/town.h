@@ -162,6 +162,7 @@ private:
     void SyncTownHeroRuntimeProjection() noexcept;
     void SyncTownHeroStartupActorFrame() noexcept;
     void UpdateTownHeroRuntimeState(const bool* KeyboardState) noexcept;
+    void UpdateTownPatternAnimations();
     bool StartTownDialogForNpc(std::size_t NpcRuntimeIndex, bool RestoreNpcState);
     bool TryOpenTownDialog();
     bool TryOpenTownSpecialDialog();
@@ -203,6 +204,7 @@ private:
     static constexpr std::size_t TownMapActorInitialMapPixelX = 160;
     static constexpr std::size_t TownMapActorInitialMapPixelY = 40;
     static constexpr std::size_t TownNpcSpriteFrameCount = 40;
+    static constexpr std::uint8_t TownNpcAiTypeStatic = 7;
 
     const std::filesystem::path ActorSpriteGrpPath;
     const std::filesystem::path TownNpcSpriteGrpPath;
