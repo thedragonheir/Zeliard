@@ -24,6 +24,15 @@
 
 #include "town/town.h"
 
+#if defined(_WIN32) && !defined(__EMSCRIPTEN__)
+extern "C"
+{
+    // Ask hybrid laptops to prefer the dedicated GPU.
+    __declspec(dllexport) unsigned long NvOptimusEnablement = 1;
+    __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+#endif
+
 namespace
 {
     const std::filesystem::path ProjectRoot = ZELIARD_PROJECT_ROOT;
