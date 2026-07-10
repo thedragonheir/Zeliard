@@ -10,14 +10,14 @@
 
 #include <SDL3/SDL.h>
 
-#include "../grp/font_grp.h"
-#include "../grp/pat_grp.h"
-#include "../grp/man_grp.h"
-#include "../mdt/town_mdt.h"
-#include "../hud/mole_panels.h"
-#include "../hud/tears.h"
-#include "../mcga/mcga_palette.h"
-#include "town_actors.h"
+#include "../grp/font_grp.hpp"
+#include "../grp/pat_grp.hpp"
+#include "../grp/man_grp.hpp"
+#include "../mdt/town_mdt.hpp"
+#include "../hud/mole_panels.hpp"
+#include "../hud/tears.hpp"
+#include "../mcga/mcga_palette.hpp"
+#include "town_actors.hpp"
 
 class TownScene
 {

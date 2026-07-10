@@ -1,6 +1,6 @@
-#include "zeliard.h"
+#include "zeliard.hpp"
 
-#include "grp/grp_unpack.h"
+#include "grp/grp_unpack.hpp"
 
 #include <SDL3/SDL.h>
 

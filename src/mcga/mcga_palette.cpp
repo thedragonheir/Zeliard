@@ -1,4 +1,4 @@
-#include "mcga_palette.h"
+#include "mcga_palette.hpp"
 
 #include <cctype>
 #include <cstdint>

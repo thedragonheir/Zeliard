@@ -1,6 +1,6 @@
-#include "town_npc.h"
+#include "town_npc.hpp"
 
-#include "town.h"
+#include "town.hpp"
 
 #include <algorithm>
 #include <iostream>

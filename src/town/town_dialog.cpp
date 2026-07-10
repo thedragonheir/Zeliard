@@ -1,4 +1,4 @@
-#include "town.h"
+#include "town.hpp"
 
 #include <algorithm>
 #include <array>
@@ -8,8 +8,8 @@
 #include <span>
 #include <vector>
 
-#include "../mcga/mcga_draw.h"
-#include "town_actors.h"
+#include "../mcga/mcga_draw.hpp"
+#include "town_actors.hpp"
 
 namespace
 {

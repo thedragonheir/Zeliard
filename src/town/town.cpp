@@ -1,4 +1,4 @@
-#include "town.h"
+#include "town.hpp"
 
 #include <algorithm>
 #include <bitset>
@@ -13,12 +13,12 @@
 #include <string>
 #include <vector>
 
-#include "../grp/font_grp.h"
-#include "../grp/grp_unpack.h"
-#include "../mcga/mcga_draw.h"
-#include "town_npc.h"
-#include "town_render.h"
-#include "town_transitions.h"
+#include "../grp/font_grp.hpp"
+#include "../grp/grp_unpack.hpp"
+#include "../mcga/mcga_draw.hpp"
+#include "town_npc.hpp"
+#include "town_render.hpp"
+#include "town_transitions.hpp"
 
 namespace
 {

@@ -1,4 +1,4 @@
-#include "mcga_draw.h"
+#include "mcga_draw.hpp"
 
 #include <SDL3/SDL.h>
 

@@ -1,4 +1,4 @@
-#include "tears.h"
+#include "tears.hpp"
 
 #include <algorithm>
 #include <fstream>

@@ -1,11 +1,11 @@
-#include "town_render.h"
+#include "town_render.hpp"
 
 #include <algorithm>
 
 #include <SDL3/SDL.h>
 
-#include "../grp/man_grp.h"
-#include "../grp/pat_grp.h"
+#include "../grp/man_grp.hpp"
+#include "../grp/pat_grp.hpp"
 
 namespace
 {

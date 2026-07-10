@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <span>
 
-#include "../mcga/mcga_palette.h"
+#include "../mcga/mcga_palette.hpp"
 
 struct SDL_Renderer;
 

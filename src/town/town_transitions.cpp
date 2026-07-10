@@ -1,6 +1,6 @@
-#include "town_transitions.h"
+#include "town_transitions.hpp"
 
-#include "town.h"
+#include "town.hpp"
 
 #include <algorithm>
 

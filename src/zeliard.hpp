@@ -4,10 +4,10 @@
 #include <filesystem>
 #include <optional>
 
-#include "grp/pat_grp.h"
-#include "mcga/mcga_palette.h"
-#include "mdt/town_mdt.h"
-#include "town/town.h"
+#include "grp/pat_grp.hpp"
+#include "mcga/mcga_palette.hpp"
+#include "mdt/town_mdt.hpp"
+#include "town/town.hpp"
 
 namespace Zeliard
 {

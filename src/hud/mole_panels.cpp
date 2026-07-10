@@ -1,6 +1,6 @@
-#include "mole_panels.h"
+#include "mole_panels.hpp"
 
-#include "../mcga/mcga_draw.h"
+#include "../mcga/mcga_draw.hpp"
 
 namespace Hud
 {

@@ -1,4 +1,4 @@
-#include "pat_grp.h"
+#include "pat_grp.hpp"
 
 #include <algorithm>
 #include <cstddef>

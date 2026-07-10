@@ -1,6 +1,6 @@
-#include "man_grp.h"
+#include "man_grp.hpp"
 
-#include "grp_unpack.h"
+#include "grp_unpack.hpp"
 
 #include <algorithm>
 #include <array>

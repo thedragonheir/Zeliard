@@ -1,6 +1,6 @@
-#include "town_actors.h"
+#include "town_actors.hpp"
 
-#include "town.h"
+#include "town.hpp"
 
 #include <algorithm>
 #include <iostream>
