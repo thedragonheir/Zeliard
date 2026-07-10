@@ -34,6 +34,7 @@ FetchContent_MakeAvailable(SDL3)
 
 add_executable(Zeliard
   src/zeliard.cpp
+  src/zeliard.h
   src/hud/mole_panels.cpp
   src/hud/tears.cpp
   src/mcga/mcga_draw.cpp
