@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <span>
 #include <vector>
 
 #include "../mcga/mcga_draw.h"
@@ -212,6 +213,31 @@ void DrawTownDialogBorderToOverlay(std::vector<std::uint8_t>& Pixels, std::size_
     FillTownDialogOverlayRect(Pixels, Width, Height, TownDialogBorderColor, Width - 2, 2, 2, Height - 4);
     FillTownDialogOverlayRect(Pixels, Width, Height, TownDialogBorderColor, 1, Height - 2, Width - 2, 1);
     FillTownDialogOverlayRect(Pixels, Width, Height, TownDialogBorderColor, 2, Height - 1, Width - 4, 1);
+}
+
+void DrawTownDialogOverlay(SDL_Renderer* Renderer, const Main64Palette& Palette,
+    std::span<const std::uint8_t> Pixels, std::size_t Width, std::size_t Height,
+    std::size_t ScreenX, std::size_t ScreenY)
+{
+    if (Width < 4 || Height < 4 || Pixels.size() < Width * Height)
+    {
+        return;
+    }
+
+    // Draw_Bordered_Rectangle preserves the framebuffer in the stepped corner
+    // gaps. Draw the cached overlay in bands so those pixels remain untouched.
+    Mcga::DrawIndexedImage(Renderer, Palette, Pixels.subspan(2, Width - 4), Width - 4, 1,
+        ScreenX + 2, ScreenY);
+    Mcga::DrawIndexedImage(Renderer, Palette, Pixels.subspan(Width + 1, Width - 2), Width - 2, 1,
+        ScreenX + 1, ScreenY + 1);
+    Mcga::DrawIndexedImage(Renderer, Palette, Pixels.subspan(Width * 2, Width * (Height - 4)),
+        Width, Height - 4, ScreenX, ScreenY + 2);
+    Mcga::DrawIndexedImage(Renderer, Palette,
+        Pixels.subspan(Width * (Height - 2) + 1, Width - 2), Width - 2, 1,
+        ScreenX + 1, ScreenY + Height - 2);
+    Mcga::DrawIndexedImage(Renderer, Palette,
+        Pixels.subspan(Width * (Height - 1) + 2, Width - 4), Width - 4, 1,
+        ScreenX + 2, ScreenY + Height - 1);
 }
 
 }
@@ -657,7 +683,7 @@ void TownScene::DrawTownDialog(SDL_Renderer* Renderer) const
 {
     if (!TownDialogOverlayPixels.empty())
     {
-        Mcga::DrawIndexedImage(Renderer, Palette, TownDialogOverlayPixels, TownDialogWidth,
+        DrawTownDialogOverlay(Renderer, Palette, TownDialogOverlayPixels, TownDialogWidth,
             TownDialogBoxHeight, TownDialogBoxLeftX, TownDialogBoxTopY);
     }
 

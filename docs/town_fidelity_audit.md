@@ -5,7 +5,7 @@ Scope: keep the town hero movement anchored to the assembly-backed horizontal st
 ## Assembly Inspected
 - `asm/common.inc`: `hero_x_in_viewport`, `proximity_map_left_col_x`, `facing_direction`, `hero_animation_phase`
 - `asm/game.asm`: `DrawDecorationsAroundCanvas` callsite, `render_tears_collected`, `tears_order_coords`, equipment render calls after MOLE
-- `asm/gmmcga.asm`: `Render_Icon_16x13`, `byte_2A61`, `byte_2B31`
+- `asm/gmmcga.asm`: `Draw_Bordered_Rectangle`, `draw_one_scanline_of_bordered_horiz_bar`, `Render_Icon_16x13`, `byte_2A61`, `byte_2B31`
 - `asm/mole.asm`: `DrawDecorationsAroundCanvas`, `mode4_mcga`, `Unpack2bppTo4bit_MCGA`, `DrawTitleFrame`
 - `asm/town.asm`: `town_entry_common`, `game_loop_with_frame_wait`, `update_npcs_and_render`, left/right movement handlers, `handle_edge_screen_transition`, `prepare_hero_sprite`, `clear_6_hero_tiles_in_viewport_buffer`, `town_up_pressed`, `is_hero_close_to_npc`, `find_non_passable_npc_at_x_pos`, `npc_ai_look_at_hero_and_bob`, `npc_ai_bob_in_place`
 - `asm/stick.asm`: `timer_ISR_int8_chained`, `Int_61_handler`, `frame_timer`, `speed_const`, `____right_left_down_up`
@@ -68,6 +68,7 @@ The MDT parser now also surfaces the town transition table as 4-byte records, so
 - The C++ town scene now reads the project-owned `TearsOfEsmesantiCount` byte. It defaults to `0`, the overlay clamps to `9`, and the optional debug-only override can show all nine Tears for visual testing without changing gameplay state.
 - Do not synthesize collected Tears or force a fake filled bar in normal runtime. If `TearsOfEsmesantiCount` stays `0`, the overlay stays hidden.
 - The town frame also renders the MOLE decorative side panels from `mole.bin`: the left panel sits at `x = 0`, `y = 0`, the right panel sits at `x = 272`, `y = 0`, and the central `x = 48` town viewport stays unchanged.
+- Town dialog frames preserve the existing framebuffer in the stepped outer-corner gaps, matching `Draw_Bordered_Rectangle`; the native overlay skips those three pixels at each corner instead of replacing them with black.
 - The MOLE bottom/status base panel is separate from the later `game.asm` / `gmmcga.asm` HUD contents: the `title_screen_final_data` span `0x2799..0x2926` is the `224 x 42` MOLE base panel at `x = 48`, `y = 158`, while the equipment icons, numbers, and status overlays remain a later draw layer.
 - The town LIFE bar is now assembly-backed only for startup display state: `stdply.bin` seeds `hero_HP` at `0x90` and `heroMaxHp` at `0xB2` to `80`, and `gmmcga.asm` draws max HP then current HP at `DI = 0xCC14` (`x = 84`, `y = 163`) with the same `normalize_health_to_100` divide-by-eight / `0x0320` clamp behavior.
 - The collected Tears overlay path is proven: `game.asm` `render_tears_collected` (`game.asm:316..345`, called at `game.asm:148`) loops `Tears_of_Esmesanti_count` times over `tears_order_coords` (`game.asm:348..356`), each `dw` encoding `BH*256+BL` -> screen `x = BH*4`, `y = BL` (all `y = 0`). Icons: `gmmcga.asm` `Render_Icon_16x13` (`gmmcga.asm:1722..1763`) reads `off_2A5D[AL]` -> `byte_2A61` (`AL=0`, small blue, `gmmcga.asm:1768`) or `byte_2B31` (`AL=1`, large red, `gmmcga.asm:1785`), `16 x 13`, `0x80` transparent.
